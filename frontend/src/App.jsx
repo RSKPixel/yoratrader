@@ -54,6 +54,7 @@ export default function App() {
     lastClose: null,
     lastError: null,
     retries: 0,
+    transport: "websocket",
   });
   const [statusMessage, setStatusMessage] = useState("Ready");
   const [statusLevel, setStatusLevel] = useState("idle");
@@ -63,9 +64,11 @@ export default function App() {
   useEffect(() => {
     let alive = true;
     let socket;
+    let eventSource;
     let retryTimer;
     let heartbeatTimer;
     let retries = 0;
+    let useSse = !import.meta.env.DEV; // production often blocks WSS at the edge proxy
 
     const patchWs = (patch) => {
       setWsState((prev) => ({ ...prev, ...patch }));
@@ -76,10 +79,130 @@ export default function App() {
       heartbeatTimer = undefined;
     };
 
-    const connect = () => {
+    const handlePayload = (payload) => {
+      if (payload.type === "status") {
+        setStatusMessage(payload.message || "Update");
+        setStatusLevel(payload.level || "info");
+        if (payload.level === "error") {
+          logEvent("error", payload.message || "Status error", payload);
+        }
+      }
+
+      if (
+        payload.type === "eod_progress" ||
+        payload.type === "ut_progress" ||
+        payload.type === "kbdt_progress"
+      ) {
+        if (activeJobRef.current && payload.job_id !== activeJobRef.current) return;
+        setProgress(payload);
+        const isUt = payload.type === "ut_progress" || payload.kind === "ut";
+        const isKbdt = payload.type === "kbdt_progress" || payload.kind === "kbdt";
+        if (payload.status === "running") {
+          if (isKbdt) setScanningKbdt(true);
+          else if (isUt) setBuildingUt(true);
+          else setDownloading(true);
+        }
+        if (payload.status === "error") {
+          const message =
+            payload.message ||
+            (isKbdt ? "KBDT scan failed" : isUt ? "UT update failed" : "Download failed");
+          setStatusMessage(message);
+          setStatusLevel("error");
+          logEvent("error", message, payload);
+        }
+        if (payload.status === "completed" || payload.status === "error") {
+          if (isKbdt) {
+            setScanningKbdt(false);
+          } else if (isUt) {
+            setBuildingUt(false);
+            if (payload.status === "completed") contractsRefreshRef.current?.();
+          } else {
+            setDownloading(false);
+          }
+          activeJobRef.current = null;
+        }
+      }
+    };
+
+    const connectSse = () => {
+      const url = "/api/events/stream";
+      patchWs({
+        url,
+        transport: "sse",
+        connected: false,
+        readyStateLabel: "CONNECTING",
+        retries,
+      });
+      logEvent("info", "SSE connecting", { url, retries });
+
+      try {
+        eventSource = new EventSource(url);
+      } catch (error) {
+        const message = String(error?.message || error);
+        logEvent("error", "SSE constructor failed", { url, message });
+        patchWs({ lastError: message, readyStateLabel: "CLOSED", connected: false });
+        retries += 1;
+        retryTimer = window.setTimeout(connectSse, Math.min(10000, 1500 + retries * 500));
+        return;
+      }
+
+      eventSource.onopen = () => {
+        if (!alive) return;
+        retries = 0;
+        setWsConnected(true);
+        setStatusMessage("Connected for live updates (SSE)");
+        setStatusLevel("info");
+        patchWs({
+          connected: true,
+          readyStateLabel: "OPEN",
+          lastError: null,
+          retries: 0,
+          transport: "sse",
+        });
+        logEvent("success", "SSE connected", { url });
+      };
+
+      eventSource.onmessage = (event) => {
+        let payload;
+        try {
+          payload = JSON.parse(event.data);
+        } catch (error) {
+          logEvent("warn", "SSE non-JSON message", {
+            preview: String(event.data).slice(0, 200),
+            error: String(error?.message || error),
+          });
+          return;
+        }
+        handlePayload(payload);
+      };
+
+      eventSource.onerror = () => {
+        if (!alive) return;
+        setWsConnected(false);
+        setStatusMessage("Reconnecting live updates...");
+        setStatusLevel("idle");
+        logEvent("warn", "SSE error / disconnected", { url, readyState: eventSource.readyState });
+        patchWs({
+          connected: false,
+          readyStateLabel: "CLOSED",
+          lastError: "SSE disconnected",
+          retries: retries + 1,
+        });
+        try {
+          eventSource.close();
+        } catch {
+          /* ignore */
+        }
+        retries += 1;
+        retryTimer = window.setTimeout(connectSse, Math.min(10000, 1500 + retries * 500));
+      };
+    };
+
+    const connectWs = () => {
       const url = wsUrl();
       patchWs({
         url,
+        transport: "websocket",
         connected: false,
         readyStateLabel: "CONNECTING",
         retries,
@@ -93,7 +216,9 @@ export default function App() {
         logEvent("error", "WebSocket constructor failed", { url, message });
         patchWs({ lastError: message, readyStateLabel: "CLOSED", connected: false });
         retries += 1;
-        retryTimer = window.setTimeout(connect, 2000);
+        useSse = true;
+        logEvent("warn", "Falling back to SSE after WebSocket constructor failure");
+        retryTimer = window.setTimeout(connectSse, 500);
         return;
       }
 
@@ -113,6 +238,7 @@ export default function App() {
           readyStateLabel: READY_STATE[socket.readyState] || "OPEN",
           lastError: null,
           retries: 0,
+          transport: "websocket",
         });
         logEvent("success", "WebSocket connected", { url });
         stopHeartbeat();
@@ -146,7 +272,14 @@ export default function App() {
         });
         logEvent("warn", "WebSocket closed", { url, ...lastClose });
         retries += 1;
-        retryTimer = window.setTimeout(connect, Math.min(10000, 1500 + retries * 500));
+        // 1006 = abnormal close, typical when edge proxy drops WSS upgrades
+        if (!import.meta.env.DEV && (event.code === 1006 || retries >= 2)) {
+          useSse = true;
+          logEvent("warn", "Falling back to SSE (WebSocket unavailable behind proxy)", lastClose);
+          retryTimer = window.setTimeout(connectSse, 400);
+          return;
+        }
+        retryTimer = window.setTimeout(connectWs, Math.min(10000, 1500 + retries * 500));
       };
 
       socket.onerror = () => {
@@ -166,53 +299,16 @@ export default function App() {
           });
           return;
         }
-
-        if (payload.type === "status") {
-          setStatusMessage(payload.message || "Update");
-          setStatusLevel(payload.level || "info");
-          if (payload.level === "error") {
-            logEvent("error", payload.message || "Status error", payload);
-          }
-        }
-
-        if (
-          payload.type === "eod_progress" ||
-          payload.type === "ut_progress" ||
-          payload.type === "kbdt_progress"
-        ) {
-          if (activeJobRef.current && payload.job_id !== activeJobRef.current) return;
-          setProgress(payload);
-          const isUt = payload.type === "ut_progress" || payload.kind === "ut";
-          const isKbdt = payload.type === "kbdt_progress" || payload.kind === "kbdt";
-          if (payload.status === "running") {
-            if (isKbdt) setScanningKbdt(true);
-            else if (isUt) setBuildingUt(true);
-            else setDownloading(true);
-          }
-          if (payload.status === "error") {
-            const message =
-              payload.message ||
-              (isKbdt ? "KBDT scan failed" : isUt ? "UT update failed" : "Download failed");
-            setStatusMessage(message);
-            setStatusLevel("error");
-            logEvent("error", message, payload);
-          }
-          if (payload.status === "completed" || payload.status === "error") {
-            if (isKbdt) {
-              setScanningKbdt(false);
-            } else if (isUt) {
-              setBuildingUt(false);
-              if (payload.status === "completed") contractsRefreshRef.current?.();
-            } else {
-              setDownloading(false);
-            }
-            activeJobRef.current = null;
-          }
-        }
+        handlePayload(payload);
       };
     };
 
-    connect();
+    if (useSse) {
+      logEvent("info", "Using SSE transport for production live updates");
+      connectSse();
+    } else {
+      connectWs();
+    }
 
     return () => {
       alive = false;
@@ -220,6 +316,11 @@ export default function App() {
       stopHeartbeat();
       try {
         socket?.close();
+      } catch {
+        /* ignore */
+      }
+      try {
+        eventSource?.close();
       } catch {
         /* ignore */
       }

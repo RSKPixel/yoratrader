@@ -146,6 +146,10 @@ export default function SettingsPage({ wsState }) {
               </dd>
             </div>
             <div className="flex justify-between gap-3">
+              <dt className="text-[#9b968c]">Transport</dt>
+              <dd className="uppercase">{wsState?.transport || "—"}</dd>
+            </div>
+            <div className="flex justify-between gap-3">
               <dt className="text-[#9b968c]">URL</dt>
               <dd className="truncate text-right">{wsState?.url || "—"}</dd>
             </div>

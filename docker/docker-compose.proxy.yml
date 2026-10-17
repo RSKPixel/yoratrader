@@ -1,0 +1,25 @@
+# Optional overlay when using Nginx Proxy Manager / Traefik on an external Docker network.
+# Usage:
+#   PROXY_NETWORK=npm_default docker compose -f docker-compose.yml -f docker-compose.proxy.yml up -d
+#
+# In Nginx Proxy Manager for trader.yoratech.com:
+#   1. Forward to the frontend container port 80 (or host 8007)
+#   2. Enable "Websockets Support"
+#   3. If websockets still fail (close 1006), the app falls back to SSE on /api/events/stream
+
+services:
+  backend:
+    networks:
+      - yoratrader
+      - proxy
+  frontend:
+    networks:
+      - yoratrader
+      - proxy
+
+networks:
+  yoratrader:
+    name: yoratrader-docker_default
+  proxy:
+    external: true
+    name: ${PROXY_NETWORK:?Set PROXY_NETWORK to the Nginx Proxy Manager Docker network}

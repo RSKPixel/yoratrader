@@ -1,11 +1,13 @@
 import asyncio
+import json
 import os
 import threading
 import uuid
 
 import uvicorn
-from fastapi import FastAPI, Query, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from contracts import list_contracts
@@ -47,8 +49,50 @@ def health():
         "status": "ok",
         "app": "yoratrader",
         "ws": "/ws/events",
+        "sse": "/api/events/stream",
+        "clients": ws_hub.client_counts(),
         "env": os.environ.get("APP_ENV", "development"),
     }
+
+
+@app.get("/api/events/stream")
+async def events_stream(request: Request):
+    """SSE live updates — works through reverse proxies that block WebSockets."""
+    queue: asyncio.Queue = asyncio.Queue(maxsize=64)
+    await ws_hub.register_sse(queue)
+    client = request.client.host if request.client else "unknown"
+    print(f"SSE connect from {client}")
+
+    async def generate():
+        try:
+            hello = {
+                "type": "status",
+                "level": "info",
+                "message": "Connected for live updates (SSE)",
+                "transport": "sse",
+            }
+            yield f"data: {json.dumps(hello)}\n\n"
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    message = await asyncio.wait_for(queue.get(), timeout=20)
+                    yield f"data: {json.dumps(message)}\n\n"
+                except asyncio.TimeoutError:
+                    yield ": keepalive\n\n"
+        finally:
+            await ws_hub.unregister_sse(queue)
+            print(f"SSE disconnect from {client}")
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @app.get("/api/contracts")
