@@ -1,0 +1,7 @@
+fastapi
+uvicorn
+kiteconnect
+pandas
+numpy
+python-dotenv
+psycopg2-binary

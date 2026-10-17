@@ -1,0 +1,38 @@
+name: yoratrader-docker
+
+services:
+  backend:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.backend
+    env_file:
+      - .env
+    environment:
+      APP_ENV: production
+    restart: unless-stopped
+    # Postgres runs separately; ensure POSTGRES_HOST is reachable from this container
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8091/api/health', timeout=3)",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  frontend:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.frontend
+    ports:
+      - "8007:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
