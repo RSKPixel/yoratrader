@@ -43,7 +43,12 @@ app.add_middleware(
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok"}
+    return {
+        "status": "ok",
+        "app": "yoratrader",
+        "ws": "/ws/events",
+        "env": os.environ.get("APP_ENV", "development"),
+    }
 
 
 @app.get("/api/contracts")
@@ -77,17 +82,28 @@ def candles(
 
 @app.websocket("/ws/events")
 async def events_ws(websocket: WebSocket):
+    client = f"{websocket.client.host}:{websocket.client.port}" if websocket.client else "unknown"
+    print(f"WebSocket connect from {client}")
     await websocket.accept()
     await ws_hub.register(websocket)
     try:
         while True:
-            await websocket.receive_text()
-    except WebSocketDisconnect:
-        pass
-    except Exception:
-        pass
+            message = await websocket.receive_text()
+            if message in {"hello", "ping", "diag"}:
+                await websocket.send_json(
+                    {
+                        "type": "status",
+                        "level": "info",
+                        "message": "pong" if message == "ping" else "Connected for live updates",
+                    }
+                )
+    except WebSocketDisconnect as error:
+        print(f"WebSocket disconnect from {client}: code={getattr(error, 'code', None)}")
+    except Exception as error:
+        print(f"WebSocket error from {client}: {error}")
     finally:
         await ws_hub.unregister(websocket)
+        print(f"WebSocket unregistered {client}")
 
 
 class EodRequest(BaseModel):

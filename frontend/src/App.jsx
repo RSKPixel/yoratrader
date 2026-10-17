@@ -1,15 +1,31 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import CandleModal from "./CandleModal";
 import KbdtPage from "./KbdtPage";
+import SettingsPage from "./SettingsPage";
 import StatusBar from "./StatusBar";
 import UtDataModal from "./UtDataModal";
+import { logEvent } from "./eventLog";
 
 const EXCHANGES = ["ALL", "NSE", "MCX"];
+
+const READY_STATE = {
+  0: "CONNECTING",
+  1: "OPEN",
+  2: "CLOSING",
+  3: "CLOSED",
+};
 
 const NAV_ITEMS = {
   market: [{ id: "indian-market", label: "Indian Market" }],
   tradingModels: [{ id: "penfold", label: "Key Breakout Dow Theory" }],
+  system: [{ id: "settings", label: "Settings" }],
 };
+
+function wsUrl() {
+  if (import.meta.env.DEV) return "ws://127.0.0.1:8091/ws/events";
+  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+  return `${protocol}//${window.location.host}/ws/events`;
+}
 
 function navItemClass(active) {
   return active
@@ -31,6 +47,14 @@ export default function App() {
   const [chartContract, setChartContract] = useState(null);
   const [utContract, setUtContract] = useState(null);
   const [wsConnected, setWsConnected] = useState(false);
+  const [wsState, setWsState] = useState({
+    url: "",
+    connected: false,
+    readyStateLabel: "CLOSED",
+    lastClose: null,
+    lastError: null,
+    retries: 0,
+  });
   const [statusMessage, setStatusMessage] = useState("Ready");
   const [statusLevel, setStatusLevel] = useState("idle");
   const activeJobRef = useRef(null);
@@ -40,44 +64,115 @@ export default function App() {
     let alive = true;
     let socket;
     let retryTimer;
+    let heartbeatTimer;
+    let retries = 0;
+
+    const patchWs = (patch) => {
+      setWsState((prev) => ({ ...prev, ...patch }));
+    };
+
+    const stopHeartbeat = () => {
+      window.clearInterval(heartbeatTimer);
+      heartbeatTimer = undefined;
+    };
 
     const connect = () => {
-      const url = import.meta.env.DEV
-        ? "ws://127.0.0.1:8091/ws/events"
-        : `${window.location.protocol === "https:" ? "wss:" : "ws:"}//${window.location.host}/ws/events`;
-      socket = new WebSocket(url);
+      const url = wsUrl();
+      patchWs({
+        url,
+        connected: false,
+        readyStateLabel: "CONNECTING",
+        retries,
+      });
+      logEvent("info", "WebSocket connecting", { url, retries });
+
+      try {
+        socket = new WebSocket(url);
+      } catch (error) {
+        const message = String(error?.message || error);
+        logEvent("error", "WebSocket constructor failed", { url, message });
+        patchWs({ lastError: message, readyStateLabel: "CLOSED", connected: false });
+        retries += 1;
+        retryTimer = window.setTimeout(connect, 2000);
+        return;
+      }
 
       socket.onopen = () => {
         if (!alive) return;
-        socket.send("hello");
+        retries = 0;
+        try {
+          socket.send("hello");
+        } catch (error) {
+          logEvent("error", "WebSocket hello send failed", String(error?.message || error));
+        }
         setWsConnected(true);
         setStatusMessage("Connected for live updates");
         setStatusLevel("info");
+        patchWs({
+          connected: true,
+          readyStateLabel: READY_STATE[socket.readyState] || "OPEN",
+          lastError: null,
+          retries: 0,
+        });
+        logEvent("success", "WebSocket connected", { url });
+        stopHeartbeat();
+        heartbeatTimer = window.setInterval(() => {
+          if (socket?.readyState === WebSocket.OPEN) {
+            try {
+              socket.send("ping");
+            } catch (error) {
+              logEvent("warn", "WebSocket ping failed", String(error?.message || error));
+            }
+          }
+        }, 25000);
       };
 
-      socket.onclose = () => {
+      socket.onclose = (event) => {
         if (!alive) return;
+        stopHeartbeat();
         setWsConnected(false);
         setStatusMessage("Reconnecting live updates...");
         setStatusLevel("idle");
-        retryTimer = window.setTimeout(connect, 2000);
+        const lastClose = {
+          code: event.code,
+          reason: event.reason || "",
+          wasClean: event.wasClean,
+        };
+        patchWs({
+          connected: false,
+          readyStateLabel: "CLOSED",
+          lastClose,
+          retries: retries + 1,
+        });
+        logEvent("warn", "WebSocket closed", { url, ...lastClose });
+        retries += 1;
+        retryTimer = window.setTimeout(connect, Math.min(10000, 1500 + retries * 500));
       };
 
       socket.onerror = () => {
-        socket.close();
+        const readyStateLabel = READY_STATE[socket.readyState] || String(socket.readyState);
+        logEvent("error", "WebSocket error event", { url, readyState: readyStateLabel });
+        patchWs({ lastError: `error while ${readyStateLabel}`, readyStateLabel });
       };
 
       socket.onmessage = (event) => {
         let payload;
         try {
           payload = JSON.parse(event.data);
-        } catch {
+        } catch (error) {
+          logEvent("warn", "WebSocket non-JSON message", {
+            preview: String(event.data).slice(0, 200),
+            error: String(error?.message || error),
+          });
           return;
         }
 
         if (payload.type === "status") {
           setStatusMessage(payload.message || "Update");
           setStatusLevel(payload.level || "info");
+          if (payload.level === "error") {
+            logEvent("error", payload.message || "Status error", payload);
+          }
         }
 
         if (
@@ -95,11 +190,12 @@ export default function App() {
             else setDownloading(true);
           }
           if (payload.status === "error") {
-            setStatusMessage(
+            const message =
               payload.message ||
-                (isKbdt ? "KBDT scan failed" : isUt ? "UT update failed" : "Download failed")
-            );
+              (isKbdt ? "KBDT scan failed" : isUt ? "UT update failed" : "Download failed");
+            setStatusMessage(message);
             setStatusLevel("error");
+            logEvent("error", message, payload);
           }
           if (payload.status === "completed" || payload.status === "error") {
             if (isKbdt) {
@@ -121,7 +217,12 @@ export default function App() {
     return () => {
       alive = false;
       window.clearTimeout(retryTimer);
-      socket?.close();
+      stopHeartbeat();
+      try {
+        socket?.close();
+      } catch {
+        /* ignore */
+      }
     };
   }, []);
 
@@ -341,10 +442,30 @@ export default function App() {
               ))}
             </div>
           </div>
+          <div>
+            <p className="px-3 pb-1 text-[0.65rem] font-medium uppercase tracking-[0.14em] text-[#6f6a62]">
+              System
+            </p>
+            <div className="flex flex-col gap-0.5 pl-1">
+              {NAV_ITEMS.system.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  className={navItemClass(activePage === item.id)}
+                  aria-current={activePage === item.id ? "page" : undefined}
+                  onClick={() => setActivePage(item.id)}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+          </div>
         </nav>
 
         <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden px-6 py-6">
-      {activePage === "penfold" ? (
+      {activePage === "settings" ? (
+        <SettingsPage wsState={wsState} />
+      ) : activePage === "penfold" ? (
         <KbdtPage scanning={scanningKbdt} onScan={scanKbdt} />
       ) : (
         <>
