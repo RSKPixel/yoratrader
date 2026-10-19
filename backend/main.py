@@ -5,9 +5,9 @@ import threading
 import uuid
 
 import uvicorn
-from fastapi import FastAPI, Query, Request, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from pydantic import BaseModel
 
 from contracts import list_contracts
@@ -15,6 +15,7 @@ from db import fetch_candles, fetch_kbdt_signals, fetch_ut_rows, ut_bar_counts
 from eod import download_eod
 from kbdt_scan import scan_kbdt
 from ut_data import build_ut_data
+import kite_auth
 import ws_hub
 
 jobs = {}
@@ -53,6 +54,54 @@ def health():
         "clients": ws_hub.client_counts(),
         "env": os.environ.get("APP_ENV", "development"),
     }
+
+
+class KiteSessionRequest(BaseModel):
+    request_token: str
+
+
+class KiteCredentialsRequest(BaseModel):
+    api_key: str = ""
+    api_secret: str = ""
+
+
+@app.get("/api/kite/credentials")
+def kite_credentials():
+    return kite_auth.credentials()
+
+
+@app.post("/api/kite/credentials")
+def kite_save_credentials(req: KiteCredentialsRequest):
+    return kite_auth.save_credentials(req.api_key.strip() or None, req.api_secret.strip() or None)
+
+
+@app.get("/api/kite/status")
+def kite_status(refresh: bool = False):
+    return kite_auth.status(force=refresh)
+
+
+@app.get("/api/kite/login")
+def kite_login():
+    return RedirectResponse(kite_auth.login_url())
+
+
+@app.get("/api/kite/callback")
+def kite_callback(request_token: str = "", status: str = ""):
+    """Kite redirect URL target: set the app's redirect URL to this endpoint."""
+    try:
+        result = kite_auth.create_session(request_token)
+    except Exception as exc:
+        return HTMLResponse(f"<p>Kite login failed: {exc}</p>", status_code=400)
+    ws_hub.notify({"type": "kite", **result})
+    return HTMLResponse("<p>Kite connected. You can close this tab.</p>" if result["connected"] else f"<p>Kite login failed: {result.get('error')}</p>")
+
+
+@app.post("/api/kite/session")
+def kite_session(req: KiteSessionRequest):
+    try:
+        return kite_auth.create_session(req.request_token.strip())
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 @app.get("/api/events/stream")

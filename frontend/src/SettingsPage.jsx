@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import KiteTokenPanel from "./KiteTokenPanel";
 import { clearEventLog, getEventLog, subscribeEventLog } from "./eventLog";
 
 function levelClass(level) {
@@ -12,6 +13,7 @@ export default function SettingsPage({ wsState }) {
   const [logs, setLogs] = useState(() => getEventLog());
   const [health, setHealth] = useState(null);
   const [testing, setTesting] = useState(false);
+  const [tab, setTab] = useState("diagnostics");
 
   useEffect(() => subscribeEventLog(setLogs), []);
 
@@ -106,9 +108,10 @@ export default function SettingsPage({ wsState }) {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Settings</h1>
           <p className="mt-1 text-sm text-[#9b968c]">
-            Connection diagnostics and runtime error log for local vs production.
+            Connection diagnostics, runtime error log and Kite login.
           </p>
         </div>
+        {tab === "diagnostics" && (
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
@@ -133,7 +136,31 @@ export default function SettingsPage({ wsState }) {
             Clear log
           </button>
         </div>
+        )}
       </header>
+
+      <nav className="mb-4 flex gap-1 border-b border-[#2c313a]">
+        {[
+          ["diagnostics", "Diagnostics"],
+          ["kite", "Kite"],
+        ].map(([id, label]) => (
+          <button
+            key={id}
+            type="button"
+            onClick={() => setTab(id)}
+            className={`-mb-px border-b-2 px-3 py-2 text-sm ${
+              tab === id ? "border-[#e2c08a] text-[#e7e4dc]" : "border-transparent text-[#9b968c] hover:text-[#c8c3b8]"
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </nav>
+
+      {tab === "kite" ? (
+        <KiteTokenPanel />
+      ) : (
+        <>
 
       <div className="mb-4 grid gap-3 md:grid-cols-2">
         <section className="rounded-md border border-[#2c313a] bg-[#181b20] p-4">
@@ -215,6 +242,8 @@ export default function SettingsPage({ wsState }) {
           </ul>
         )}
       </section>
+        </>
+      )}
     </div>
   );
 }

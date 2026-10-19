@@ -45,11 +45,11 @@ def download_eod(symbols, on_progress=None):
             candles=candles,
             errors=list(errors),
         )
-        # Prefer previous roll date; otherwise keep enough history for sma200 / weekly LV.
+        # Pull from the previous expiry to today; without one, fall back to the last 30 days.
         if row.get("previous_expiry"):
             from_date = row["previous_expiry"]
         else:
-            from_date = (today - timedelta(days=400)).isoformat()
+            from_date = (today - timedelta(days=30)).isoformat()
         to_date = today.isoformat()
 
         try:
