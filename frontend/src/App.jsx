@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import CandleModal from "./CandleModal";
 import KbdtPage from "./KbdtPage";
+import IntradayModelPage from "./IntradayModelPage";
 import SettingsPage from "./SettingsPage";
 import StatusBar from "./StatusBar";
 import UtDataModal from "./UtDataModal";
@@ -17,8 +18,31 @@ const READY_STATE = {
 
 const NAV_ITEMS = {
   market: [{ id: "indian-market", label: "Indian Market" }],
-  tradingModels: [{ id: "penfold", label: "Key Breakout Dow Theory" }],
+  tradingModels: [
+    { id: "penfold", label: "Key Breakout Dow Theory" },
+    { id: "orb", label: "Opening Range Breakout" },
+    { id: "fib", label: "Fib Pullback" },
+    { id: "kbdtfib", label: "Key Break + Fib" },
+  ],
   system: [{ id: "settings", label: "Settings" }],
+};
+
+const INTRADAY_MODELS = {
+  orb: {
+    title: "Opening Range Breakout · 15m",
+    description:
+      "First 30-min range, daily SMA50 trend, VWAP and volume filter. Stop: opposite OR side or 0.5× ATR. Half off at 1R, rest trails 2 bars, flat at session end. Results in R before costs.",
+  },
+  fib: {
+    title: "Fib Pullback · 15m",
+    description:
+      "Opening drive of at least 0.6× daily ATR in the SMA50 trend direction, pullback to 50–61.8%, enter on a reversal bar. Stop beyond 78.6% or the pullback low. Half off at the impulse high, rest at the 127.2% extension, flat at session end. Results in R before costs.",
+  },
+  kbdtfib: {
+    title: "Key Break + Fib · 15m",
+    description:
+      "Dow key break on 15m swings in the SMA50 trend direction sets the side. Enter on a reversal bar after a pullback into 38.2–61.8% of the break leg. Stop beyond 78.6% or the pullback low. Half off at the leg high, rest at the 161.8% extension; an opposite key break or session end closes it. Results in R before costs.",
+  },
 };
 
 function wsUrl() {
@@ -41,6 +65,7 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [downloading, setDownloading] = useState(false);
+  const [downloadingIdata, setDownloadingIdata] = useState(false);
   const [buildingUt, setBuildingUt] = useState(false);
   const [scanningKbdt, setScanningKbdt] = useState(false);
   const [progress, setProgress] = useState(null);
@@ -90,6 +115,7 @@ export default function App() {
 
       if (
         payload.type === "eod_progress" ||
+        payload.type === "idata_progress" ||
         payload.type === "ut_progress" ||
         payload.type === "kbdt_progress"
       ) {
@@ -97,8 +123,10 @@ export default function App() {
         setProgress(payload);
         const isUt = payload.type === "ut_progress" || payload.kind === "ut";
         const isKbdt = payload.type === "kbdt_progress" || payload.kind === "kbdt";
+        const isIdata = payload.type === "idata_progress" || payload.kind === "idata";
         if (payload.status === "running") {
           if (isKbdt) setScanningKbdt(true);
+          else if (isIdata) setDownloadingIdata(true);
           else if (isUt) setBuildingUt(true);
           else setDownloading(true);
         }
@@ -113,6 +141,8 @@ export default function App() {
         if (payload.status === "completed" || payload.status === "error") {
           if (isKbdt) {
             setScanningKbdt(false);
+          } else if (isIdata) {
+            setDownloadingIdata(false);
           } else if (isUt) {
             setBuildingUt(false);
             if (payload.status === "completed") contractsRefreshRef.current?.();
@@ -376,15 +406,18 @@ export default function App() {
     );
   }, [contracts, query]);
 
-  const downloadEod = () => {
+  const downloadEod = () => startDownload("/api/eod", "EOD", setDownloading);
+  const downloadIdata = () => startDownload("/api/idata", "iData", setDownloadingIdata, "idata");
+
+  const startDownload = (endpoint, label, setRunning, kind) => {
     const total = visible.length;
-    setDownloading(true);
+    setRunning(true);
     setError("");
-    setProgress({ status: "running", done: 0, total, symbol: "", candles: 0, errors: [] });
-    setStatusMessage(`Starting EOD download for ${total} symbols`);
+    setProgress({ status: "running", done: 0, total, symbol: "", candles: 0, errors: [], kind });
+    setStatusMessage(`Starting ${label} download for ${total} symbols`);
     setStatusLevel("info");
 
-    fetch("/api/eod", {
+    fetch(endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ symbols: visible.map((contract) => contract.name) }),
@@ -394,15 +427,15 @@ export default function App() {
         if (payload.status !== "success" || !payload.job_id) {
           setProgress({
             status: "error",
-            message: payload.message || "Could not download EOD",
+            message: payload.message || `Could not download ${label}`,
             done: 0,
             total,
             symbol: "",
             candles: 0,
             errors: [],
           });
-          setDownloading(false);
-          setStatusMessage(payload.message || "Could not download EOD");
+          setRunning(false);
+          setStatusMessage(payload.message || `Could not download ${label}`);
           setStatusLevel("error");
           return;
         }
@@ -410,7 +443,7 @@ export default function App() {
       })
       .catch(() => {
         setError("Could not reach the API");
-        setDownloading(false);
+        setRunning(false);
         setStatusMessage("Could not reach the API");
         setStatusLevel("error");
       });
@@ -494,7 +527,7 @@ export default function App() {
       });
   };
 
-  const busy = loading || downloading || buildingUt || scanningKbdt;
+  const busy = loading || downloading || downloadingIdata || buildingUt || scanningKbdt;
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
@@ -566,6 +599,8 @@ export default function App() {
         <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden px-6 py-6">
       {activePage === "settings" ? (
         <SettingsPage wsState={wsState} />
+      ) : activePage in INTRADAY_MODELS ? (
+        <IntradayModelPage key={activePage} model={activePage} {...INTRADAY_MODELS[activePage]} />
       ) : activePage === "penfold" ? (
         <KbdtPage scanning={scanningKbdt} onScan={scanKbdt} />
       ) : (
@@ -584,6 +619,15 @@ export default function App() {
               className="rounded-md border border-[#8d877c] px-3 py-1.5 text-sm text-[#f3efe6] hover:bg-white/5 disabled:opacity-40"
             >
               {downloading ? "Downloading" : "Download EOD"}
+            </button>
+            <button
+              type="button"
+              onClick={downloadIdata}
+              disabled={busy || visible.length === 0}
+              title="15-minute bars from previous expiry or last 7 days, whichever is shorter"
+              className="rounded-md border border-[#8d877c] px-3 py-1.5 text-sm text-[#f3efe6] hover:bg-white/5 disabled:opacity-40"
+            >
+              {downloadingIdata ? "Downloading" : "iData"}
             </button>
             <button
               type="button"

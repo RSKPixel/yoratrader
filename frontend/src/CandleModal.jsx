@@ -90,11 +90,96 @@ function entryFromDowPoint(candles, signal) {
   ];
 }
 
+/** Daily bars use "YYYY-MM-DD"; 15m bars use epoch seconds already shifted to IST. */
+function formatTime(time) {
+  if (typeof time !== "number") return time;
+  return new Date(time * 1000).toISOString().slice(0, 16).replace("T", " ");
+}
+
 function timeOrder(a, b) {
+  if (typeof a === "number" && typeof b === "number") return a <= b ? -1 : 1;
   return String(a) <= String(b) ? -1 : 1;
 }
 
-export default function CandleModal({ contract, signal = null, onClose }) {
+function segment(chart, color, style, from, to, value) {
+  const line = chart.addSeries(LineSeries, {
+    color,
+    lineWidth: 1,
+    lineStyle: style,
+    priceLineVisible: false,
+    lastValueVisible: false,
+    crosshairMarkerVisible: false,
+  });
+  line.setData([
+    { time: from, value },
+    { time: to, value },
+  ]);
+}
+
+const FIB_COLORS = {
+  0: "#9b968c",
+  38.2: "#6f6a62",
+  50: "#e2c08a",
+  61.8: "#e2c08a",
+  78.6: "#c4b5fd",
+  100: "#9b968c",
+  127.2: "#089981",
+  161.8: "#089981",
+};
+
+/** Opening range (ORB) or fib levels (Fib), entry/stop/target lines and entry/exit markers. */
+function drawIntradayTrade(chart, series, candles, trade) {
+  const isLong = trade.side === "long";
+  const dayBars = candles.filter((c) => typeof c.time === "number" && new Date(c.time * 1000).toISOString().slice(0, 10) === trade.date);
+  if (dayBars.length === 0) {
+    chart.timeScale().fitContent();
+    return;
+  }
+  const dayStart = dayBars[0].time;
+  const dayEnd = dayBars.at(-1).time;
+  const exitTime = trade.exit_time || dayEnd;
+
+  if (trade.fib) {
+    const from = trade.impulse_start || dayStart;
+    Object.entries(trade.fib).forEach(([ratio, value]) => {
+      segment(chart, FIB_COLORS[ratio] || "#6f6a62", ratio === "0" || ratio === "100" ? 0 : 2, from, dayEnd, value);
+    });
+    if (trade.key_break != null) segment(chart, "#d6a756", 1, trade.key_break_time, dayEnd, trade.key_break);
+  } else {
+    segment(chart, "#9b968c", 2, dayStart, dayEnd, trade.or_high);
+    segment(chart, "#9b968c", 2, dayStart, dayEnd, trade.or_low);
+  }
+  segment(chart, "#e7e4dc", 0, trade.entry_time, exitTime, trade.entry);
+  segment(chart, "#f23645", 2, trade.entry_time, exitTime, trade.stop);
+  segment(chart, "#089981", 2, trade.entry_time, exitTime, trade.target);
+  if (trade.target2 != null) segment(chart, "#089981", 2, trade.entry_time, exitTime, trade.target2);
+
+  const markers = [
+    {
+      time: trade.entry_time,
+      position: isLong ? "belowBar" : "aboveBar",
+      shape: isLong ? "arrowUp" : "arrowDown",
+      color: isLong ? "#7dcca8" : "#f0b4b4",
+      text: isLong ? "LONG" : "SHORT",
+    },
+  ];
+  if (trade.exit_time) {
+    markers.push({
+      time: trade.exit_time,
+      position: isLong ? "aboveBar" : "belowBar",
+      shape: "circle",
+      color: trade.r > 0 ? "#8fbf9f" : "#f0b4b4",
+      text: `${trade.exit_reason} ${trade.r > 0 ? "+" : ""}${trade.r}R`,
+    });
+  }
+  createSeriesMarkers(series, markers);
+
+  const from = candles.findIndex((c) => c.time === dayStart);
+  const to = candles.findIndex((c) => c.time === dayEnd);
+  chart.timeScale().setVisibleLogicalRange({ from: Math.max(0, from - 8), to: to + 4 });
+}
+
+export default function CandleModal({ contract, signal = null, intradayTrade = null, onClose }) {
   const paneRef = useRef(null);
   const measureModeRef = useRef(false);
   const measureAnchorRef = useRef(null);
@@ -106,6 +191,10 @@ export default function CandleModal({ contract, signal = null, onClose }) {
   const [bar, setBar] = useState(null);
   const [measureMode, setMeasureMode] = useState(false);
   const [measureInfo, setMeasureInfo] = useState(null);
+  const [timeframe, setTimeframe] = useState(intradayTrade ? "15m" : "D");
+  const intraday = timeframe === "15m";
+  // KBDT signals are daily; only draw them on the daily chart.
+  const chartSignal = intraday ? null : signal;
   const [lotSize, setLotSize] = useState(
     () => Number(contract.lot_size || signal?.lot_size) || null
   );
@@ -157,15 +246,24 @@ export default function CandleModal({ contract, signal = null, onClose }) {
     const controller = new AbortController();
     setLoading(true);
     setError("");
+    // Drop the other timeframe's bars so nothing draws 15m overlays on daily candles.
+    setCandles([]);
     const params = new URLSearchParams({
       exchange: contract.exchange,
       symbol: symbolName,
     });
 
-    Promise.all([
-      fetch(`/api/ut-data?${params}`, { signal: controller.signal }).then((r) => r.json()),
-      fetch(`/api/candles?${params}&enrich=true`, { signal: controller.signal }).then((r) => r.json()),
-    ])
+    const requests = intraday
+      ? [
+          Promise.resolve({ status: "success", data: [] }),
+          fetch(`/api/candles?${params}&tf=15m`, { signal: controller.signal }).then((r) => r.json()),
+        ]
+      : [
+          fetch(`/api/ut-data?${params}`, { signal: controller.signal }).then((r) => r.json()),
+          fetch(`/api/candles?${params}&enrich=true`, { signal: controller.signal }).then((r) => r.json()),
+        ];
+
+    Promise.all(requests)
       .then(([utPayload, candlePayload]) => {
         const utRows = utPayload.status === "success" ? utPayload.data || [] : [];
         const candleRows = candlePayload.status === "success" ? candlePayload.data || [] : [];
@@ -176,8 +274,8 @@ export default function CandleModal({ contract, signal = null, onClose }) {
           return;
         }
         setCandles(rows);
-        const signalBar = signal?.datetime
-          ? rows.find((row) => row.time === signal.datetime)
+        const signalBar = chartSignal?.datetime
+          ? rows.find((row) => row.time === chartSignal.datetime)
           : null;
         setBar(signalBar || rows.at(-1) || null);
       })
@@ -190,7 +288,7 @@ export default function CandleModal({ contract, signal = null, onClose }) {
       });
 
     return () => controller.abort();
-  }, [contract, signal, symbolName]);
+  }, [contract, chartSignal, symbolName, intraday]);
 
   useEffect(() => {
     if (!paneRef.current || candles.length === 0) return undefined;
@@ -211,7 +309,7 @@ export default function CandleModal({ contract, signal = null, onClose }) {
       },
       crosshair: { mode: CrosshairMode.Normal },
       rightPriceScale: { borderColor: "#2c313a" },
-      timeScale: { borderColor: "#2c313a", rightOffset: 6 },
+      timeScale: { borderColor: "#2c313a", rightOffset: 6, timeVisible: intraday, secondsVisible: false },
     });
 
     const series = chart.addSeries(CandlestickSeries, {
@@ -249,13 +347,13 @@ export default function CandleModal({ contract, signal = null, onClose }) {
       swings.setData(swingPoints);
     }
 
-    if (signal?.datetime) {
-      const side = String(signal.signal || "").toLowerCase();
+    if (chartSignal?.datetime) {
+      const side = String(chartSignal.signal || "").toLowerCase();
       const isBuy = side === "buy";
       const markerColor = isBuy ? "#7dcca8" : "#f0b4b4";
       createSeriesMarkers(series, [
         {
-          time: signal.datetime,
+          time: chartSignal.datetime,
           position: isBuy ? "belowBar" : "aboveBar",
           shape: isBuy ? "arrowUp" : "arrowDown",
           color: markerColor,
@@ -264,7 +362,7 @@ export default function CandleModal({ contract, signal = null, onClose }) {
         },
       ]);
 
-      const entryLine = entryFromDowPoint(candles, signal);
+      const entryLine = entryFromDowPoint(candles, chartSignal);
       if (entryLine && entryLine.length >= 2) {
         const entrySeries = chart.addSeries(LineSeries, {
           color: markerColor,
@@ -278,8 +376,8 @@ export default function CandleModal({ contract, signal = null, onClose }) {
         entrySeries.setData(entryLine);
       }
 
-      if (signal.stop_loss != null && !Number.isNaN(Number(signal.stop_loss))) {
-        const signalIndex = candles.findIndex((candle) => candle.time === signal.datetime);
+      if (chartSignal.stop_loss != null && !Number.isNaN(Number(chartSignal.stop_loss))) {
+        const signalIndex = candles.findIndex((candle) => candle.time === chartSignal.datetime);
         if (signalIndex > 0) {
           const slSeries = chart.addSeries(LineSeries, {
             color: "#e2c08a",
@@ -290,13 +388,13 @@ export default function CandleModal({ contract, signal = null, onClose }) {
             crosshairMarkerVisible: false,
           });
           slSeries.setData([
-            { time: candles[signalIndex - 1].time, value: Number(signal.stop_loss) },
-            { time: candles[signalIndex].time, value: Number(signal.stop_loss) },
+            { time: candles[signalIndex - 1].time, value: Number(chartSignal.stop_loss) },
+            { time: candles[signalIndex].time, value: Number(chartSignal.stop_loss) },
           ]);
         }
       }
 
-      const index = candles.findIndex((candle) => candle.time === signal.datetime);
+      const index = candles.findIndex((candle) => candle.time === chartSignal.datetime);
       if (index >= 0) {
         const from = Math.max(0, index - 40);
         const to = Math.min(candles.length - 1, index + 10);
@@ -304,6 +402,8 @@ export default function CandleModal({ contract, signal = null, onClose }) {
       } else {
         chart.timeScale().fitContent();
       }
+    } else if (intraday && intradayTrade?.entry_time) {
+      drawIntradayTrade(chart, series, candles, intradayTrade);
     } else {
       chart.timeScale().fitContent();
     }
@@ -402,7 +502,7 @@ export default function CandleModal({ contract, signal = null, onClose }) {
       clearMeasureRef.current = () => {};
       chart.remove();
     };
-  }, [candles, signal]);
+  }, [candles, chartSignal, intraday, intradayTrade]);
 
   const up = bar && bar.close >= bar.open;
   const measureUp = measureInfo && !measureInfo.pending && measureInfo.delta >= 0;
@@ -430,6 +530,15 @@ export default function CandleModal({ contract, signal = null, onClose }) {
               >
                 {contract.exchange}
               </span>
+              {intradayTrade && (
+                <span
+                  className={`rounded px-1.5 py-0.5 font-mono text-xs uppercase ${
+                    intradayTrade.side === "long" ? "bg-[#14352f] text-[#7dcca8]" : "bg-[#3a1c1c] text-[#f0b4b4]"
+                  }`}
+                >
+                  {intradayTrade.key_break != null ? "KB+FIB" : intradayTrade.fib ? "FIB" : "ORB"} {intradayTrade.side} · {intradayTrade.date} {intradayTrade.entry_label}
+                </span>
+              )}
               {signal && (
                 <span
                   className={`rounded px-1.5 py-0.5 font-mono text-xs uppercase ${
@@ -444,7 +553,7 @@ export default function CandleModal({ contract, signal = null, onClose }) {
             </div>
             {bar && (
               <p className="mt-2 font-mono text-xs text-[#c8c3b8]">
-                <span className="mr-3 text-[#9b968c]">{bar.time}</span>
+                <span className="mr-3 text-[#9b968c]">{formatTime(bar.time)}</span>
                 <span className="mr-3">O {formatPrice(bar.open)}</span>
                 <span className="mr-3">H {formatPrice(bar.high)}</span>
                 <span className="mr-3">L {formatPrice(bar.low)}</span>
@@ -465,7 +574,7 @@ export default function CandleModal({ contract, signal = null, onClose }) {
               <p className="mt-2 font-mono text-xs text-[#c8c3b8]">
                 <span className="mr-3 text-[#c4b5fd]">Measure</span>
                 <span className="mr-3 text-[#9b968c]">
-                  {measureInfo.from.time} → {measureInfo.to.time}
+                  {formatTime(measureInfo.from.time)} → {formatTime(measureInfo.to.time)}
                 </span>
                 <span className={`mr-3 ${measureUp ? "text-[#089981]" : "text-[#f23645]"}`}>
                   Δ {measureInfo.delta >= 0 ? "+" : ""}
@@ -508,6 +617,27 @@ export default function CandleModal({ contract, signal = null, onClose }) {
             </p>
           </div>
           <div className="flex shrink-0 items-center gap-2">
+            <div className="flex overflow-hidden rounded-md border border-[#2c313a]">
+              {[
+                ["D", "1D"],
+                ["15m", "15m"],
+              ].map(([id, label]) => (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => {
+                    setTimeframe(id);
+                    setMeasureMode(false);
+                    clearMeasureRef.current();
+                  }}
+                  className={`px-3 py-1.5 text-sm ${
+                    timeframe === id ? "bg-[#e2c08a]/15 text-[#e2c08a]" : "text-[#9b968c] hover:bg-white/5"
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
             <button
               type="button"
               onClick={() => {
@@ -547,7 +677,9 @@ export default function CandleModal({ contract, signal = null, onClose }) {
           {!loading && error && <p className="absolute inset-0 grid place-items-center px-6 text-center text-sm text-[#f0b4b4]">{error}</p>}
           {!loading && !error && candles.length === 0 && (
             <p className="absolute inset-0 grid place-items-center px-6 text-center text-sm text-[#9b968c]">
-              No daily bars for {symbolName} yet. Download EOD first.
+              {intraday
+                ? `No 15m bars for ${symbolName} yet. Download iData first.`
+                : `No daily bars for ${symbolName} yet. Download EOD first.`}
             </p>
           )}
           <div ref={paneRef} className="h-full w-full" />

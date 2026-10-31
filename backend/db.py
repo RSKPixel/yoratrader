@@ -118,6 +118,25 @@ def stored_previous_expiries():
     }
 
 
+def stored_lot_sizes():
+    """Lot size of the nearest live (else latest) contract for each script."""
+    try:
+        with connect() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT DISTINCT ON (exchange, name) exchange, name, lot_size
+                    FROM instruments
+                    ORDER BY exchange, name, (expiry < CURRENT_DATE), expiry
+                    """
+                )
+                rows = cursor.fetchall()
+    except Exception as error:
+        print("Error reading lot sizes:", error)
+        return {}
+    return {(exchange, name): int(lot) for exchange, name, lot in rows if lot is not None}
+
+
 def store_eod(exchange, symbol, bars):
     if not bars:
         return 0
@@ -175,6 +194,64 @@ def store_eod(exchange, symbol, bars):
     return len(records)
 
 
+def store_intraday(exchange, symbol, bars):
+    """Upsert 15-minute bars into intraday_15m."""
+    if not bars:
+        return 0
+
+    records = [
+        (
+            exchange,
+            symbol,
+            bar["date"],
+            bar["open"],
+            bar["high"],
+            bar["low"],
+            bar["close"],
+            int(bar.get("volume") or 0),
+            int(bar.get("oi") or 0),
+        )
+        for bar in bars
+    ]
+    with connect() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS intraday_15m (
+                    exchange TEXT NOT NULL,
+                    symbol TEXT NOT NULL,
+                    datetime TIMESTAMPTZ NOT NULL,
+                    open DOUBLE PRECISION,
+                    high DOUBLE PRECISION,
+                    low DOUBLE PRECISION,
+                    close DOUBLE PRECISION,
+                    volume BIGINT,
+                    oi BIGINT,
+                    PRIMARY KEY (exchange, symbol, datetime)
+                )
+                """
+            )
+            execute_values(
+                cursor,
+                """
+                INSERT INTO intraday_15m (
+                    exchange, symbol, datetime, open, high, low, close, volume, oi
+                )
+                VALUES %s
+                ON CONFLICT (exchange, symbol, datetime) DO UPDATE SET
+                    open = EXCLUDED.open,
+                    high = EXCLUDED.high,
+                    low = EXCLUDED.low,
+                    close = EXCLUDED.close,
+                    volume = EXCLUDED.volume,
+                    oi = EXCLUDED.oi
+                """,
+                records,
+            )
+        conn.commit()
+    return len(records)
+
+
 def fetch_candles(exchange, symbol, enrich=False):
     with connect() as conn:
         with conn.cursor() as cursor:
@@ -207,6 +284,41 @@ def fetch_candles(exchange, symbol, enrich=False):
     from enrich import enrich_eod_records
 
     return enrich_eod_records(candles)
+
+
+IST_OFFSET_SECONDS = 19800
+
+
+def fetch_intraday_candles(exchange, symbol):
+    """15-minute bars; time is epoch seconds shifted to IST so charts label in IST."""
+    with connect() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT to_regclass('intraday_15m')")
+            if cursor.fetchone()[0] is None:
+                return []
+            cursor.execute(
+                """
+                SELECT datetime, open, high, low, close, volume, oi
+                FROM intraday_15m
+                WHERE exchange = %s AND symbol = %s
+                ORDER BY datetime ASC
+                """,
+                (exchange, symbol),
+            )
+            rows = cursor.fetchall()
+
+    return [
+        {
+            "time": int(moment.timestamp()) + IST_OFFSET_SECONDS,
+            "open": float(open_),
+            "high": float(high),
+            "low": float(low),
+            "close": float(close),
+            "volume": int(volume or 0),
+            "oi": int(oi or 0),
+        }
+        for moment, open_, high, low, close, volume, oi in rows
+    ]
 
 
 def fetch_eod_frame(exchange, symbol):

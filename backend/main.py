@@ -11,11 +11,15 @@ from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from pydantic import BaseModel
 
 from contracts import list_contracts
-from db import fetch_candles, fetch_kbdt_signals, fetch_ut_rows, ut_bar_counts
+from db import stored_lot_sizes, fetch_candles, fetch_intraday_candles, fetch_kbdt_signals, fetch_ut_rows, ut_bar_counts
 from eod import download_eod
+from intraday import download_intraday
 from kbdt_scan import scan_kbdt
 from ut_data import build_ut_data
 import kite_auth
+import fib
+import kbdtfib
+import orb
 import ws_hub
 
 jobs = {}
@@ -163,9 +167,13 @@ def candles(
     exchange: str = Query(...),
     symbol: str = Query(...),
     enrich: bool = Query(False),
+    tf: str = Query("D"),
 ):
     try:
-        rows = fetch_candles(exchange.upper(), symbol.upper(), enrich=enrich)
+        if tf == "15m":
+            rows = fetch_intraday_candles(exchange.upper(), symbol.upper())
+        else:
+            rows = fetch_candles(exchange.upper(), symbol.upper(), enrich=enrich)
     except Exception as error:
         print("Error fetching candles:", error)
         return {"status": "error", "message": str(error), "data": []}
@@ -280,6 +288,105 @@ def eod(body: EodRequest):
 
     threading.Thread(target=run, daemon=True).start()
     return {"status": "success", "job_id": job_id}
+
+
+@app.post("/api/idata")
+def idata(body: EodRequest):
+    job_id = uuid.uuid4().hex
+    total = len(body.symbols)
+    jobs[job_id] = {"status": "running", "done": 0, "total": total, "symbol": "", "candles": 0, "errors": []}
+    ws_hub.notify(
+        {"type": "status", "level": "info", "message": f"iData (15m) download started for {total} symbols", "job_id": job_id}
+    )
+
+    def on_progress(state):
+        jobs[job_id] = state
+        ws_hub.notify({"type": "idata_progress", "job_id": job_id, **state})
+        if state.get("status") == "running" and state.get("symbol"):
+            message = f"Downloading iData {state['done'] + 1}/{state['total']}: {state['symbol']}"
+            ws_hub.notify({"type": "status", "level": "info", "message": message, "job_id": job_id})
+        elif state.get("status") == "completed":
+            failed = len(state.get("errors") or [])
+            suffix = f" ({failed} failed)" if failed else ""
+            ws_hub.notify(
+                {
+                    "type": "status",
+                    "level": "success" if failed == 0 else "info",
+                    "message": f"iData download complete. Saved {state.get('candles', 0)} 15m candles{suffix}",
+                    "job_id": job_id,
+                }
+            )
+
+    def run():
+        try:
+            download_intraday(body.symbols, on_progress)
+        except Exception as error:
+            print("Error downloading iData:", error)
+            state = {"status": "error", "message": str(error), "done": 0, "total": total, "symbol": "", "candles": 0, "errors": []}
+            jobs[job_id] = state
+            ws_hub.notify({"type": "idata_progress", "job_id": job_id, **state})
+            ws_hub.notify({"type": "status", "level": "error", "message": f"iData download failed: {error}", "job_id": job_id})
+
+    threading.Thread(target=run, daemon=True).start()
+    return {"status": "success", "job_id": job_id}
+
+
+MODELS = {"orb": orb, "fib": fib, "kbdtfib": kbdtfib}
+
+
+def with_lot_sizes(trades):
+    """Attach the contract lot size to each trade (Kite reports 1 for MCX lots)."""
+    lots = stored_lot_sizes()
+    for trade in trades:
+        trade["lot_size"] = lots.get((trade["exchange"], trade["symbol"]))
+    return trades
+
+
+@app.get("/api/models/{model}")
+def model_trades(
+    model: str,
+    exchange: str = Query(""),
+    symbol: str = Query(""),
+    universe: str = Query("index"),
+    max_per_day: int = Query(3, ge=0),
+):
+    """Intraday model trades (orb / fib / kbdtfib); one symbol for the chart, or a universe for the page."""
+    engine = MODELS.get(model)
+    if engine is None:
+        return {"status": "error", "message": f"unknown model {model}", "data": [], "summary": {}}
+    if universe not in orb.UNIVERSES:
+        return {"status": "error", "message": f"universe must be one of {', '.join(orb.UNIVERSES)}", "data": [], "summary": {}}
+    try:
+        trades = engine.scan(exchange.upper() or None, symbol.upper() or None, universe)
+        if not symbol:
+            trades = orb.cap_per_day(trades, max_per_day)
+    except Exception as error:
+        print(f"Error running {model}:", error)
+        return {"status": "error", "message": str(error), "data": [], "summary": {}}
+    return {"status": "success", "data": with_lot_sizes(trades), "summary": orb.summarize(trades)}
+
+
+@app.post("/api/models/{model}/refresh")
+def model_refresh(model: str, universe: str = Query("index"), max_per_day: int = Query(3, ge=0)):
+    """Download today's 15m bars for the universe, then rescan with the model."""
+    if model not in MODELS:
+        return {"status": "error", "message": f"unknown model {model}", "data": [], "summary": {}}
+    if universe not in orb.UNIVERSES:
+        return {"status": "error", "message": f"universe must be one of {', '.join(orb.UNIVERSES)}", "data": [], "summary": {}}
+    try:
+        rows = [row for row in list_contracts("ALL") if orb._in_universe(row["exchange"], row["name"], universe)]
+        exchange = universe.upper() if universe in ("nse", "mcx") else None
+        result = download_intraday([row["name"] for row in rows], today_only=True, exchange=exchange)
+        trades = orb.cap_per_day(MODELS[model].scan(universe=universe), max_per_day)
+    except Exception as error:
+        print(f"Error refreshing {model}:", error)
+        return {"status": "error", "message": str(error), "data": [], "summary": {}}
+    return {
+        "status": "success",
+        "data": with_lot_sizes(trades),
+        "summary": orb.summarize(trades),
+        "download": {"symbols": result["symbols"], "candles": result["candles"], "errors": result["errors"]},
+    }
 
 
 @app.get("/api/eod/{job_id}")
