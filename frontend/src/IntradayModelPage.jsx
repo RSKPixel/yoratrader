@@ -35,11 +35,62 @@ function tradePoints(t) {
   return t.r * Math.abs(t.entry - t.stop);
 }
 
+// NSE futures charges (Zerodha schedule). Brokerage is per executed order.
+const CHARGES = {
+  brokeragePct: 0.0003, // 0.03% per order, capped at ₹20
+  brokerageCap: 20,
+  sttSellPct: 0.0005, // 0.05% on the sell side (futures, from Apr 2026)
+  exchangePct: 0.0000173, // NSE transaction charge, both sides
+  sebiPct: 0.000001, // ₹10 per crore, both sides
+  stampBuyPct: 0.00002, // 0.002% on the buy side
+  gstPct: 0.18, // on brokerage + exchange + SEBI
+};
+
+// One lot, round trip. A T1 half-booking makes the exit two orders; the blended exit
+// price (entry ± points) gives the exact total exit turnover either way.
+function tradeCharges(t, points) {
+  const qty = t.lot_size;
+  const entryValue = t.entry * qty;
+  const exitValue = (t.side === "long" ? t.entry + points : t.entry - points) * qty;
+  const buyValue = t.side === "long" ? entryValue : exitValue;
+  const sellValue = t.side === "long" ? exitValue : entryValue;
+  const exitOrders = t.t1_hit ? 2 : 1;
+  const perOrder = (value) => Math.min(CHARGES.brokerageCap, value * CHARGES.brokeragePct);
+  const brokerage = perOrder(entryValue) + exitOrders * perOrder(exitValue / exitOrders);
+  const turnover = buyValue + sellValue;
+  const exchange = turnover * CHARGES.exchangePct;
+  const sebi = turnover * CHARGES.sebiPct;
+  const stt = sellValue * CHARGES.sttSellPct;
+  const stamp = buyValue * CHARGES.stampBuyPct;
+  const gst = (brokerage + exchange + sebi) * CHARGES.gstPct;
+  return { brokerage, stt, exchange, sebi, stamp, gst, total: brokerage + stt + exchange + sebi + stamp + gst };
+}
+
 // Kite reports MCX lot_size as 1 (lots, not quantity), so rupee profit is only shown for NSE.
+// Returns net profit for one lot after brokerage and statutory charges.
 function tradeProfit(t) {
   const points = tradePoints(t);
   if (points == null || !t.lot_size || t.exchange === "MCX") return null;
-  return points * t.lot_size;
+  const gross = points * t.lot_size;
+  const charges = tradeCharges(t, points);
+  return { gross, charges, net: gross - charges.total };
+}
+
+function profitTitle(p) {
+  if (!p) return undefined;
+  const c = p.charges;
+  const f = (v) => `₹${v.toFixed(2)}`;
+  return [
+    `Gross ${formatRupees(p.gross)}`,
+    `Brokerage ${f(c.brokerage)}`,
+    `STT ${f(c.stt)}`,
+    `Exchange ${f(c.exchange)}`,
+    `SEBI ${f(c.sebi)}`,
+    `Stamp ${f(c.stamp)}`,
+    `GST ${f(c.gst)}`,
+    `Charges ${f(c.total)}`,
+    `Net ${formatRupees(p.net)}`,
+  ].join("\n");
 }
 
 function formatPoints(value) {
@@ -252,7 +303,7 @@ export default function IntradayModelPage({ model, title, description }) {
           <table className="w-full text-sm">
             <thead className="sticky top-0 bg-[#1e2128] text-left text-xs uppercase tracking-[0.1em] text-[#6f6a62]">
               <tr>
-                {["Date", "Exch", "Symbol", "Side", "Entry", "Price", "Stop", "Target", "Exit", "Reason", "R", "Points", "Lot", "Profit", ""].map(
+                {["Date", "Exch", "Symbol", "Side", "Entry", "Price", "Stop", "Target", "Exit", "Reason", "R", "Points", "Lot", "Net profit", ""].map(
                   (h) => (
                     <th key={h} className="px-3 py-2 font-medium">
                       {h}
@@ -262,7 +313,9 @@ export default function IntradayModelPage({ model, title, description }) {
               </tr>
             </thead>
             <tbody className="divide-y divide-[#2c313a] whitespace-nowrap font-mono text-xs">
-              {rows.map((t) => (
+              {rows.map((t) => {
+                const profit = tradeProfit(t);
+                return (
                 <tr key={`${t.exchange}-${t.symbol}-${t.date}`} className="hover:bg-white/[0.03]">
                   <td className="px-3 py-2 text-[#9b968c]">{t.date}</td>
                   <td className="px-3 py-2 text-[#9b968c]">{t.exchange}</td>
@@ -283,10 +336,10 @@ export default function IntradayModelPage({ model, title, description }) {
                   <td className={`px-3 py-2 ${rClass(t.r)}`}>{formatPoints(tradePoints(t))}</td>
                   <td className="px-3 py-2 text-[#9b968c]">{t.exchange === "MCX" ? "—" : t.lot_size ?? "—"}</td>
                   <td
-                    className={`px-3 py-2 ${rClass(t.r)}`}
-                    title={t.exchange === "MCX" ? "MCX lot multiplier not available from Kite" : undefined}
+                    className={`px-3 py-2 ${rClass(profit?.net)}`}
+                    title={t.exchange === "MCX" ? "MCX lot multiplier not available from Kite" : profitTitle(profit)}
                   >
-                    {formatRupees(tradeProfit(t))}
+                    {formatRupees(profit?.net)}
                   </td>
                   <td className="px-3 py-2">
                     <button
@@ -299,7 +352,8 @@ export default function IntradayModelPage({ model, title, description }) {
                     </button>
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         )}
