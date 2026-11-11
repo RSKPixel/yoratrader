@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import CandleModal from "./CandleModal";
+import BacktestPage from "./BacktestPage";
 import KbdtPage from "./KbdtPage";
+import KbdtSignalsPage from "./KbdtSignalsPage";
 import IntradayModelPage from "./IntradayModelPage";
 import { FibInfo, KbdtFibInfo, OrbInfo } from "./ModelInfoModal";
 import SettingsPage from "./SettingsPage";
@@ -26,6 +28,8 @@ const NAV_ITEMS = {
     { id: "fib", label: "Fib Pullback" },
     { id: "kbdtfib", label: "Key Break + Fib" },
   ],
+  signals: [{ id: "kbdt-signals", label: "KBDT · Index futures" }],
+  backtest: [{ id: "bt-orb", label: "Indices & Nifty 50" }],
   system: [{ id: "settings", label: "Settings" }],
 };
 
@@ -593,6 +597,42 @@ export default function App() {
           </div>
           <div>
             <p className="px-3 pb-1 text-[0.65rem] font-medium uppercase tracking-[0.14em] text-[#6f6a62]">
+              Signals
+            </p>
+            <div className="flex flex-col gap-0.5 pl-1">
+              {NAV_ITEMS.signals.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  className={navItemClass(activePage === item.id)}
+                  aria-current={activePage === item.id ? "page" : undefined}
+                  onClick={() => setActivePage(item.id)}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <p className="px-3 pb-1 text-[0.65rem] font-medium uppercase tracking-[0.14em] text-[#6f6a62]">
+              Backtest
+            </p>
+            <div className="flex flex-col gap-0.5 pl-1">
+              {NAV_ITEMS.backtest.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  className={navItemClass(activePage === item.id)}
+                  aria-current={activePage === item.id ? "page" : undefined}
+                  onClick={() => setActivePage(item.id)}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <p className="px-3 pb-1 text-[0.65rem] font-medium uppercase tracking-[0.14em] text-[#6f6a62]">
               System
             </p>
             <div className="flex flex-col gap-0.5 pl-1">
@@ -616,6 +656,10 @@ export default function App() {
         <SettingsPage wsState={wsState} />
       ) : activePage in INTRADAY_MODELS ? (
         <IntradayModelPage key={activePage} model={activePage} {...INTRADAY_MODELS[activePage]} />
+      ) : activePage === "kbdt-signals" ? (
+        <KbdtSignalsPage />
+      ) : activePage === "bt-orb" ? (
+        <BacktestPage />
       ) : activePage === "penfold" ? (
         <KbdtPage scanning={scanningKbdt} onScan={scanKbdt} />
       ) : (

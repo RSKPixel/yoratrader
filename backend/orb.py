@@ -84,7 +84,13 @@ def _epoch_ist(ts):
     return int(ts.timestamp()) + 19800
 
 
-def _scan_symbol(exchange, symbol, bars, daily):
+def _scan_symbol(exchange, symbol, bars, daily, use_volume=True, use_vwap=True, or_bars=OR_BARS, stop_atr=STOP_ATR,
+                 max_or_atr=MAX_OR_ATR, min_or_atr=MIN_OR_ATR, min_risk_pct=0.0):
+    """Defaults are the live model. The backtest varies them:
+    use_volume / use_vwap switch off those entry filters (index data has no volume);
+    or_bars sets the opening range length; min_risk_pct skips trades whose stop is
+    closer than that percent of price (costs are a fixed share of price, so tight
+    stops cost more in R)."""
     if exchange not in SESSIONS or bars.empty or daily.empty:
         return []
     cutoff, flat_at = SESSIONS[exchange]
@@ -95,18 +101,18 @@ def _scan_symbol(exchange, symbol, bars, daily):
 
     for day, session in bars.groupby(bars["datetime"].dt.date):
         session = session.reset_index(drop=True)
-        if len(session) <= OR_BARS or day not in context.index:
+        if len(session) <= or_bars or day not in context.index:
             continue
         atr, trend = context.loc[day, "atr"], context.loc[day, "trend"]
         if pd.isna(atr) or trend not in ("up", "down"):
             continue
-        opening = session.iloc[:OR_BARS]
+        opening = session.iloc[:or_bars]
         or_high, or_low = opening["high"].max(), opening["low"].min()
         width = or_high - or_low
         base = {"exchange": exchange, "symbol": symbol, "date": day.isoformat(), "trend": trend,
                 "or_high": round(float(or_high), 2), "or_low": round(float(or_low), 2), "atr": round(float(atr), 2)}
-        if width > MAX_OR_ATR * atr or width < MIN_OR_ATR * atr:
-            trades.append({**base, "status": "skipped", "reason": "OR too wide" if width > MAX_OR_ATR * atr else "OR too narrow"})
+        if width > max_or_atr * atr or width < min_or_atr * atr:
+            trades.append({**base, "status": "skipped", "reason": "OR too wide" if width > max_or_atr * atr else "OR too narrow"})
             continue
 
         typical = (session["high"] + session["low"] + session["close"]) / 3
@@ -115,18 +121,18 @@ def _scan_symbol(exchange, symbol, bars, daily):
 
         side = "long" if trend == "up" else "short"
         entry_i = None
-        for i in range(OR_BARS, len(session)):
+        for i in range(or_bars, len(session)):
             bar = session.iloc[i]
             if bar["datetime"].time() > cutoff:
                 break
-            vol_ok = pd.notna(bar["vol_avg"]) and bar["volume"] > bar["vol_avg"]
+            vol_ok = not use_volume or (pd.notna(bar["vol_avg"]) and bar["volume"] > bar["vol_avg"])
             vwap = bar["vwap"]
-            if pd.isna(vwap) or not vol_ok:
+            if (use_vwap and pd.isna(vwap)) or not vol_ok:
                 continue
-            if side == "long" and bar["close"] > or_high and bar["close"] > vwap:
+            if side == "long" and bar["close"] > or_high and (not use_vwap or bar["close"] > vwap):
                 entry_i = i
                 break
-            if side == "short" and bar["close"] < or_low and bar["close"] < vwap:
+            if side == "short" and bar["close"] < or_low and (not use_vwap or bar["close"] < vwap):
                 entry_i = i
                 break
 
@@ -137,11 +143,14 @@ def _scan_symbol(exchange, symbol, bars, daily):
         entry_bar = session.iloc[entry_i]
         entry = float(entry_bar["close"])
         if side == "long":
-            stop = max(or_low, entry - STOP_ATR * atr)
+            stop = max(or_low, entry - stop_atr * atr)
         else:
-            stop = min(or_high, entry + STOP_ATR * atr)
+            stop = min(or_high, entry + stop_atr * atr)
         risk = abs(entry - stop)
         if risk <= 0:
+            continue
+        if risk < min_risk_pct / 100 * entry:
+            trades.append({**base, "status": "skipped", "side": side, "reason": "stop too tight"})
             continue
         target = entry + risk if side == "long" else entry - risk
         sign = 1 if side == "long" else -1

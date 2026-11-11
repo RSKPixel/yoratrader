@@ -444,3 +444,144 @@ export function KbdtFibInfo() {
     </>
   );
 }
+
+export function BacktestInfo() {
+  return (
+    <>
+      <Section title="What it tests">
+        <p className="mb-2">
+          The same code as the live model pages (see their info buttons), run day by day over the last{" "}
+          <B>5 years of 15m candles</B>:
+        </p>
+        <List>
+          <li>
+            <B>Opening Range Breakout</B> in 18 settings: opening range of <B>30, 45 or 60 minutes</B>; stop at the
+            tighter of the opposite range side and <B>0.5× or 1.0× ATR</B>; and a <B>minimum stop</B> of any, 0.6% or
+            1.0% of price (tighter setups are skipped). 30 min · 0.5× ATR · any stop is the live model.
+          </li>
+          <li>
+            <B>Fib Pullback</B> and <B>Key Break + Fib</B> with their live settings.
+          </li>
+          <li>
+            <B>Key Breakout Dow Theory</B>: signals from daily candles. Entry when price trades through the key-break
+            level (at the level, or at the open if it gapped past); stop at the previous day's low (long) or high
+            (short); exit at <B>15:15 on day 1, 3 or 5</B>, counting the entry day as day 1, unless stopped first. The
+            15m candles give the exact entry time and stop checks. One open position per symbol.
+          </li>
+          <li>
+            KBDT <B>stop</B> options: <B>Previous day</B> is the model. <B>Fixed</B> puts the stop 0.5–2% from the entry
+            price instead, so every trade risks about the same. <B>Capped</B> keeps the model stop but never further than
+            that %. With multi-day holds an overnight gap can still open beyond any stop; the exit is then at the open.
+          </li>
+          <li>
+            KBDT is <B>replayed day by day</B>: each day's swings, Dow structure and weekly low-volatility filter are
+            computed only from the 250 daily candles up to that day, as the live scanner would have seen them. Computing
+            them once over the whole history would leak the future, because swing points are confirmed by later candles.
+          </li>
+          <li>
+            The table at the bottom compares every model and setting under the current dataset, cap and slippage.
+          </li>
+        </List>
+      </Section>
+
+      <Section title="Data">
+        <List>
+          <li>
+            Kite keeps no intraday history for expired futures, so the backtest uses <B>NSE cash data</B> as a stand-in.
+            It is stored in its own tables (<code>bt_15m</code>, <code>bt_daily</code>) and never mixes with the live
+            futures data.
+          </li>
+          <li>
+            <B>F&amp;O indices</B>: the five NSE indices with futures (NIFTY 50, NIFTY BANK, NIFTY FIN SERVICE, NIFTY MID
+            SELECT, NIFTY NEXT 50), spot data standing in for their futures. An index has no volume, so ORB's{" "}
+            <B>volume and VWAP filters are off</B>; everything else is the same. The other models don't use volume.
+          </li>
+          <li>
+            <B>Nifty 50 stocks</B>: today's 50 constituents from niftyindices.com, cash market with volume, full model.
+          </li>
+          <li>
+            Daily candles start about 4 months before the first 15m day, so the SMA50 trend and ATR(14) are ready from
+            the start.
+          </li>
+          <li>
+            <B>Update data</B> downloads only candles newer than the last stored ones, then reruns every model and
+            setting (a few minutes).
+          </li>
+        </List>
+      </Section>
+
+      <Section title="Costs">
+        <List>
+          <li>
+            <B>R</B> is before costs. <B>Net R</B> subtracts NSE futures charges and slippage, converted to R using each
+            trade's own risk: STT 0.05% on the sell side, exchange 0.00173% and SEBI on both sides, stamp 0.002% on the
+            buy side, ₹20 per order brokerage (3 orders if T1 is hit) and 18% GST.
+          </li>
+          <li>
+            Brokerage is turned into a percentage using an assumed one-lot value of ₹15 lakh for NIFTY and ₹7 lakh for a
+            stock. It is a small part of the cost either way.
+          </li>
+          <li>
+            <B>Slippage</B> is applied on both the entry and the exit, as a percent of price. 0.02% is a fair guess for
+            NIFTY futures; liquid stock futures are often 0.02–0.05%.
+          </li>
+          <li>Charges use today's rates for the whole period (STT on futures was lower before April 2026).</li>
+        </List>
+      </Section>
+
+      <Section title="Rupees">
+        <List>
+          <li>
+            <B>₹ per lot</B> converts each trade's net R into rupees for one futures lot: R × the stop distance in points ×
+            the lot size.
+          </li>
+          <li>
+            It uses <B>today's lot sizes</B> (NIFTY 65, BANKNIFTY 30, FINNIFTY 60, MIDCPNIFTY 120, NIFTYNXT50 25, and each
+            stock's current lot). Lot sizes changed over the 5 years, so older trades are shown as if traded at today's
+            size.
+          </li>
+          <li>
+            Totals and drawdown assume one lot on every trade, including trades in different indices open at the same
+            time.
+          </li>
+        </List>
+      </Section>
+
+      <Section title="Biases to keep in mind">
+        <List>
+          <li>
+            <B>Survivorship</B>: the stock list is today's NIFTY 50. Stocks that dropped out over the 5 years are
+            missing, and the ones that stayed tended to do well. This flatters the stock results.
+          </li>
+          <li>
+            <B>Cash vs futures</B>: futures trade at a premium to cash and have their own volume, so live fills and the
+            volume filter will differ a little.
+          </li>
+          <li>
+            <B>Fills</B>: entries at the 15m candle close and stops exactly at the stop price. If one candle touches both
+            stop and target, the stop is assumed to come first.
+          </li>
+          <li>
+            <B>Cap</B>: with several stocks breaking out on the same candle, the cap keeps the tightest stops first. Tight
+            stops make costs larger in R, so try 0.02–0.05% slippage before trusting a cap setting.
+          </li>
+        </List>
+      </Section>
+
+      <Section title="Reading the page">
+        <List>
+          <li>
+            <B>Profit factor</B>: net winning R ÷ net losing R. Above 1 makes money; 1.2+ starts to be interesting.
+          </li>
+          <li>
+            <B>Max drawdown</B>: the largest fall in cumulative net R from a peak. Hover it for the t-stat; above about 2
+            means the average result is unlikely to be luck.
+          </li>
+          <li>
+            <B>Net R by month</B>: green and red cells, darker for bigger months. Click one to list its trades.
+          </li>
+        </List>
+      </Section>
+    </>
+  );
+}

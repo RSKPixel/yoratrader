@@ -17,6 +17,7 @@ from intraday import download_intraday
 from kbdt_scan import scan_kbdt
 from ut_data import build_ut_data
 import auth
+import backtest
 import kite_auth
 import fib
 import kbdtfib
@@ -458,6 +459,132 @@ def model_refresh(model: str, universe: str = Query("index"), max_per_day: int =
         "summary": orb.summarize(trades),
         "download": {"symbols": result["symbols"], "candles": result["candles"], "errors": result["errors"]},
     }
+
+
+backtest_job = {"id": None}
+
+
+@app.post("/api/backtest/orb/download")
+def backtest_download():
+    """Download or top up 5 years of NIFTY 50 data, then rerun the ORB backtest."""
+    current = jobs.get(backtest_job["id"]) if backtest_job["id"] else None
+    if current and current.get("status") == "running":
+        return {"status": "success", "job_id": backtest_job["id"]}
+    job_id = uuid.uuid4().hex
+    backtest_job["id"] = job_id
+    jobs[job_id] = {"status": "running", "phase": "download", "done": 0, "total": 56, "symbol": "", "candles": 0, "errors": []}
+    ws_hub.notify({"type": "status", "level": "info", "message": "Backtest data download started", "job_id": job_id})
+
+    def on_progress(state):
+        jobs[job_id] = state
+        if state.get("status") == "running" and state.get("symbol"):
+            if state.get("phase") == "download":
+                message = f"Backtest data {state['done'] + 1}/{state['total']}: {state['symbol']}"
+            else:
+                message = "Running the backtest: all models and settings"
+            ws_hub.notify({"type": "status", "level": "info", "message": message, "job_id": job_id})
+        elif state.get("status") == "completed":
+            failed = len(state.get("errors") or [])
+            suffix = f" ({failed} failed)" if failed else ""
+            ws_hub.notify({"type": "status", "level": "success" if not failed else "info",
+                           "message": f"Backtest updated. Saved {state.get('candles', 0)} 15m candles{suffix}",
+                           "job_id": job_id})
+
+    def run():
+        try:
+            backtest.download(on_progress)
+        except Exception as error:
+            print("Backtest download failed:", error)
+            jobs[job_id] = {"status": "error", "message": str(error), "phase": "download", "done": 0, "total": 0,
+                            "symbol": "", "candles": 0, "errors": []}
+            ws_hub.notify({"type": "status", "level": "error", "message": f"Backtest download failed: {error}",
+                           "job_id": job_id})
+
+    threading.Thread(target=run, daemon=True).start()
+    return {"status": "success", "job_id": job_id}
+
+
+@app.get("/api/backtest/orb/job")
+def backtest_job_status():
+    job = jobs.get(backtest_job["id"]) if backtest_job["id"] else None
+    return {"status": "success", "job": job}
+
+
+def _backtest_params(dataset, slippage, model=None, variant=None):
+    if dataset not in backtest.DATASETS:
+        raise HTTPException(status_code=400, detail=f"dataset must be one of {', '.join(backtest.DATASETS)}")
+    if model is not None and variant not in backtest.VARIANTS.get(model, {}):
+        raise HTTPException(status_code=400, detail=f"unknown model/variant {model}/{variant}")
+    # slippage arrives as percent per side (0.02 = 0.02%)
+    return slippage / 100
+
+
+@app.get("/api/backtest/orb")
+def backtest_results(model: str = Query("orb"), variant: str = Query(backtest.ORB_LIVE),
+                     dataset: str = Query("indices"), max_per_day: int = Query(3, ge=0),
+                     slippage: float = Query(0.02, ge=0, le=1)):
+    slip = _backtest_params(dataset, slippage, model, variant)
+    try:
+        return {"status": "success", **backtest.results(model, variant, dataset, max_per_day, slip)}
+    except Exception as error:
+        print("Backtest results failed:", error)
+        return {"status": "error", "message": str(error)}
+
+
+@app.get("/api/backtest/orb/trades")
+def backtest_trades(month: str = Query(..., pattern=r"^\d{4}-\d{2}$"), model: str = Query("orb"),
+                    variant: str = Query(backtest.ORB_LIVE), dataset: str = Query("indices"),
+                    max_per_day: int = Query(3, ge=0), slippage: float = Query(0.02, ge=0, le=1)):
+    slip = _backtest_params(dataset, slippage, model, variant)
+    return {"status": "success", "data": backtest.month_trades(model, variant, dataset, month, max_per_day, slip)}
+
+
+@app.get("/api/backtest/orb/compare")
+def backtest_compare(dataset: str = Query("indices"), max_per_day: int = Query(3, ge=0),
+                     slippage: float = Query(0.02, ge=0, le=1)):
+    slip = _backtest_params(dataset, slippage)
+    try:
+        return {"status": "success", "data": backtest.compare(dataset, max_per_day, slip)}
+    except Exception as error:
+        print("Backtest compare failed:", error)
+        return {"status": "error", "message": str(error)}
+
+
+@app.get("/api/backtest/kbdt/signals")
+def backtest_kbdt_signals(exit: str = Query("5d", pattern=r"^[135]d$"), stop_mode: str = Query("model"),
+                          stop_pct: float = Query(0.75, gt=0, le=5), slippage: float = Query(0.02, ge=0, le=1),
+                          days: int = Query(0, ge=0, le=400)):
+    """KBDT signals on the index futures: all available days (days=0) or the last N trading days."""
+    if stop_mode not in ("model", "fixed", "cap"):
+        raise HTTPException(status_code=400, detail="stop_mode must be model, fixed or cap")
+    try:
+        data = backtest.recent_kbdt_signals(int(exit[0]), stop_mode, None if stop_mode == "model" else stop_pct,
+                                            slippage / 100, days or None)
+        return {"status": "success", **data}
+    except Exception as error:
+        print("KBDT signals failed:", error)
+        return {"status": "error", "message": str(error)}
+
+
+@app.get("/api/kbdt/setups")
+def kbdt_next_setups():
+    """KBDT setups for the next session on the index futures."""
+    try:
+        return {"status": "success", "data": backtest.kbdt_setups()}
+    except Exception as error:
+        print("KBDT setups failed:", error)
+        return {"status": "error", "message": str(error)}
+
+
+@app.get("/api/kbdt/ltp")
+def kbdt_ltp():
+    """Live last traded price of the index futures (current contracts)."""
+    try:
+        from datetime import datetime as _dt
+        return {"status": "success", "data": backtest.index_futures_ltp(), "at": _dt.now().strftime("%H:%M:%S")}
+    except Exception as error:
+        print("LTP failed:", error)
+        return {"status": "error", "message": str(error)}
 
 
 @app.get("/api/eod/{job_id}")
