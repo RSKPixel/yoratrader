@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import CandleModal from "./CandleModal";
 import KbdtPage from "./KbdtPage";
 import IntradayModelPage from "./IntradayModelPage";
+import { FibInfo, KbdtFibInfo, OrbInfo } from "./ModelInfoModal";
 import SettingsPage from "./SettingsPage";
 import { displayName, useAuth } from "./AuthGate";
 import StatusBar from "./StatusBar";
@@ -33,16 +34,19 @@ const INTRADAY_MODELS = {
     title: "Opening Range Breakout · 15m",
     description:
       "First 30-min range, daily SMA50 trend, VWAP and volume filter. Stop: opposite OR side or 0.5× ATR. Half off at 1R, rest trails 2 bars, flat at session end. Results in R before costs.",
+    info: OrbInfo,
   },
   fib: {
     title: "Fib Pullback · 15m",
     description:
       "Opening drive of at least 0.6× daily ATR in the SMA50 trend direction, pullback to 50–61.8%, enter on a reversal bar. Stop beyond 78.6% or the pullback low. Half off at the impulse high, rest at the 127.2% extension, flat at session end. Results in R before costs.",
+    info: FibInfo,
   },
   kbdtfib: {
     title: "Key Break + Fib · 15m",
     description:
       "Dow key break on 15m swings in the SMA50 trend direction sets the side. Enter on a reversal bar after a pullback into 38.2–61.8% of the break leg. Stop beyond 78.6% or the pullback low. Half off at the leg high, rest at the 161.8% extension; an opposite key break or session end closes it. Results in R before costs.",
+    info: KbdtFibInfo,
   },
 };
 

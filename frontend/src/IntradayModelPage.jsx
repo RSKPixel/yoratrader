@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import CandleModal from "./CandleModal";
-import { DailyWinRateModal } from "./DailyWinRateChart";
+import { PERIODS, WinRateModal, bucket } from "./DailyWinRateChart";
+import ModelInfoModal, { InfoButton } from "./ModelInfoModal";
 
 function formatPrice(value) {
   if (value == null || Number.isNaN(Number(value))) return "—";
@@ -20,12 +21,15 @@ function rClass(value) {
 function summarize(list) {
   const closed = list.filter((t) => t.status === "closed");
   const total = list.reduce((sum, t) => sum + (t.r || 0), 0);
+  const profits = list.map(tradeProfit).filter(Boolean);
   return {
     trades: list.length,
     open: list.length - closed.length,
     win_rate: list.length ? Math.round((list.filter((t) => t.r > 0).length / list.length) * 1000) / 10 : null,
     total_r: Math.round(total * 100) / 100,
     avg_r: list.length ? Math.round((total / list.length) * 100) / 100 : null,
+    net_profit: profits.length ? profits.reduce((sum, p) => sum + p.net, 0) : null,
+    profit_excluded: list.length - profits.length,
   };
 }
 
@@ -104,14 +108,38 @@ function formatRupees(value) {
   return `${sign}₹${Math.abs(value).toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
 }
 
-function Stat({ label, value, className = "" }) {
+function Stat({ label, value, className = "", title }) {
   return (
-    <div className="rounded-md border border-[#2c313a] bg-[#181b20] px-4 py-3">
+    <div className="rounded-md border border-[#2c313a] bg-[#181b20] px-4 py-3" title={title}>
       <p className="text-xs uppercase tracking-[0.14em] text-[#6f6a62]">{label}</p>
       <p className={`mt-1 font-mono text-lg ${className}`}>{value}</p>
     </div>
   );
 }
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+function shortDate(iso) {
+  return `${Number(iso.slice(8, 10))} ${MONTHS[Number(iso.slice(5, 7)) - 1]}`;
+}
+
+// Week key is its Monday; label runs Monday to Sunday.
+function weekLabel(monday) {
+  const end = new Date(`${monday}T00:00:00Z`);
+  end.setUTCDate(end.getUTCDate() + 6);
+  return `${shortDate(monday)} – ${shortDate(end.toISOString().slice(0, 10))} ${end.getUTCFullYear()}`;
+}
+
+function monthLabel(first) {
+  return `${MONTHS[Number(first.slice(5, 7)) - 1]} ${first.slice(0, 4)}`;
+}
+
+const RANGES = [
+  ["day", "Day"],
+  ["week", "Week"],
+  ["month", "Month"],
+  ["all", "All days"],
+];
 
 const UNIVERSES = [
   ["all", "All"],
@@ -128,19 +156,18 @@ const CAPS = [
   [0, "No cap"],
 ];
 
-const FILTERS = [
-  ["latest", "Latest day"],
-  ["all", "All trades"],
-];
-
-export default function IntradayModelPage({ model, title, description }) {
+export default function IntradayModelPage({ model, title, description, info: Info }) {
   const [trades, setTrades] = useState([]);
   const [summary, setSummary] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [filter, setFilter] = useState("latest");
+  const [filter, setFilter] = useState("day");
+  const [selectedDay, setSelectedDay] = useState("");
+  const [selectedWeek, setSelectedWeek] = useState("");
+  const [selectedMonth, setSelectedMonth] = useState("");
   const [chartTrade, setChartTrade] = useState(null);
-  const [showWinRate, setShowWinRate] = useState(false);
+  const [winRatePeriod, setWinRatePeriod] = useState(null);
+  const [showInfo, setShowInfo] = useState(false);
   const [universe, setUniverse] = useState("index");
   const [maxPerDay, setMaxPerDay] = useState(5);
 
@@ -179,10 +206,37 @@ export default function IntradayModelPage({ model, title, description }) {
 
   const taken = useMemo(() => trades.filter((t) => t.status === "closed" || t.status === "open"), [trades]);
   const latestDay = useMemo(() => taken.reduce((max, t) => (t.date > max ? t.date : max), ""), [taken]);
+  const firstDay = useMemo(() => taken.reduce((min, t) => (!min || t.date < min ? t.date : min), ""), [taken]);
+  // Until a day is picked, follow the latest day with trades.
+  const activeDay = selectedDay || latestDay;
+  // Weeks and months that have trades, newest first.
+  const weeks = useMemo(() => [...new Set(taken.map((t) => bucket(t.date, "week")))].sort().reverse(), [taken]);
+  const months = useMemo(() => [...new Set(taken.map((t) => bucket(t.date, "month")))].sort().reverse(), [taken]);
+  const activeWeek = weeks.includes(selectedWeek) ? selectedWeek : weeks[0] || "";
+  const activeMonth = months.includes(selectedMonth) ? selectedMonth : months[0] || "";
+  const rangeLabel =
+    filter === "day"
+      ? activeDay || "—"
+      : filter === "week"
+        ? activeWeek
+          ? `week ${weekLabel(activeWeek)}`
+          : "—"
+        : filter === "month"
+          ? activeMonth
+            ? monthLabel(activeMonth)
+            : "—"
+          : "all days";
   const rows = useMemo(() => {
-    const list = filter === "latest" ? taken.filter((t) => t.date === latestDay) : taken;
+    const list =
+      filter === "day"
+        ? taken.filter((t) => t.date === activeDay)
+        : filter === "week"
+          ? taken.filter((t) => bucket(t.date, "week") === activeWeek)
+          : filter === "month"
+            ? taken.filter((t) => bucket(t.date, "month") === activeMonth)
+            : taken;
     return [...list].sort((a, b) => (a.date === b.date ? a.entry_time - b.entry_time : a.date < b.date ? 1 : -1));
-  }, [taken, filter, latestDay]);
+  }, [taken, filter, activeDay, activeWeek, activeMonth]);
 
   // Summarise exactly the trades in the table; open trades are marked to the last bar.
   const shown = useMemo(() => (summary ? summarize(rows) : null), [summary, rows]);
@@ -191,7 +245,10 @@ export default function IntradayModelPage({ model, title, description }) {
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
       <header className="mb-6 flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
+          <div className="flex items-center gap-2">
+            <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
+            {Info && <InfoButton onClick={() => setShowInfo(true)} label="How this model works" />}
+          </div>
           <p className="mt-1 max-w-3xl text-sm text-[#9b968c]">{description}</p>
         </div>
         <div className="flex flex-col items-end gap-1">
@@ -221,14 +278,24 @@ export default function IntradayModelPage({ model, title, description }) {
       {shown && (
         <>
           <p className="mb-2 text-xs uppercase tracking-[0.14em] text-[#6f6a62]">
-            {filter === "latest" ? `Result for ${latestDay || "—"}` : "All days"}
+            {filter === "all" ? "All days" : `Result for ${rangeLabel}`}
           </p>
-          <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-5">
+          <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-6">
             <Stat label="Trades" value={shown.trades} />
             <Stat label="Open" value={shown.open} />
             <Stat label="Win rate" value={shown.win_rate == null ? "—" : `${shown.win_rate}%`} />
             <Stat label="Total" value={formatR(shown.total_r)} className={rClass(shown.total_r)} />
             <Stat label="Avg / trade" value={formatR(shown.avg_r)} className={rClass(shown.avg_r)} />
+            <Stat
+              label="Net profit"
+              value={formatRupees(shown.net_profit)}
+              className={rClass(shown.net_profit)}
+              title={
+                shown.profit_excluded > 0
+                  ? `One lot per trade, after charges. ${shown.profit_excluded} trade(s) excluded (MCX or missing lot size).`
+                  : "One lot per trade, after charges"
+              }
+            />
           </div>
         </>
       )}
@@ -268,27 +335,72 @@ export default function IntradayModelPage({ model, title, description }) {
             </button>
           ))}
         </div>
-        {FILTERS.map(([id, label]) => (
-          <button
-            key={id}
-            type="button"
-            onClick={() => setFilter(id)}
-            className={`rounded-md px-3 py-1.5 text-sm ${
-              filter === id ? "bg-[#e2c08a]/15 text-[#e2c08a]" : "text-[#9b968c] hover:bg-white/5"
-            }`}
+        <div className="mr-2 flex overflow-hidden rounded-md border border-[#2c313a]">
+          {RANGES.map(([id, label]) => (
+            <button
+              key={id}
+              type="button"
+              onClick={() => setFilter(id)}
+              className={`px-3 py-1.5 text-sm ${
+                filter === id ? "bg-[#e2c08a]/15 text-[#e2c08a]" : "text-[#9b968c] hover:bg-white/5"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        {filter === "day" && (
+          <input
+            type="date"
+            value={activeDay}
+            min={firstDay || undefined}
+            max={latestDay || undefined}
+            onChange={(e) => setSelectedDay(e.target.value)}
+            aria-label="Trade day"
+            className="rounded-md border border-[#2c313a] bg-[#181b20] px-2 py-1 font-mono text-sm text-[#e2c08a] [color-scheme:dark]"
+          />
+        )}
+        {filter === "week" && (
+          <select
+            value={activeWeek}
+            onChange={(e) => setSelectedWeek(e.target.value)}
+            aria-label="Trade week"
+            className="rounded-md border border-[#2c313a] bg-[#181b20] px-2 py-1.5 font-mono text-sm text-[#e2c08a] [color-scheme:dark]"
           >
-            {label}
-            {id === "latest" && latestDay ? ` (${latestDay})` : ""}
-          </button>
-        ))}
-        <button
-          type="button"
-          onClick={() => setShowWinRate(true)}
-          disabled={taken.length === 0}
-          className="ml-auto rounded-md border border-[#2c313a] px-3 py-1.5 text-sm text-[#c8c3b8] hover:bg-white/5 disabled:opacity-40"
-        >
-          Daily win rate
-        </button>
+            {weeks.map((w) => (
+              <option key={w} value={w}>
+                {weekLabel(w)}
+              </option>
+            ))}
+          </select>
+        )}
+        {filter === "month" && (
+          <select
+            value={activeMonth}
+            onChange={(e) => setSelectedMonth(e.target.value)}
+            aria-label="Trade month"
+            className="rounded-md border border-[#2c313a] bg-[#181b20] px-2 py-1.5 font-mono text-sm text-[#e2c08a] [color-scheme:dark]"
+          >
+            {months.map((m) => (
+              <option key={m} value={m}>
+                {monthLabel(m)}
+              </option>
+            ))}
+          </select>
+        )}
+        <div className="ml-auto flex gap-1">
+          {Object.entries(PERIODS).map(([period, { label }]) => (
+            <button
+              key={period}
+              type="button"
+              onClick={() => setWinRatePeriod(period)}
+              disabled={taken.length === 0}
+              className="rounded-md border border-[#2c313a] px-3 py-1.5 text-sm text-[#c8c3b8] hover:bg-white/5 disabled:opacity-40"
+            >
+              {label} win rate
+            </button>
+          ))}
+        </div>
         <p className="ml-3 font-mono text-xs text-[#6f6a62]">{rows.length} trades</p>
       </div>
 
@@ -296,7 +408,9 @@ export default function IntradayModelPage({ model, title, description }) {
         {error && <p className="px-4 py-10 text-center text-sm text-[#f0b4b4]">{error}</p>}
         {!error && !loading && rows.length === 0 && (
           <p className="px-4 py-10 text-center text-sm text-[#9b968c]">
-            No trades. Download iData (and EOD for the trend filter) first.
+            {taken.length > 0 && filter === "day"
+              ? `No trades on ${activeDay}.`
+              : "No trades. Download iData (and EOD for the trend filter) first."}
           </p>
         )}
         {rows.length > 0 && (
@@ -359,8 +473,19 @@ export default function IntradayModelPage({ model, title, description }) {
         )}
       </section>
 
-      {showWinRate && (
-        <DailyWinRateModal trades={taken} title={`${title} · daily win rate`} onClose={() => setShowWinRate(false)} />
+      {showInfo && Info && (
+        <ModelInfoModal title={`How ${title} works`} onClose={() => setShowInfo(false)}>
+          <Info />
+        </ModelInfoModal>
+      )}
+
+      {winRatePeriod && (
+        <WinRateModal
+          trades={taken}
+          period={winRatePeriod}
+          title={`${title} · ${PERIODS[winRatePeriod].label.toLowerCase()} win rate`}
+          onClose={() => setWinRatePeriod(null)}
+        />
       )}
 
       {chartTrade && (
