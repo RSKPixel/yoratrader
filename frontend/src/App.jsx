@@ -3,6 +3,7 @@ import CandleModal from "./CandleModal";
 import KbdtPage from "./KbdtPage";
 import IntradayModelPage from "./IntradayModelPage";
 import SettingsPage from "./SettingsPage";
+import { displayName, useAuth } from "./AuthGate";
 import StatusBar from "./StatusBar";
 import UtDataModal from "./UtDataModal";
 import { logEvent } from "./eventLog";
@@ -46,7 +47,6 @@ const INTRADAY_MODELS = {
 };
 
 function wsUrl() {
-  if (import.meta.env.DEV) return "ws://127.0.0.1:8091/ws/events";
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
   return `${protocol}//${window.location.host}/ws/events`;
 }
@@ -58,6 +58,7 @@ function navItemClass(active) {
 }
 
 export default function App() {
+  const { user, logout } = useAuth();
   const [activePage, setActivePage] = useState("indian-market");
   const [exchange, setExchange] = useState("ALL");
   const [query, setQuery] = useState("");
@@ -536,6 +537,16 @@ export default function App() {
           <span className="text-[#f3efe6]">YORA</span>
           <span className="text-[#e2c08a]">TRADER</span>
         </span>
+        <div className="ml-auto flex items-center gap-3 text-sm">
+          <span className="text-xs text-[#9b968c]">{displayName(user)}</span>
+          <button
+            type="button"
+            onClick={logout}
+            className="rounded-md border border-[#2c313a] px-3 py-1 text-xs text-[#c8c3b8] hover:bg-white/5"
+          >
+            Log out
+          </button>
+        </div>
       </header>
 
       <div className="flex min-h-0 flex-1">

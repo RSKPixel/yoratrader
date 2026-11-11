@@ -707,3 +707,39 @@ def fetch_kbdt_signals():
             scanned_at,
         ) in rows
     ]
+
+
+def _ensure_app_settings(cursor):
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS app_settings (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL,
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+        """
+    )
+
+
+def get_settings(keys):
+    """Return {key: value} for the keys present in app_settings."""
+    with connect() as conn:
+        with conn.cursor() as cursor:
+            _ensure_app_settings(cursor)
+            cursor.execute("SELECT key, value FROM app_settings WHERE key = ANY(%s)", (list(keys),))
+            return dict(cursor.fetchall())
+
+
+def set_settings(values):
+    """Upsert {key: value} into app_settings."""
+    with connect() as conn:
+        with conn.cursor() as cursor:
+            _ensure_app_settings(cursor)
+            execute_values(
+                cursor,
+                """
+                INSERT INTO app_settings (key, value) VALUES %s
+                ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()
+                """,
+                list(values.items()),
+            )

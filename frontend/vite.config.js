@@ -5,13 +5,14 @@ import tailwindcss from "@tailwindcss/vite";
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   server: {
-    host: "127.0.0.1",
-    port: 5180,
+    host: true, // listen on all interfaces so Tailscale can reach it
+    allowedHosts: ["homeserver", "homeserver.tailfef550.ts.net"],
+    port: 3001,
     strictPort: true,
     proxy: {
-      "/api": "http://127.0.0.1:8091",
+      "/api": "http://127.0.0.1:4001",
       "/ws": {
-        target: "ws://127.0.0.1:8091",
+        target: "ws://127.0.0.1:4001",
         ws: true,
       },
     },

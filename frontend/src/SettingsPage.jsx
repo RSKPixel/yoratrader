@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import KiteTokenPanel from "./KiteTokenPanel";
+import ProfilePanel from "./ProfilePanel";
 import { clearEventLog, getEventLog, subscribeEventLog } from "./eventLog";
 
 function levelClass(level) {
@@ -143,6 +144,7 @@ export default function SettingsPage({ wsState }) {
         {[
           ["diagnostics", "Diagnostics"],
           ["kite", "Kite"],
+          ["profile", "Profile"],
         ].map(([id, label]) => (
           <button
             key={id}
@@ -159,6 +161,8 @@ export default function SettingsPage({ wsState }) {
 
       {tab === "kite" ? (
         <KiteTokenPanel />
+      ) : tab === "profile" ? (
+        <ProfilePanel />
       ) : (
         <>
 

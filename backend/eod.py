@@ -1,11 +1,10 @@
-import os
 import time
 from datetime import date, timedelta
 from pathlib import Path
 
 from dotenv import load_dotenv
-from kiteconnect import KiteConnect
 
+import kite_auth
 from contracts import list_contracts
 from db import store_eod
 
@@ -24,13 +23,7 @@ def download_eod(symbols, on_progress=None):
         report(status="completed", done=0, total=0, symbol="", candles=0, errors=[])
         return {"symbols": 0, "candles": 0, "errors": []}
 
-    api_key = os.environ.get("KITE_API_KEY", "")
-    access_token = os.environ.get("KITE_ACCESS_TOKEN", "")
-    if not api_key or not access_token:
-        raise RuntimeError("KITE_API_KEY and KITE_ACCESS_TOKEN are required")
-
-    kite = KiteConnect(api_key=api_key)
-    kite.set_access_token(access_token)
+    kite = kite_auth.trading_client()
     today = date.today()
     candles = 0
     errors = []

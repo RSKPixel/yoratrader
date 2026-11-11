@@ -13,6 +13,25 @@ function CredentialsSection({ onSaved }) {
   const [apiSecret, setApiSecret] = useState("");
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState(null);
+  const [revealed, setRevealed] = useState(null);
+  const [revealing, setRevealing] = useState(false);
+
+  const toggleReveal = async () => {
+    if (revealed) {
+      setRevealed(null);
+      return;
+    }
+    setRevealing(true);
+    try {
+      const response = await fetch("/api/kite/credentials/reveal", { cache: "no-store" });
+      const body = await response.json().catch(() => ({}));
+      if (response.ok) setRevealed(body);
+      else setResult({ ok: false, message: body.detail || `Request failed (${response.status})` });
+    } catch (error) {
+      setResult({ ok: false, message: String(error?.message || error) });
+    }
+    setRevealing(false);
+  };
 
   useEffect(() => {
     fetch("/api/kite/credentials")
@@ -34,9 +53,10 @@ function CredentialsSection({ onSaved }) {
       const body = await response.json().catch(() => ({}));
       if (response.ok) {
         setCreds(body);
+        setRevealed(null);
         setApiKey("");
         setApiSecret("");
-        setResult({ ok: true, message: "Saved to backend/.env" });
+        setResult({ ok: true, message: "Saved to database" });
         onSaved?.();
       } else {
         setResult({ ok: false, message: body.detail || `Request failed (${response.status})` });
@@ -53,13 +73,38 @@ function CredentialsSection({ onSaved }) {
   return (
     <section className="rounded-md border border-[#2c313a] bg-[#181b20] p-4 md:col-span-2">
       <h2 className="text-xs font-medium uppercase tracking-[0.14em] text-[#6f6a62]">API credentials</h2>
-      <p className="mt-2 font-mono text-xs text-[#9b968c]">
-        API key: <span className="text-[#c8c3b8]">{creds?.has_api_key ? creds.api_key : "not set"}</span>
-        {" · "}API secret:{" "}
-        <span className={creds?.has_api_secret ? "text-[#8fbf9f]" : "text-[#f0b4b4]"}>
-          {creds?.has_api_secret ? "set" : "not set"}
-        </span>
-      </p>
+      <div className="mt-2 flex flex-wrap items-start gap-x-3 gap-y-2 font-mono text-xs text-[#9b968c]">
+        {revealed ? (
+          <dl className="min-w-0 flex-1 space-y-1">
+            <div className="flex gap-2">
+              <dt className="shrink-0">API key:</dt>
+              <dd className="select-all break-all text-[#e7e4dc]">{revealed.api_key || "not set"}</dd>
+            </div>
+            <div className="flex gap-2">
+              <dt className="shrink-0">API secret:</dt>
+              <dd className="select-all break-all text-[#e7e4dc]">{revealed.api_secret || "not set"}</dd>
+            </div>
+          </dl>
+        ) : (
+          <p className="min-w-0 flex-1">
+            API key: <span className="text-[#c8c3b8]">{creds?.has_api_key ? creds.api_key : "not set"}</span>
+            {" · "}API secret:{" "}
+            <span className={creds?.has_api_secret ? "text-[#8fbf9f]" : "text-[#f0b4b4]"}>
+              {creds?.has_api_secret ? "set" : "not set"}
+            </span>
+          </p>
+        )}
+        {(creds?.has_api_key || creds?.has_api_secret) && (
+          <button
+            type="button"
+            onClick={toggleReveal}
+            disabled={revealing}
+            className="rounded-md border border-[#2c313a] px-2 py-0.5 font-sans text-xs text-[#c8c3b8] hover:bg-white/5 disabled:opacity-40"
+          >
+            {revealing ? "Loading…" : revealed ? "Hide" : "Show"}
+          </button>
+        )}
+      </div>
       <form onSubmit={save} className="mt-3 flex flex-wrap gap-2">
         <input
           value={apiKey}

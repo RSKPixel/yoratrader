@@ -5,7 +5,7 @@ import threading
 import uuid
 
 import uvicorn
-from fastapi import FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Query, Request, Response, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from pydantic import BaseModel
@@ -16,6 +16,7 @@ from eod import download_eod
 from intraday import download_intraday
 from kbdt_scan import scan_kbdt
 from ut_data import build_ut_data
+import auth
 import kite_auth
 import fib
 import kbdtfib
@@ -35,11 +36,12 @@ async def startup():
 def _cors_origins():
     raw = os.environ.get(
         "CORS_ORIGINS",
-        "http://127.0.0.1:5180,http://localhost:5180,http://127.0.0.1:8007,http://localhost:8007",
+        "http://127.0.0.1:3001,http://localhost:3001,http://127.0.0.1:8007,http://localhost:8007",
     )
     return [origin.strip() for origin in raw.split(",") if origin.strip()]
 
 
+app.add_middleware(auth.AuthMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins(),
@@ -67,6 +69,75 @@ class KiteSessionRequest(BaseModel):
 class KiteCredentialsRequest(BaseModel):
     api_key: str = ""
     api_secret: str = ""
+
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+class NameRequest(BaseModel):
+    display_name: str = ""
+
+
+class PasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+
+@app.post("/api/auth/login")
+def auth_login(req: LoginRequest, response: Response):
+    try:
+        token = auth.login(req.username, req.password)
+    except auth.LoginLocked as exc:
+        raise HTTPException(status_code=429, detail=str(exc))
+    if not token:
+        if auth.user_count() == 0:
+            raise HTTPException(status_code=401, detail="No user set up yet. Run backend/manage_user.py on the server.")
+        raise HTTPException(status_code=401, detail="Incorrect user ID or password.")
+    response.set_cookie(value=token, max_age=auth.SESSION_DAYS * 86400, **auth.cookie_kwargs())
+    return {"user": auth.session_user(token)}
+
+
+@app.post("/api/auth/logout")
+def auth_logout(request: Request, response: Response):
+    auth.logout(request.cookies.get(auth.COOKIE_NAME))
+    response.delete_cookie(**auth.cookie_kwargs())
+    return {"ok": True}
+
+
+@app.get("/api/auth/me")
+def auth_me(request: Request):
+    return {"user": request.state.user}
+
+
+@app.post("/api/auth/name")
+def auth_name(req: NameRequest, request: Request):
+    try:
+        return {"user": auth.set_display_name(request.state.user["id"], req.display_name)}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.post("/api/auth/password")
+def auth_password(req: PasswordRequest, request: Request):
+    try:
+        user = auth.change_password(
+            request.state.user["id"],
+            req.current_password,
+            req.new_password,
+            keep_token=request.cookies.get(auth.COOKIE_NAME),
+        )
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"user": user}
+
+
+@app.get("/api/kite/credentials/reveal")
+def kite_reveal_credentials():
+    return kite_auth.reveal_credentials()
 
 
 @app.get("/api/kite/credentials")
@@ -597,4 +668,4 @@ def kbdt_scan(body: KbdtScanRequest):
 
 
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="127.0.0.1", port=8091, reload=True)
+    uvicorn.run("main:app", host="127.0.0.1", port=4001, reload=True)

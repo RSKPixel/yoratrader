@@ -3,15 +3,15 @@
   "configurations": [
     {
       "name": "backend",
-      "runtimeExecutable": "/Users/saravanakumar/Dev/yoratrader/backend/venv/bin/uvicorn",
-      "runtimeArgs": ["main:app", "--app-dir", "backend", "--host", "127.0.0.1", "--port", "8091", "--reload"],
-      "port": 8091
+      "runtimeExecutable": "/home/saravanakumar/dev/yoratrader/backend/venv/bin/uvicorn",
+      "runtimeArgs": ["main:app", "--app-dir", "backend", "--host", "127.0.0.1", "--port", "4001", "--reload"],
+      "port": 4001
     },
     {
       "name": "frontend",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["--prefix", "frontend", "run", "dev"],
-      "port": 5180
+      "port": 3001
     }
   ]
 }

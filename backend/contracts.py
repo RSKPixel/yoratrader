@@ -1,11 +1,10 @@
-import os
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import pandas as pd
 from dotenv import load_dotenv
-from kiteconnect import KiteConnect
 
+import kite_auth
 from db import store_instruments, stored_previous_expiries
 
 load_dotenv(Path(__file__).resolve().parent / ".env", override=True)
@@ -35,13 +34,7 @@ def _current_contracts():
     if _cache["rows"] is not None and datetime.now() - _cache["at"] < CACHE_FOR:
         return _cache["rows"]
 
-    api_key = os.environ.get("KITE_API_KEY", "")
-    access_token = os.environ.get("KITE_ACCESS_TOKEN", "")
-    if not api_key or not access_token:
-        raise RuntimeError("KITE_API_KEY and KITE_ACCESS_TOKEN are required")
-
-    kite = KiteConnect(api_key=api_key)
-    kite.set_access_token(access_token)
+    kite = kite_auth.trading_client()
     today = pd.Timestamp(date.today())
     known_previous = stored_previous_expiries()
     frames = []
