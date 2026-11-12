@@ -40,6 +40,7 @@ import fib
 import kbdtfib
 import kite_auth
 import orb
+import strategies
 from db import connect, stored_lot_sizes
 from enrich import enrich_eod
 from universaltrader.ut import signals2
@@ -87,8 +88,23 @@ VARIANTS = {
            for n in (1, 3, 5) for mode in ("fixed", "cap") for pct in (0.5, 0.75, 1.0, 1.5, 2.0)},
     },
 }
+# The six mechanical strategies in strategies.py.
+VARIANTS.update({
+    "nrib": {f"nr{n}-{h}d-{trend}": {"n": n, "hold_days": h, "trend": trend}
+             for n in (4, 7) for h in (1, 3) for trend in ("any", "with")},
+    "bbsq": {f"{k}atr-{h}d": {"stop_atr": k, "hold_days": h} for k in (1, 2) for h in (3, 5)},
+    "rsi2": {f"{t}-{sides}": {"threshold": t, "sides": sides} for t in (10, 5) for sides in ("long", "both")},
+    "ibs": {f"{t:g}-{mode}": {"threshold": t, "exit_mode": mode} for t in (0.2, 0.1) for mode in ("next", "ibs")},
+    "donch": {f"{n}-{x}": {"entry_n": n, "exit_n": x} for n in (20, 55) for x in (10, 20)},
+    "tom": {f"{e}-{x}": {"entry_from_end": e, "exit_day": x} for e in (1, 2) for x in (3, 5)},
+})
+STRATEGY_FUNCS = {"nrib": strategies.nr_inside, "bbsq": strategies.bollinger_squeeze, "rsi2": strategies.rsi2,
+                  "ibs": strategies.ibs, "donch": strategies.donchian, "tom": strategies.turn_of_month}
+
 MODEL_NAMES = {"orb": "Opening Range Breakout", "fib": "Fib Pullback", "kbdtfib": "Key Break + Fib",
-               "kbdt": "Key Breakout Dow Theory"}
+               "kbdt": "Key Breakout Dow Theory", "nrib": "NR4/NR7 inside day", "bbsq": "Bollinger squeeze",
+               "rsi2": "RSI(2) pullback", "ibs": "IBS mean reversion", "donch": "Donchian breakout",
+               "tom": "Turn of the month"}
 KBDT_WINDOW = 250  # trailing daily bars enriched for each replayed day
 KBDT_EXIT = (15, 15)  # exit at 15:15 on the last holding day
 
@@ -457,6 +473,13 @@ def _scan_one(item):
     filters = dataset not in INDEX_DATASETS
     rows = []
     for model, variants in VARIANTS.items():
+        if model in STRATEGY_FUNCS:
+            for variant, params in variants.items():
+                for t in STRATEGY_FUNCS[model](bars, daily, **params):
+                    rows.append((model, variant, dataset, symbol, t["date"], t["side"], t["entry_time"], t["entry_label"],
+                                 t["entry"], t["stop"], t["target"], t["exit"], t["exit_reason"], False, t["r"],
+                                 t["status"], t["exit_date"]))
+            continue
         if model == "kbdt":
             signals = _kbdt_signals(symbol, bars["datetime"].dt.date.min())
             for variant, params in variants.items():
@@ -655,8 +678,10 @@ def month_trades(model, variant, dataset, month, max_per_day=3, slippage=0.0002)
 _compare_cache = {}
 
 
-def compare(dataset, max_per_day=3, slippage=0.0002):
+def compare(dataset, max_per_day=3, slippage=0.0002, model_filter=None):
     """One summary row per model and variant, for the comparison table."""
+    if model_filter:
+        return [r for r in compare(dataset, max_per_day, slippage) if r["model"] == model_filter]
     key = (dataset, max_per_day, slippage)
     if key in _compare_cache:
         return _compare_cache[key]

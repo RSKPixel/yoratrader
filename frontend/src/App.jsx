@@ -29,7 +29,15 @@ const NAV_ITEMS = {
     { id: "kbdtfib", label: "Key Break + Fib" },
   ],
   signals: [{ id: "kbdt-signals", label: "KBDT · Index futures" }],
-  backtest: [{ id: "bt-orb", label: "Indices & Nifty 50" }],
+  backtest: [
+    { id: "bt-orb", label: "All models" },
+    { id: "bt-nrib", label: "NR4/NR7 inside day" },
+    { id: "bt-bbsq", label: "Bollinger squeeze" },
+    { id: "bt-rsi2", label: "RSI(2) pullback" },
+    { id: "bt-ibs", label: "IBS mean reversion" },
+    { id: "bt-donch", label: "Donchian breakout" },
+    { id: "bt-tom", label: "Turn of the month" },
+  ],
   system: [{ id: "settings", label: "Settings" }],
 };
 
@@ -659,7 +667,9 @@ export default function App() {
       ) : activePage === "kbdt-signals" ? (
         <KbdtSignalsPage />
       ) : activePage === "bt-orb" ? (
-        <BacktestPage />
+        <BacktestPage key="bt-all" />
+      ) : activePage.startsWith("bt-") ? (
+        <BacktestPage key={activePage} lockModel={activePage.slice(3)} />
       ) : activePage === "penfold" ? (
         <KbdtPage scanning={scanningKbdt} onScan={scanKbdt} />
       ) : (

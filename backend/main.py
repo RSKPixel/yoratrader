@@ -541,10 +541,10 @@ def backtest_trades(month: str = Query(..., pattern=r"^\d{4}-\d{2}$"), model: st
 
 @app.get("/api/backtest/orb/compare")
 def backtest_compare(dataset: str = Query("indices"), max_per_day: int = Query(3, ge=0),
-                     slippage: float = Query(0.02, ge=0, le=1)):
+                     slippage: float = Query(0.02, ge=0, le=1), model: str = Query("")):
     slip = _backtest_params(dataset, slippage)
     try:
-        return {"status": "success", "data": backtest.compare(dataset, max_per_day, slip)}
+        return {"status": "success", "data": backtest.compare(dataset, max_per_day, slip, model or None)}
     except Exception as error:
         print("Backtest compare failed:", error)
         return {"status": "error", "message": str(error)}
