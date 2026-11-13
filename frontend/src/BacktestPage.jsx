@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createChart, LineSeries } from "lightweight-charts";
-import ModelInfoModal, { BacktestInfo, GapBacktestInfo, InfoButton } from "./ModelInfoModal";
+import ModelInfoModal, { BacktestInfo, GapBacktestInfo, GapMomentumInfo, InfoButton } from "./ModelInfoModal";
 import { formatR, formatRs, KBDT_EXITS, KBDT_STOP_MODES, KBDT_STOP_PCTS, rClass, Segmented, SLIPPAGE, Stat } from "./backtestShared";
 
 const ALL_DATASETS = [
@@ -9,9 +9,9 @@ const ALL_DATASETS = [
   ["fno", "All F&O stocks"],
 ];
 // KBDT isn't run on the full F&O stock list (its day-by-day replay is too slow for ~180 symbols).
-const MODEL_DATASETS = { kbdt: ["indices", "stocks"], gap: ["indices", "stocks", "fno"] };
+const MODEL_DATASETS = { kbdt: ["indices", "stocks"], gap: ["indices", "stocks", "fno"], gapmom: ["indices"] };
 
-const MODEL_NAMES = { kbdt: "Key Breakout Dow Theory", gap: "Buy on gap" };
+const MODEL_NAMES = { kbdt: "Key Breakout Dow Theory", gap: "Buy on gap", gapmom: "Opening gap momentum" };
 
 // Buy-on-gap variant id: "<threshold>sd-top<N>-<sides>-<stop>-<hold>", e.g. "1sd-top10-long-none-1d" (Chan's version).
 // Threshold (1σ) and exit (same day) are fixed at the book's values; only Take, Side and Stop vary.
@@ -22,8 +22,16 @@ const GAP_DIMS = [
 ];
 const GAP_INITIAL = { threshold: "1", top: "10", sides: "long", stop: "none", hold: "1d" };
 
+// Opening gap momentum (Chan ch. 7): same variant id shape with "all" for top (no ranking);
+// the 0.1σ threshold and same-day exit are the book's. Book: both sides, no stop.
+const GAPMOM_DIMS = [
+  { key: "sides", label: "Side", options: [["both", "Long & short"], ["long", "Long only"]], title: "Long & short is the book's version: buy gap-ups above the previous high, short gap-downs below the previous low" },
+  GAP_DIMS[2],
+];
+const GAPMOM_INITIAL = { threshold: "0.1", top: "all", sides: "both", stop: "none", hold: "1d" };
+
 function gapVariant({ threshold, top, sides, stop, hold }) {
-  return `${threshold}sd-top${top}-${sides}-${stop}-${hold}`;
+  return `${threshold}sd-${top === "all" ? "all" : `top${top}`}-${sides}-${stop}-${hold}`;
 }
 
 function parseGapVariant(id) {
@@ -33,7 +41,8 @@ function parseGapVariant(id) {
 
 function gapLabel(params) {
   const stop = params.stop === "none" ? "no stop" : "1σ stop";
-  return `Top ${params.top} · ${params.sides === "long" ? "long only" : "long & short"} · ${stop}`;
+  const side = params.sides === "long" ? "long only" : "long & short";
+  return params.top == null || params.top === "all" ? `${side} · ${stop}` : `Top ${params.top} · ${side} · ${stop}`;
 }
 
 function kbdtVariant({ exit, mode, pct }) {
@@ -46,7 +55,7 @@ function parseKbdtVariant(id) {
 }
 
 function variantLabel(params) {
-  if (params.top != null) return gapLabel(params);
+  if (params.threshold != null) return gapLabel(params);
   const exit = KBDT_EXITS.find(([v]) => v === `${params.hold_days}d`)?.[1].toLowerCase();
   const stop =
     params.stop_mode === "fixed"
@@ -217,7 +226,7 @@ function CompareTable({ rows, variant, onSelect, unit }) {
                   {variantLabel(r.params)}
                   {r.live && (
                     <span className="ml-2 rounded bg-white/10 px-1.5 py-0.5 text-[0.65rem] text-[#9b968c]">
-                      {r.model === "gap" ? "book" : "model stop"}
+                      {r.model === "kbdt" ? "model stop" : "book"}
                     </span>
                   )}
                 </td>
@@ -348,13 +357,14 @@ function TradesTable({ trades }) {
 }
 
 export default function BacktestPage({ model = "kbdt" }) {
-  const isGap = model === "gap";
+  const isGap = model === "gap" || model === "gapmom";
+  const dims = model === "gapmom" ? GAPMOM_DIMS : GAP_DIMS;
   const MODEL_NAME = MODEL_NAMES[model];
   const DATASETS = ALL_DATASETS.filter(([d]) => MODEL_DATASETS[model].includes(d));
   const [kbdtParts, setKbdtParts] = useState({ exit: "5d", mode: "model", pct: 0.75 });
-  const [gapParts, setGapParts] = useState(GAP_INITIAL);
+  const [gapParts, setGapParts] = useState(model === "gapmom" ? GAPMOM_INITIAL : GAP_INITIAL);
   const [compareRows, setCompareRows] = useState([]);
-  const [dataset, setDataset] = useState(isGap ? "fno" : "indices");
+  const [dataset, setDataset] = useState(model === "gap" ? "fno" : "indices");
   const [maxPerDay, setMaxPerDay] = useState(0);
   const [unit, setUnit] = useState("r");
   const [slippage, setSlippage] = useState(0.02);
@@ -502,7 +512,7 @@ export default function BacktestPage({ model = "kbdt" }) {
 
       {isGap ? (
       <div className="mb-3 flex flex-wrap items-center gap-3">
-        {GAP_DIMS.map((dim) => (
+        {dims.map((dim) => (
           <div key={dim.key} className="flex items-center gap-2" title={dim.title}>
             <span className="text-xs uppercase tracking-[0.14em] text-[#6f6a62]">{dim.label}</span>
             <Segmented
@@ -680,8 +690,8 @@ export default function BacktestPage({ model = "kbdt" }) {
       )}
 
       {showInfo && (
-        <ModelInfoModal title={isGap ? "Buy on gap · how it works" : "How the backtest works"} onClose={() => setShowInfo(false)}>
-          {isGap ? <GapBacktestInfo /> : <BacktestInfo />}
+        <ModelInfoModal title={isGap ? `${MODEL_NAME} · how it works` : "How the backtest works"} onClose={() => setShowInfo(false)}>
+          {model === "gapmom" ? <GapMomentumInfo /> : isGap ? <GapBacktestInfo /> : <BacktestInfo />}
         </ModelInfoModal>
       )}
     </div>

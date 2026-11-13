@@ -3,6 +3,7 @@ import CandleModal from "./CandleModal";
 import BacktestPage from "./BacktestPage";
 import KbdtPage from "./KbdtPage";
 import GapSignalsPage from "./GapSignalsPage";
+import PortfolioBacktestPage from "./PortfolioBacktestPage";
 import KbdtSignalsPage from "./KbdtSignalsPage";
 import IntradayModelPage from "./IntradayModelPage";
 import { FibInfo, KbdtFibInfo, OrbInfo } from "./ModelInfoModal";
@@ -35,6 +36,8 @@ const NAV_ITEMS = {
   chan: [
     { id: "gap-signals", label: "Buy on gap · Paper trading" },
     { id: "bt-gap", label: "Buy on gap · Backtest" },
+    { id: "bt-gapmom", label: "Opening gap momentum · Backtest" },
+    { id: "chan-xsmr", label: "Cross-sectional mean reversion · Backtest" },
   ],
   system: [{ id: "settings", label: "Settings" }],
 };
@@ -684,8 +687,10 @@ export default function App() {
         <KbdtSignalsPage />
       ) : activePage === "gap-signals" ? (
         <GapSignalsPage />
+      ) : activePage === "chan-xsmr" ? (
+        <PortfolioBacktestPage />
       ) : activePage.startsWith("bt-") ? (
-        <BacktestPage key={activePage} model={activePage === "bt-gap" ? "gap" : "kbdt"} />
+        <BacktestPage key={activePage} model={activePage.slice(3)} />
       ) : activePage === "penfold" ? (
         <KbdtPage scanning={scanningKbdt} onScan={scanKbdt} />
       ) : (

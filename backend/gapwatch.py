@@ -26,7 +26,8 @@ import kite_auth
 from db import connect, stored_lot_sizes
 
 IST = backtest.IST
-OPEN_AT = clock(9, 15, 30)  # record once the opening prices are in
+OPEN_AT = clock(9, 15, 1)  # the scheduler wakes at 09:15:01: the open is known, trading has just begun
+LIVE_FILL_BY = clock(9, 15, 30)  # a snapshot later than this isn't "a market order at the open"
 EXIT_AT = clock(15, 16)  # the 15:00 candle has closed
 REFRESH_AT = clock(15, 45)  # daily candles for tomorrow's levels
 TOP = 10
@@ -58,6 +59,14 @@ def _ensure_tables(cursor):
             closed_at TIMESTAMPTZ,
             PRIMARY KEY (day, symbol)
         );
+        -- A realistic fill: the 09:16 price (a market order sent once the open is known), no-stop R.
+        ALTER TABLE gap_paper ADD COLUMN IF NOT EXISTS entry_0916 DOUBLE PRECISION;
+        ALTER TABLE gap_paper ADD COLUMN IF NOT EXISTS r_0916 DOUBLE PRECISION;
+        -- The live fill: last traded price in the first seconds after 09:15:00 (what a market order
+        -- sent at the open would get), its time, and the no-stop R from it.
+        ALTER TABLE gap_paper ADD COLUMN IF NOT EXISTS entry_live DOUBLE PRECISION;
+        ALTER TABLE gap_paper ADD COLUMN IF NOT EXISTS live_at TIME;
+        ALTER TABLE gap_paper ADD COLUMN IF NOT EXISTS r_live DOUBLE PRECISION;
         CREATE TABLE IF NOT EXISTS gap_paper_days (
             day DATE PRIMARY KEY,
             recorded_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -153,9 +162,12 @@ def record_open(force=False):
         conn.commit()
         if _is_recorded(cursor, today) and not force:
             return {"recorded": False, "reason": "already recorded"}
-    zones = [z for z in levels(today) if z["buy_below"] or z["sell_above"]]
+    cached = _state.get("zones")
+    zones = cached[1] if cached and cached[0] == today else [z for z in levels(today) if z["buy_below"] or z["sell_above"]]
     kite = kite_auth.trading_client()
     quotes = _quotes(kite, [z["symbol"] for z in zones]) if zones else {}
+    snap = _now()
+    live_ok = snap.time() <= LIVE_FILL_BY
     rows, quoted = [], 0
     for z in zones:
         q = quotes.get(z["symbol"])
@@ -176,8 +188,10 @@ def record_open(force=False):
             continue
         risk = opened * sigma
         stop = opened - risk if side == "long" else opened + risk
+        live = float(q.get("last_price") or 0) if live_ok else 0
         rows.append((today, z["symbol"], side, z["prev_low"], z["prev_high"], z["prev_close"], round(ma, 2),
-                     sigma, opened, round(gap * 100, 3), round(abs(gap) / sigma, 3), round(stop, 2)))
+                     sigma, opened, round(gap * 100, 3), round(abs(gap) / sigma, 3), round(stop, 2),
+                     live or None, snap.time().replace(microsecond=0) if live else None))
     if zones and quoted == 0 and not force:
         # Nothing traded today: a holiday, or quotes not in yet. Only a holiday after 10:00.
         if now.time() < clock(10, 0):
@@ -185,12 +199,14 @@ def record_open(force=False):
     with connect() as conn, conn.cursor() as cursor:
         if rows:
             execute_values(cursor, "INSERT INTO gap_paper (day, symbol, side, prev_low, prev_high, prev_close, ma20, "
-                                   "sigma, entry, gap_pct, gap_sigmas, stop) VALUES %s ON CONFLICT DO NOTHING", rows)
+                                   "sigma, entry, gap_pct, gap_sigmas, stop, entry_live, live_at) VALUES %s "
+                                   "ON CONFLICT DO NOTHING", rows)
         cursor.execute("INSERT INTO gap_paper_days (day, quoted, candidates) VALUES (%s, %s, %s) ON CONFLICT (day) "
                        "DO UPDATE SET recorded_at = now(), quoted = EXCLUDED.quoted, candidates = EXCLUDED.candidates",
                        (today, quoted, len(rows)))
         conn.commit()
-    return {"recorded": True, "zones": len(zones), "quoted": quoted, "candidates": len(rows)}
+    return {"recorded": True, "zones": len(zones), "quoted": quoted, "candidates": len(rows),
+            "snapshot": snap.strftime("%H:%M:%S"), "live_fill": live_ok}
 
 
 _tokens = {"at": None, "map": {}}
@@ -211,21 +227,24 @@ def finalize():
     with connect() as conn, conn.cursor() as cursor:
         _ensure_tables(cursor)
         conn.commit()
-        cursor.execute("SELECT day, symbol, side, entry, stop FROM gap_paper WHERE status = 'open' ORDER BY day")
+        cursor.execute("SELECT day, symbol, side, entry, stop, entry_live FROM gap_paper WHERE status = 'open' ORDER BY day")
         pending = [r for r in cursor.fetchall() if r[0] < now.date() or now.time() >= EXIT_AT]
     if not pending:
         return 0
     kite = kite_auth.trading_client()
     closed = 0
-    for day, symbol, side, entry, stop in pending:
+    for day, symbol, side, entry, stop, entry_live in pending:
         result = _exit_for(kite, day, symbol, side, entry, stop, past=day < now.date())
         if result is None:
             continue
+        sign = 1 if side == "long" else -1
+        r_live = round(sign * (result[0] - entry_live) / abs(entry - stop), 3) if entry_live else None
         with connect() as conn, conn.cursor() as cursor:
             cursor.execute(
                 "UPDATE gap_paper SET exit = %s, exit_reason = %s, r = %s, exit_stop = %s, exit_reason_stop = %s, "
-                "r_stop = %s, status = 'closed', closed_at = now() WHERE day = %s AND symbol = %s",
-                (*result, day, symbol),
+                "r_stop = %s, entry_0916 = %s, r_0916 = %s, r_live = %s, status = 'closed', closed_at = now() "
+                "WHERE day = %s AND symbol = %s",
+                (*result, r_live, day, symbol),
             )
             conn.commit()
         closed += 1
@@ -233,9 +252,11 @@ def finalize():
 
 
 def _exit_for(kite, day, symbol, side, entry, stop, past=True):
-    """(exit, reason, r, exit_stop, reason_stop, r_stop) from the day's 15m candles, or None if
-    the 15:00 candle isn't there yet. Same rules as the backtest: out at the 15:00 candle's close;
-    the 1σ variant stops out if any candle up to and including that one touches the stop."""
+    """(exit, reason, r, exit_stop, reason_stop, r_stop, entry_0916, r_0916) from the day's 15m
+    candles (and the 09:16 minute candle), or None if the 15:00 candle isn't there yet. Same rules
+    as the backtest: out at the 15:00 candle's close; the 1σ variant stops out if any candle up to
+    and including that one touches the stop. entry_0916 / r_0916: the same trade entered at the
+    09:16 price (a market order sent once the open is known), no stop, same 1R."""
     token = _token(kite, symbol)
     if token is None:
         return None
@@ -259,8 +280,16 @@ def _exit_for(kite, day, symbol, side, entry, stop, past=True):
         if (long and b["low"] <= stop) or (not long and b["high"] >= stop):
             exit_stop, reason_stop = stop, "stop"
             break
+    entry_0916 = r_0916 = None
+    minutes = kite.historical_data(token, from_date=datetime.combine(day, clock(9, 15)),
+                                   to_date=datetime.combine(day, clock(9, 17)), interval="minute")
+    time.sleep(backtest.PAUSE)
+    at_0916 = next((b for b in minutes if b["date"].time() == clock(9, 16)), None)
+    if at_0916:
+        entry_0916 = float(at_0916["open"])
+        r_0916 = round(sign * (exit_px - entry_0916) / risk, 3)
     return (round(exit_px, 2), reason, round(sign * (exit_px - entry) / risk, 3), round(exit_stop, 2), reason_stop,
-            round(sign * (exit_stop - entry) / risk, 3))
+            round(sign * (exit_stop - entry) / risk, 3), entry_0916, r_0916)
 
 
 def refresh_daily(on_progress=None):
@@ -354,9 +383,12 @@ def paper(slippage=SLIPPAGE):
         r["lot_size"] = lot
         risk_pts = abs(r["entry"] - r["stop"])
         r["risk_rs"] = round(risk_pts * lot) if lot else None
-        for key in ("r", "r_stop"):
+        r["live_at"] = r["live_at"].strftime("%H:%M:%S") if r.get("live_at") else None
+        for key in ("r", "r_stop", "r_0916", "r_live"):
             if r.get(key) is not None:
-                cost = backtest._cost_r({"entry": r["entry"], "stop": r["stop"], "r": r[key], "side": r["side"],
+                entry = {"r_0916": r["entry_0916"], "r_live": r["entry_live"]}.get(key, r["entry"])
+                sign = 1 if r["side"] == "long" else -1
+                cost = backtest._cost_r({"entry": entry, "stop": entry - sign * risk_pts, "r": r[key], "side": r["side"],
                                          "t1_hit": False}, "fno", slippage)
                 r[f"net_{key}"] = round(r[key] - cost, 3)
                 r[f"net_{key}_rs"] = round((r[key] - cost) * risk_pts * lot) if lot else None
@@ -386,6 +418,8 @@ def _tick():
     if now.weekday() >= 5:
         return
     t = now.time()
+    if clock(9, 14) <= t < OPEN_AT:  # work out the zones a minute early so 09:15:01 is one quote call
+        _state["zones"] = (now.date(), [z for z in levels(now.date()) if z["buy_below"] or z["sell_above"]])
     if OPEN_AT <= t < clock(15, 30):
         result = record_open()
         if result.get("recorded"):
@@ -409,7 +443,8 @@ def _loop():
             if str(error) != _state["last_error"]:
                 print("Gap paper scheduler:", error)
             _state["last_error"] = str(error)
-        time.sleep(60)
+        now = _now()  # wake at hh:mm:01 every minute, so the open is caught at 09:15:01
+        time.sleep(max(1.0, 61 - now.second - now.microsecond / 1e6))
 
 
 def start_scheduler():

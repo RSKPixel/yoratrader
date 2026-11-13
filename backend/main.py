@@ -24,6 +24,7 @@ import fib
 import kbdtfib
 import orb
 import ws_hub
+import xsmr
 
 jobs = {}
 
@@ -589,6 +590,20 @@ def kbdt_ltp():
         return {"status": "success", "data": backtest.index_futures_ltp(), "at": _dt.now().strftime("%H:%M:%S")}
     except Exception as error:
         print("LTP failed:", error)
+        return {"status": "error", "message": str(error)}
+
+
+@app.get("/api/backtest/portfolio")
+def backtest_portfolio(variant: str = Query("intraday-0915"), dataset: str = Query("fno"),
+                       slippage: float = Query(0.02, ge=0, le=1)):
+    """Cross-sectional mean reversion (portfolio returns): one variant, plus all variants to compare."""
+    if variant not in xsmr.VARIANTS or dataset not in xsmr.DATASETS:
+        raise HTTPException(status_code=400, detail="unknown variant or dataset")
+    try:
+        return {"status": "success", **xsmr.results(variant, dataset, slippage / 100),
+                "compare": xsmr.compare(dataset, slippage / 100)}
+    except Exception as error:
+        print("Portfolio backtest failed:", error)
         return {"status": "error", "message": str(error)}
 
 

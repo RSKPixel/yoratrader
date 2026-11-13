@@ -102,8 +102,20 @@ VARIANTS["gap"] = {
     for k in GAP_THRESHOLDS for n in (5, 10) for sides in ("long", "both") for stop in ("none", "1sd") for hold in GAP_HOLDS
 }
 GAP_BOOK = "1sd-top10-long-none-1d"  # Chan's version
+# Opening gap momentum (Chan ch. 7, Example 7.1): the mirror image on index futures. Buy at the
+# open when the index opens above the previous high by more than 0.1σ, short when it opens below
+# the previous low by more than 0.1σ; out at 15:15. No average filter, no ranking (each index on
+# its own). Book: both sides, no stop. Indices only, 15m period (before 2011 Kite's index opens
+# are often just the previous close, so the gap isn't measurable).
+VARIANTS["gapmom"] = {
+    f"0.1sd-all-{sides}-{stop}-1d": {"threshold": 0.1, "top": None, "sides": sides, "stop": stop, "hold": 1}
+    for sides in ("both", "long") for stop in ("none", "1sd")
+}
+GAPMOM_BOOK = "0.1sd-all-both-none-1d"
+GAPMOM_DATASETS = ("indices",)
+GAP_MODELS = ("gap", "gapmom")
 DEFAULT_MODEL, DEFAULT_VARIANT = "kbdt", "5d"
-MODEL_NAMES = {"kbdt": "Key Breakout Dow Theory", "gap": "Buy on gap"}
+MODEL_NAMES = {"kbdt": "Key Breakout Dow Theory", "gap": "Buy on gap", "gapmom": "Opening gap momentum"}
 # Kite's early daily history for some indices is closing prices only (open = high = low =
 # close): NIFTY BANK to June 2005, FIN SERVICE to February 2012, MID SELECT to January 2022.
 # Swings and stops need real candles, so daily bars up to the last close-only one are ignored.
@@ -539,9 +551,11 @@ def _scan_one(item):
     if dataset == "indices" and len(daily) > KBDT_WINDOW:
         first_day = min(first_15m, daily_days.iloc[KBDT_WINDOW])
     daily_ix = daily.set_index(pd.to_datetime(daily["datetime"]))
-    gap = _gap_candidates(dataset, symbol, bars, daily)
+    gap = {"gap": _gap_candidates(dataset, symbol, bars, daily)}
+    if dataset in GAPMOM_DATASETS:
+        gap["gapmom"] = _gap_candidates(dataset, symbol, bars, daily, "gapmom")
     for model, variants in VARIANTS.items():
-        if model != "kbdt" or dataset in GAP_ONLY_DATASETS:
+        if model != "kbdt" or dataset in GAP_ONLY_DATASETS:  # gap models are built in run_backtest
             continue
         signals = _kbdt_signals(symbol, first_day)
         early = {d: v for d, v in signals.items() if d < first_15m}
@@ -566,10 +580,11 @@ def _scan_one(item):
             rows, gap)
 
 
-def _gap_candidates(dataset, symbol, bars, daily):
+def _gap_candidates(dataset, symbol, bars, daily, model="gap"):
     """Every buy-on-gap setup of one symbol, simulated on its 15m bars, before the daily top-N ranking.
 
-    Returns {(threshold, sides, stop, hold): [(day, score, row), ...]}; score is the size of the gap
+    model "gap" fades the gap (buy-on-gap, with the 20-day average filter); "gapmom" follows it
+    (opening gap momentum, no filter). Returns {(threshold, sides, stop, hold): [(day, score, row), ...]}; score is the size of the gap
     (as a return from the previous low/high to the open) used to rank the day's candidates.
     Signals use only data known at the open: the previous day's low/high, the 20-day average
     and the 90-day standard deviation of close-to-close returns up to the previous close.
@@ -626,17 +641,21 @@ def _gap_candidates(dataset, symbol, bars, daily):
         # opened at 400 but the first 15m candle shows 561.65): skip when the two opens disagree.
         if abs(entry / d.at[day, "open"] - 1) > GAP_OPEN_TOLERANCE:
             continue
-        for side, gap_ret, ok in (("long", gap_down[day], entry > avg), ("short", gap_up[day], entry < avg)):
+        if model == "gap":  # fade: buy below the previous low, sell above the previous high
+            setups = (("long", gap_down[day], -1, entry > avg), ("short", gap_up[day], 1, entry < avg))
+        else:  # follow: buy above the previous high, sell below the previous low
+            setups = (("long", gap_up[day], 1, True), ("short", gap_down[day], -1, True))
+        for side, gap_ret, direction, ok in setups:
             if pd.isna(gap_ret) or not ok:
                 continue
             long = side == "long"
-            sigmas = -gap_ret / sigma if long else gap_ret / sigma
+            sigmas = direction * gap_ret / sigma
             risk = entry * sigma
             stop = entry - risk if long else entry + risk
-            for threshold in {p["threshold"] for p in VARIANTS["gap"].values()}:
+            for threshold in {p["threshold"] for p in VARIANTS[model].values()}:
                 if sigmas <= threshold:
                     continue
-                for stop_mode, hold in itertools.product(("none", "1sd"), GAP_HOLDS):
+                for stop_mode, hold in itertools.product(("none", "1sd"), {p["hold"] for p in VARIANTS[model].values()}):
                     exit_bar, exit_px, reason, status = exits[hold]
                     if stop_mode == "1sd":
                         for i in range(start, exit_bar + 1):  # the exit candle counts: we exit at its close
@@ -659,18 +678,23 @@ def _gap_candidates(dataset, symbol, bars, daily):
 
 
 def _gap_one(item):
-    """Buy-on-gap candidates and the scanned span of one symbol (runs in a worker process)."""
+    """Gap-model candidates and the scanned span of one symbol (runs in a worker process):
+    {model: candidates} for buy-on-gap, plus opening gap momentum on its datasets."""
     dataset, symbol = item
     with connect() as conn:
         bars, daily = _load_dataset_symbol(conn, dataset, symbol)
     if bars.empty:
         return dataset, None, {}
     days = bars["datetime"].dt.date
-    return dataset, (days.min(), days.max(), days.nunique()), _gap_candidates(dataset, symbol, bars, daily)
+    found = {"gap": _gap_candidates(dataset, symbol, bars, daily)}
+    if dataset in GAPMOM_DATASETS:
+        found["gapmom"] = _gap_candidates(dataset, symbol, bars, daily, "gapmom")
+    return dataset, (days.min(), days.max(), days.nunique()), found
 
 
 def run_gap_backtest():
-    """Rerun only the buy-on-gap model: replaces its trades and leaves every other model's untouched.
+    """Rerun only the gap models (buy-on-gap, opening gap momentum): replaces their trades and leaves
+    every other model's untouched.
     Also records the run span of the gap-only datasets (bt_runs)."""
     with connect() as conn, conn.cursor() as cursor:
         _ensure_tables(cursor)
@@ -680,7 +704,9 @@ def run_gap_backtest():
     workers = max(1, min(8, (multiprocessing.cpu_count() or 2) - 1))
     with multiprocessing.get_context("spawn").Pool(workers) as pool:
         found = pool.map(_gap_one, items)
-    rows = _gap_rows([(dataset, gap) for dataset, _, gap in found])
+    rows = []
+    for model in GAP_MODELS:
+        rows += _gap_rows([(dataset, gap.get(model, {})) for dataset, _, gap in found], model)
     runs = {}
     for dataset, span, _ in found:
         if span and dataset in GAP_ONLY_DATASETS:
@@ -688,7 +714,7 @@ def run_gap_backtest():
             run["first"], run["last"] = min(run["first"], span[0]), max(run["last"], span[1])
             run["days"], run["symbols"] = max(run["days"], span[2]), run["symbols"] + 1
     with connect() as conn, conn.cursor() as cursor:
-        cursor.execute("DELETE FROM bt_trades WHERE model = 'gap'")
+        cursor.execute("DELETE FROM bt_trades WHERE model = ANY(%s)", (list(GAP_MODELS),))
         execute_values(cursor, "INSERT INTO bt_trades (model, variant, dataset, symbol, date, side, entry_time, entry_label, "
                                "entry, stop, target, exit, exit_reason, t1_hit, r, status, exit_date) VALUES %s "
                                "ON CONFLICT DO NOTHING", rows, page_size=5000)
@@ -705,13 +731,13 @@ def run_gap_backtest():
     return len(rows)
 
 
-def _gap_rows(candidates):
+def _gap_rows(candidates, model="gap"):
     """Rank each day's gap candidates per dataset and keep the top N for every gap variant.
 
     Stocks still held from an earlier gap (multi-day holds) can't be bought again until the
     day after their exit, so they drop out before the day's ranking."""
     rows = []
-    for variant, params in VARIANTS["gap"].items():
+    for variant, params in VARIANTS[model].items():
         key = (params["threshold"], params["sides"], params["stop"], params["hold"])
         by_day = {}
         for dataset, found in candidates:
@@ -723,7 +749,7 @@ def _gap_rows(candidates):
             picks = [p for p in picks if busy.get((dataset, p[1][1]), "") < iso]
             picks.sort(key=lambda p: -p[0])
             for _, row in picks[: params["top"]]:
-                rows.append(("gap", variant, *row))
+                rows.append((model, variant, *row))
                 busy[(dataset, row[1])] = row[-1]
     return rows
 
@@ -740,7 +766,9 @@ def run_backtest():
     with multiprocessing.get_context("spawn").Pool(workers) as pool:
         results_ = pool.map(_scan_one, items)
     runs = {}
-    gap_rows = _gap_rows([(dataset, gap) for dataset, _, _, _, gap in results_])
+    gap_rows = []
+    for model in GAP_MODELS:
+        gap_rows += _gap_rows([(dataset, (gap or {}).get(model, {})) for dataset, _, _, _, gap in results_], model)
     results_.append((None, None, None, gap_rows, None))
     with connect() as conn, conn.cursor() as cursor:
         cursor.execute("DELETE FROM bt_trades")
@@ -921,7 +949,7 @@ def compare(dataset, max_per_day=3, slippage=0.0002, model_filter=None):
                 continue
             _, _, summary = _summary(trades)
             rows.append({"model": model, "variant": variant, "name": MODEL_NAMES[model], "params": params,
-                         "live": params.get("stop_mode") == "model" or (model == "gap" and variant == GAP_BOOK),
+                         "live": params.get("stop_mode") == "model" or variant in (GAP_BOOK, GAPMOM_BOOK),
                          **summary})
     _compare_cache[key] = rows
     return rows

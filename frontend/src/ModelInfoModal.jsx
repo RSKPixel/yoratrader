@@ -662,3 +662,133 @@ export function GapBacktestInfo() {
     </>
   );
 }
+
+export function GapMomentumInfo() {
+  return (
+    <>
+      <Section title="The rules">
+        <p className="mb-2">
+          Ernest Chan's <B>opening gap strategy</B> (Algorithmic Trading, ch. 7, Example 7.1, on Euro STOXX 50
+          futures), the mirror image of buy-on-gap, pure intraday:
+        </p>
+        <List>
+          <li>
+            <B>Buy at the 09:15 open</B> when the index opens above the previous day's high by more than <B>0.1σ</B>{" "}
+            (σ = standard deviation of its last 90 daily returns).
+          </li>
+          <li>
+            <B>Short at the open</B> when it opens below the previous day's low by more than 0.1σ.
+          </li>
+          <li>
+            <B>Exit at 15:15</B> the same day. No average filter, no ranking: each index trades on its own.
+          </li>
+          <li>
+            The book's version trades both sides with no stop; 1σ puts a stop one standard deviation away. 1R = 1σ.
+          </li>
+        </List>
+      </Section>
+      <Section title="Why test it">
+        <p>
+          Chan's argument: gaps <B>continue</B> in index futures (stop orders and momentum traders pile in) but{" "}
+          <B>reverse</B> in single stocks (buy-on-gap). On NSE data the stock half holds; this page tests the index half.
+        </p>
+      </Section>
+      <Section title="Data">
+        <List>
+          <li>
+            <B>F&amp;O indices</B> (NIFTY, BANK, FIN SERVICE, MID SELECT, NEXT 50), spot data standing in for futures,
+            15m candles from 2015 (MID SELECT from 2022).
+          </li>
+          <li>
+            Not extended to the daily history: before 2011 Kite's index opens are often just the previous close, so the
+            opening gap can't be measured.
+          </li>
+          <li>
+            The signal uses the spot index open; live you would trade the future, whose open differs a little (basis).
+          </li>
+        </List>
+      </Section>
+      <Section title="Result">
+        <p>
+          It does not work on Indian indices: the book version loses before costs (about −0.06R per trade gross,
+          −0.16R net over 3,400+ trades, no profitable year). Index gaps here tend to fade rather than run. Fading them
+          instead would be a new idea fitted to this result, so it is not offered here.
+        </p>
+      </Section>
+    </>
+  );
+}
+
+export function XsmrInfo() {
+  return (
+    <>
+      <Section title="The rules">
+        <p className="mb-2">
+          Ernest Chan's <B>linear long-short model</B> (Algorithmic Trading, ch. 4, after Khandani &amp; Lo):
+        </p>
+        <List>
+          <li>
+            Every day each stock gets a weight <B>−(its return − the average return) ÷ Σ|differences|</B>: long the
+            stocks that lagged the cross-section, short the ones that led, in proportion to the move.
+          </li>
+          <li>The long and short sides are each half of gross exposure, so the book is market-neutral.</li>
+          <li>
+            <B>Intraday</B>: the return is previous close → 09:15 open; positions are opened at the open and closed at
+            15:15. <B>Daily</B>: the return is the last day's 15:15 → 15:15; positions are held to 15:15 the next day and
+            rebalanced daily.
+          </li>
+          <li>No parameters to tune: both versions are the book's.</li>
+        </List>
+      </Section>
+
+      <Section title="The fill check">
+        <List>
+          <li>
+            The book enters at the <B>09:15 open</B>, which is NSE's opening-auction price. Entry 09:30 and 09:45 keep
+            the same signal but enter 15 / 30 minutes later.
+          </li>
+          <li>
+            Almost all of the edge sits in that first 15 minutes: entering at 09:30 turns a strong result into a loss.
+            So the strategy is only real if you can trade at the auction price, i.e. in the{" "}
+            <B>pre-open session (09:00–09:08)</B>, deciding from the indicative prices. Buy-on-gap has the same property.
+          </li>
+          <li>The edge has also been shrinking: lower every year since 2021, negative in 2026.</li>
+        </List>
+      </Section>
+
+      <Section title="Returns and costs">
+        <List>
+          <li>
+            Results are <B>% of gross exposure</B> (long + short), summed day by day at a fixed size, not compounded and
+            not R per trade. Annual = mean daily × 248.
+          </li>
+          <li>
+            Costs are charged on every rupee traded: NSE futures charges (STT on sells, exchange and SEBI fees with GST,
+            stamp duty, ₹20 a order on a ₹7L lot) plus the chosen slippage. The intraday version trades the whole book
+            twice a day.
+          </li>
+          <li>
+            Holding ~190 stocks at once is not possible with futures lots; in practice this needs the cash market
+            (single shares, intraday shorts) or a cut-down version.
+          </li>
+        </List>
+      </Section>
+
+      <Section title="Data">
+        <List>
+          <li>
+            Today's F&amp;O stocks (or Nifty 50) from February 2015, 15m candles. The 15:15 price is the close of the
+            15:00 candle.
+          </li>
+          <li>
+            Cleaned, not tuned: opens more than 1% from the daily open, 15:15 prices outside the day's range (bad prints)
+            and moves over 20% (corporate actions) are left out that day.
+          </li>
+          <li>
+            <B>Survivorship</B>: today's lists for the whole period. Stocks that collapsed out of F&amp;O are missing.
+          </li>
+        </List>
+      </Section>
+    </>
+  );
+}
