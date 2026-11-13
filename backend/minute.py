@@ -34,9 +34,21 @@ def ensure_table(cursor):
             day DATE NOT NULL,
             minute SMALLINT[] NOT NULL,  -- minutes since 09:15 (0 = the 09:15 candle)
             open REAL[] NOT NULL, high REAL[] NOT NULL, low REAL[] NOT NULL, close REAL[] NOT NULL,
-            volume INTEGER[] NOT NULL,
+            volume BIGINT[] NOT NULL,
             PRIMARY KEY (symbol, day)
         );
+        """
+    )
+    # Some minutes' volume overflows int4: the first version used INTEGER[].
+    cursor.execute(
+        """
+        DO $$ BEGIN
+          IF (SELECT data_type FROM information_schema.columns WHERE table_name = 'bt_1m' AND column_name = 'volume')
+             = 'ARRAY' AND (SELECT udt_name FROM information_schema.columns WHERE table_name = 'bt_1m'
+                            AND column_name = 'volume') = '_int4' THEN
+            ALTER TABLE bt_1m ALTER COLUMN volume TYPE BIGINT[];
+          END IF;
+        END $$;
         """
     )
 
@@ -62,7 +74,7 @@ def _store(cursor, rows):
         "INSERT INTO bt_1m (symbol, day, minute, open, high, low, close, volume) VALUES %s "
         "ON CONFLICT (symbol, day) DO UPDATE SET minute = EXCLUDED.minute, open = EXCLUDED.open, "
         "high = EXCLUDED.high, low = EXCLUDED.low, close = EXCLUDED.close, volume = EXCLUDED.volume",
-        rows, template="(%s, %s, %s::smallint[], %s::real[], %s::real[], %s::real[], %s::real[], %s::integer[])",
+        rows, template="(%s, %s, %s::smallint[], %s::real[], %s::real[], %s::real[], %s::real[], %s::bigint[])",
         page_size=200,
     )
 
