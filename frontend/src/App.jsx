@@ -29,13 +29,12 @@ const NAV_ITEMS = {
     { id: "fib", label: "Fib Pullback" },
     { id: "kbdtfib", label: "Key Break + Fib" },
   ],
-  signals: [
-    { id: "kbdt-signals", label: "KBDT · Index futures" },
-    { id: "gap-signals", label: "Buy on gap · F&O stocks" },
-  ],
-  backtest: [
-    { id: "bt-kbdt", label: "Key Breakout Dow Theory" },
-    { id: "bt-gap", label: "Buy on gap" },
+  signals: [{ id: "kbdt-signals", label: "KBDT · Index futures" }],
+  backtest: [{ id: "bt-kbdt", label: "Key Breakout Dow Theory" }],
+  // Models from Ernest Chan's "Algorithmic Trading: Winning Strategies and Their Rationale".
+  chan: [
+    { id: "gap-signals", label: "Buy on gap · Paper trading" },
+    { id: "bt-gap", label: "Buy on gap · Backtest" },
   ],
   system: [{ id: "settings", label: "Settings" }],
 };
@@ -626,6 +625,24 @@ export default function App() {
             </p>
             <div className="flex flex-col gap-0.5 pl-1">
               {NAV_ITEMS.backtest.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  className={navItemClass(activePage === item.id)}
+                  aria-current={activePage === item.id ? "page" : undefined}
+                  onClick={() => setActivePage(item.id)}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <p title="Algorithmic Trading: Winning Strategies and Their Rationale (Wiley, 2013)" className="px-3 pb-1 text-[0.65rem] font-medium uppercase tracking-[0.14em] text-[#6f6a62]">
+              Ernest Chan
+            </p>
+            <div className="flex flex-col gap-0.5 pl-1">
+              {NAV_ITEMS.chan.map((item) => (
                 <button
                   key={item.id}
                   type="button"
