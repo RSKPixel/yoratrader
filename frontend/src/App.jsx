@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import CandleModal from "./CandleModal";
 import BacktestPage from "./BacktestPage";
 import KbdtPage from "./KbdtPage";
+import GapSignalsPage from "./GapSignalsPage";
 import KbdtSignalsPage from "./KbdtSignalsPage";
 import IntradayModelPage from "./IntradayModelPage";
 import { FibInfo, KbdtFibInfo, OrbInfo } from "./ModelInfoModal";
@@ -28,7 +29,10 @@ const NAV_ITEMS = {
     { id: "fib", label: "Fib Pullback" },
     { id: "kbdtfib", label: "Key Break + Fib" },
   ],
-  signals: [{ id: "kbdt-signals", label: "KBDT · Index futures" }],
+  signals: [
+    { id: "kbdt-signals", label: "KBDT · Index futures" },
+    { id: "gap-signals", label: "Buy on gap · F&O stocks" },
+  ],
   backtest: [
     { id: "bt-kbdt", label: "Key Breakout Dow Theory" },
     { id: "bt-gap", label: "Buy on gap" },
@@ -661,6 +665,8 @@ export default function App() {
         <IntradayModelPage key={activePage} model={activePage} {...INTRADAY_MODELS[activePage]} />
       ) : activePage === "kbdt-signals" ? (
         <KbdtSignalsPage />
+      ) : activePage === "gap-signals" ? (
+        <GapSignalsPage />
       ) : activePage.startsWith("bt-") ? (
         <BacktestPage key={activePage} model={activePage === "bt-gap" ? "gap" : "kbdt"} />
       ) : activePage === "penfold" ? (

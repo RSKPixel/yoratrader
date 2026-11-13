@@ -18,6 +18,7 @@ from kbdt_scan import scan_kbdt
 from ut_data import build_ut_data
 import auth
 import backtest
+import gapwatch
 import kite_auth
 import fib
 import kbdtfib
@@ -32,6 +33,10 @@ app = FastAPI(title="YoraTrader")
 @app.on_event("startup")
 async def startup():
     ws_hub.set_loop(asyncio.get_running_loop())
+    # Buy-on-gap paper trading records picks at the open and exits after 15:15 on its own, but
+    # only in production: dev shares the database and would record everything twice.
+    if os.environ.get("APP_ENV") == "production" or os.environ.get("GAP_SCHEDULER") == "1":
+        gapwatch.start_scheduler()
 
 
 def _cors_origins():
@@ -585,6 +590,58 @@ def kbdt_ltp():
     except Exception as error:
         print("LTP failed:", error)
         return {"status": "error", "message": str(error)}
+
+
+gap_job = {"id": None}
+
+
+@app.get("/api/gap/paper")
+def gap_paper(slippage: float = Query(0.02, ge=0, le=1)):
+    """Buy-on-gap paper trading: today's picks (live R), next session's watchlist and the log."""
+    try:
+        return {"status": "success", **gapwatch.paper(slippage / 100)}
+    except Exception as error:
+        print("Gap paper failed:", error)
+        return {"status": "error", "message": str(error)}
+
+
+@app.post("/api/gap/record")
+def gap_record():
+    """Record today's picks now (the scheduler does this at 09:15 in production), then close any due."""
+    try:
+        result = gapwatch.record_open()
+        result["closed"] = gapwatch.finalize()
+        return {"status": "success", **result}
+    except Exception as error:
+        print("Gap record failed:", error)
+        return {"status": "error", "message": str(error)}
+
+
+@app.post("/api/gap/refresh")
+def gap_refresh():
+    """Top up the F&O stocks' daily candles in the background (for the next session's levels)."""
+    current = jobs.get(gap_job["id"]) if gap_job["id"] else None
+    if current and current.get("status") == "running":
+        return {"status": "success", "job_id": gap_job["id"]}
+    job_id = uuid.uuid4().hex
+    gap_job["id"] = job_id
+    jobs[job_id] = {"status": "running", "done": 0, "total": 0, "symbol": ""}
+
+    def run():
+        try:
+            result = gapwatch.refresh_daily(lambda state: jobs[job_id].update(state))
+            jobs[job_id] = {"status": "completed", **result}
+        except Exception as error:
+            jobs[job_id] = {"status": "error", "message": str(error)}
+
+    threading.Thread(target=run, daemon=True).start()
+    return {"status": "success", "job_id": job_id}
+
+
+@app.get("/api/gap/refresh")
+def gap_refresh_status():
+    job = jobs.get(gap_job["id"]) if gap_job["id"] else None
+    return {"status": "success", "job": job}
 
 
 @app.get("/api/eod/{job_id}")
