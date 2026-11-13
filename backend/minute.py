@@ -34,23 +34,32 @@ def ensure_table(cursor):
             day DATE NOT NULL,
             minute SMALLINT[] NOT NULL,  -- minutes since 09:15 (0 = the 09:15 candle)
             open REAL[] NOT NULL, high REAL[] NOT NULL, low REAL[] NOT NULL, close REAL[] NOT NULL,
-            volume BIGINT[] NOT NULL,
+            volume INTEGER[] NOT NULL,
             PRIMARY KEY (symbol, day)
         );
         """
     )
-    # Some minutes' volume overflows int4: the first version used INTEGER[].
+    # A short-lived version stored volume as BIGINT[]; INTEGER[] is enough once bad values are dropped.
     cursor.execute(
         """
         DO $$ BEGIN
-          IF (SELECT data_type FROM information_schema.columns WHERE table_name = 'bt_1m' AND column_name = 'volume')
-             = 'ARRAY' AND (SELECT udt_name FROM information_schema.columns WHERE table_name = 'bt_1m'
-                            AND column_name = 'volume') = '_int4' THEN
-            ALTER TABLE bt_1m ALTER COLUMN volume TYPE BIGINT[];
+          IF (SELECT udt_name FROM information_schema.columns WHERE table_name = 'bt_1m'
+              AND column_name = 'volume') = '_int8' THEN
+            ALTER TABLE bt_1m ALTER COLUMN volume TYPE INTEGER[];
           END IF;
         END $$;
         """
     )
+
+
+MAX_VOLUME = 2**31 - 1
+
+
+def _volume(bar):
+    """Minute volume, or 0 when Kite's value is impossible (it sends e.g. 2**64 - 2, a wrapped -2:
+    COROMANDEL 2015-03-13 09:15)."""
+    v = int(bar.get("volume") or 0)
+    return v if 0 <= v <= MAX_VOLUME else 0
 
 
 def _rows(symbol, bars):
@@ -64,7 +73,7 @@ def _rows(symbol, bars):
         keys = sorted(mins)
         rows.append((symbol, day, keys, [mins[k]["open"] for k in keys], [mins[k]["high"] for k in keys],
                      [mins[k]["low"] for k in keys], [mins[k]["close"] for k in keys],
-                     [int(mins[k].get("volume") or 0) for k in keys]))
+                     [_volume(mins[k]) for k in keys]))
     return rows
 
 
@@ -74,7 +83,7 @@ def _store(cursor, rows):
         "INSERT INTO bt_1m (symbol, day, minute, open, high, low, close, volume) VALUES %s "
         "ON CONFLICT (symbol, day) DO UPDATE SET minute = EXCLUDED.minute, open = EXCLUDED.open, "
         "high = EXCLUDED.high, low = EXCLUDED.low, close = EXCLUDED.close, volume = EXCLUDED.volume",
-        rows, template="(%s, %s, %s::smallint[], %s::real[], %s::real[], %s::real[], %s::real[], %s::bigint[])",
+        rows, template="(%s, %s, %s::smallint[], %s::real[], %s::real[], %s::real[], %s::real[], %s::integer[])",
         page_size=200,
     )
 
