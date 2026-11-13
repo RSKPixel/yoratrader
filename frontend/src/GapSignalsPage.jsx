@@ -57,13 +57,10 @@ function pickResult(p, stop) {
   const netRs = closed ? (stop === "1sd" ? p.net_r_stop_rs : p.net_r_rs) : null;
   const exit = closed ? (stop === "1sd" ? p.exit_stop : p.exit) : p.ltp;
   const reason = closed ? (stop === "1sd" ? p.exit_reason_stop : p.exit_reason) : p.ltp != null ? "live" : "open";
-  // Realistic fill: entered at 09:16 instead of the auction price (no stop, same 1R).
-  const net0916 = closed ? p.net_r_0916 : null;
-  const net0916Rs = closed ? p.net_r_0916_rs : null;
   // Live fill: last traded price a second or two after 09:15:00 (a market order at the open).
   const netLive = closed ? p.net_r_live : null;
   const netLiveRs = closed ? p.net_r_live_rs : null;
-  return { closed, r, net, netRs, exit, reason, net0916, net0916Rs, netLive, netLiveRs };
+  return { closed, r, net, netRs, exit, reason, netLive, netLiveRs };
 }
 
 function SideBadge({ side }) {
@@ -86,7 +83,7 @@ function TodayPicks({ data, picks, sides, stop }) {
     return <p className="py-6 text-center text-sm text-[#9b968c]">No stock opened inside its zone today: no trades.</p>;
   }
   return (
-    <Table head={["#", "Symbol", "Side", "Gap", "Gap σ", "Entry (open)", "Live fill", "1σ stop", "Exit / LTP", "", "R", "Net R", "Net R @ open (live)", "Net R @ 09:16", "Lot", "Net ₹"]}>
+    <Table head={["#", "Symbol", "Side", "Gap", "Gap σ", "Entry (open)", "Live fill", "1σ stop", "Exit / LTP", "", "R", "Net R", "Net R @ live fill", "Lot", "Net ₹"]}>
       {all.map((p) => {
         const taken = sides === "book" ? p.in_book : p.in_both;
         const res = pickResult(p, stop);
@@ -112,12 +109,6 @@ function TodayPicks({ data, picks, sides, stop }) {
             <td className={`px-3 py-2 ${rClass(res.r)}`}>{formatR(res.r)}</td>
             <td className={`px-3 py-2 ${rClass(res.net)}`}>{res.closed ? formatR(res.net) : "—"}</td>
             <td className={`px-3 py-2 ${rClass(res.netLive)}`}>{res.netLive == null ? "—" : formatR(res.netLive)}</td>
-            <td
-              className={`px-3 py-2 ${rClass(res.net0916)}`}
-              title={p.entry_0916 ? `Entered at the 09:16 price ${px(p.entry_0916)}, no stop` : "Filled in after 15:15"}
-            >
-              {res.net0916 == null ? "—" : formatR(res.net0916)}
-            </td>
             <td className="px-3 py-2 text-[#9b968c]">{p.lot_size ?? "—"}</td>
             <td className={`px-3 py-2 ${rClass(res.netRs)}`}>{res.closed ? formatRs(res.netRs) : "—"}</td>
           </tr>
@@ -182,7 +173,6 @@ function Log({ picks, sides, stop, unit }) {
     const res = closed.map((p) => pickResult(p, stop));
     const sum = (k) => res.reduce((t, x) => t + (x[k] || 0), 0);
     const wins = res.filter((x) => x.net > 0).length;
-    const real = res.filter((x) => x.net0916 != null);
     const live = res.filter((x) => x.netLive != null);
     // Drawdown on cumulative net R, oldest first.
     let eq = 0;
@@ -199,8 +189,6 @@ function Log({ picks, sides, stop, unit }) {
       net: sum("net"),
       netRs: sum("netRs"),
       avg: res.length ? sum("net") / res.length : null,
-      avg0916: real.length ? real.reduce((t, x) => t + x.net0916, 0) / real.length : null,
-      net0916Rs: real.reduce((t, x) => t + (x.net0916Rs || 0), 0),
       avgLive: live.length ? live.reduce((t, x) => t + x.netLive, 0) / live.length : null,
       netLiveRs: live.reduce((t, x) => t + (x.netLiveRs || 0), 0),
       liveN: live.length,
@@ -211,21 +199,15 @@ function Log({ picks, sides, stop, unit }) {
 
   return (
     <>
-      <div className="mb-3 grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-8">
+      <div className="mb-3 grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-7">
         <Stat label="Trades" value={stats.n} title={`${stats.days} trading days with picks`} />
         <Stat label="Win rate" value={stats.win == null ? "—" : `${stats.win}%`} title="After costs" />
         <Stat label="Net / trade" value={formatR(stats.avg)} className={rClass(stats.avg)} title="At the 09:15 auction price. Backtest, book version: about +0.42R" />
         <Stat
-          label="Net @ open (live)"
+          label="Net @ live fill"
           value={unit === "rs" ? formatRs(stats.netLiveRs) : formatR(stats.avgLive)}
           className={rClass(stats.avgLive)}
-          title={`Per trade at the live fill: the last traded price a second or two after 09:15:00, as a market order at the open would get. ${stats.liveN} trades have a snapshot. Expect it between the auction (+0.42R in the backtest) and 09:16 (+0.19R).`}
-        />
-        <Stat
-          label="Net @ 09:16"
-          value={unit === "rs" ? formatRs(stats.net0916Rs) : formatR(stats.avg0916)}
-          className={rClass(stats.avg0916)}
-          title="Per trade if entered at the 09:16 price (a market order once the open is known), no stop. Backtest: about +0.19R"
+          title={`Per trade at the live fill: the last traded price a second or two after 09:15:00, as a market order at the open would get. ${stats.liveN} trades have a snapshot. The fill used everywhere else is the open itself.`}
         />
         {unit === "rs" ? (
           <Stat label="Net ₹" value={formatRs(stats.netRs)} className={rClass(stats.netRs)} title="One lot per trade" />
@@ -239,7 +221,7 @@ function Log({ picks, sides, stop, unit }) {
         <p className="py-6 text-center text-sm text-[#9b968c]">No closed paper trades yet. They start with the first recorded session.</p>
       ) : (
         <div className="max-h-[28rem] overflow-y-auto">
-          <Table head={["Date", "Symbol", "Side", "Gap", "Entry", "Exit", "", "R", "Net R", "Net R @ open (live)", "Net R @ 09:16", "Net ₹"]} minWidth={900}>
+          <Table head={["Date", "Symbol", "Side", "Gap", "Entry", "Exit", "", "R", "Net R", "Net R @ live fill", "Net ₹"]} minWidth={860}>
             {closed.map((p) => {
               const res = pickResult(p, stop);
               return (
@@ -257,9 +239,6 @@ function Log({ picks, sides, stop, unit }) {
                   <td className={`px-3 py-2 ${rClass(res.net)}`}>{formatR(res.net)}</td>
                   <td className={`px-3 py-2 ${rClass(res.netLive)}`} title={p.entry_live ? `Live fill ${px(p.entry_live)} at ${p.live_at}` : undefined}>
                     {res.netLive == null ? "—" : formatR(res.netLive)}
-                  </td>
-                  <td className={`px-3 py-2 ${rClass(res.net0916)}`} title={p.entry_0916 ? `09:16 price ${px(p.entry_0916)}` : undefined}>
-                    {res.net0916 == null ? "—" : formatR(res.net0916)}
                   </td>
                   <td className={`px-3 py-2 ${rClass(res.netRs)}`}>{formatRs(res.netRs)}</td>
                 </tr>
