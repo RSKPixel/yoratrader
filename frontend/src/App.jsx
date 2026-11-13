@@ -30,13 +30,8 @@ const NAV_ITEMS = {
   ],
   signals: [{ id: "kbdt-signals", label: "KBDT · Index futures" }],
   backtest: [
-    { id: "bt-orb", label: "All models" },
-    { id: "bt-nrib", label: "NR4/NR7 inside day" },
-    { id: "bt-bbsq", label: "Bollinger squeeze" },
-    { id: "bt-rsi2", label: "RSI(2) pullback" },
-    { id: "bt-ibs", label: "IBS mean reversion" },
-    { id: "bt-donch", label: "Donchian breakout" },
-    { id: "bt-tom", label: "Turn of the month" },
+    { id: "bt-kbdt", label: "Key Breakout Dow Theory" },
+    { id: "bt-gap", label: "Buy on gap" },
   ],
   system: [{ id: "settings", label: "Settings" }],
 };
@@ -566,7 +561,7 @@ export default function App() {
       </header>
 
       <div className="flex min-h-0 flex-1">
-        <nav className="flex w-60 shrink-0 flex-col gap-4 border-r border-[#2c313a] bg-[#16181d] p-3">
+        <nav className="flex min-h-0 w-60 shrink-0 flex-col gap-4 overflow-y-auto border-r border-[#2c313a] bg-[#16181d] p-3">
           <div>
             <p className="px-3 pb-1 text-[0.65rem] font-medium uppercase tracking-[0.14em] text-[#6f6a62]">
               Market
@@ -666,10 +661,8 @@ export default function App() {
         <IntradayModelPage key={activePage} model={activePage} {...INTRADAY_MODELS[activePage]} />
       ) : activePage === "kbdt-signals" ? (
         <KbdtSignalsPage />
-      ) : activePage === "bt-orb" ? (
-        <BacktestPage key="bt-all" />
       ) : activePage.startsWith("bt-") ? (
-        <BacktestPage key={activePage} lockModel={activePage.slice(3)} />
+        <BacktestPage key={activePage} model={activePage === "bt-gap" ? "gap" : "kbdt"} />
       ) : activePage === "penfold" ? (
         <KbdtPage scanning={scanningKbdt} onScan={scanKbdt} />
       ) : (

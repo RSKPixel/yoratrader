@@ -466,7 +466,7 @@ backtest_job = {"id": None}
 
 @app.post("/api/backtest/orb/download")
 def backtest_download():
-    """Download or top up 5 years of NIFTY 50 data, then rerun the ORB backtest."""
+    """Download or top up the backtest data (F&O indices and stocks from 2015, Nifty 50 5 years), then rerun the backtests."""
     current = jobs.get(backtest_job["id"]) if backtest_job["id"] else None
     if current and current.get("status") == "running":
         return {"status": "success", "job_id": backtest_job["id"]}
@@ -481,7 +481,7 @@ def backtest_download():
             if state.get("phase") == "download":
                 message = f"Backtest data {state['done'] + 1}/{state['total']}: {state['symbol']}"
             else:
-                message = "Running the backtest: all models and settings"
+                message = "Running the KBDT backtest: all settings"
             ws_hub.notify({"type": "status", "level": "info", "message": message, "job_id": job_id})
         elif state.get("status") == "completed":
             failed = len(state.get("errors") or [])
@@ -520,7 +520,7 @@ def _backtest_params(dataset, slippage, model=None, variant=None):
 
 
 @app.get("/api/backtest/orb")
-def backtest_results(model: str = Query("orb"), variant: str = Query(backtest.ORB_LIVE),
+def backtest_results(model: str = Query(backtest.DEFAULT_MODEL), variant: str = Query(backtest.DEFAULT_VARIANT),
                      dataset: str = Query("indices"), max_per_day: int = Query(3, ge=0),
                      slippage: float = Query(0.02, ge=0, le=1)):
     slip = _backtest_params(dataset, slippage, model, variant)
@@ -532,8 +532,8 @@ def backtest_results(model: str = Query("orb"), variant: str = Query(backtest.OR
 
 
 @app.get("/api/backtest/orb/trades")
-def backtest_trades(month: str = Query(..., pattern=r"^\d{4}-\d{2}$"), model: str = Query("orb"),
-                    variant: str = Query(backtest.ORB_LIVE), dataset: str = Query("indices"),
+def backtest_trades(month: str = Query(..., pattern=r"^\d{4}-\d{2}$"), model: str = Query(backtest.DEFAULT_MODEL),
+                    variant: str = Query(backtest.DEFAULT_VARIANT), dataset: str = Query("indices"),
                     max_per_day: int = Query(3, ge=0), slippage: float = Query(0.02, ge=0, le=1)):
     slip = _backtest_params(dataset, slippage, model, variant)
     return {"status": "success", "data": backtest.month_trades(model, variant, dataset, month, max_per_day, slip)}

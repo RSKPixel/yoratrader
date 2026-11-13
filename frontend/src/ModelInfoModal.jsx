@@ -450,18 +450,9 @@ export function BacktestInfo() {
     <>
       <Section title="What it tests">
         <p className="mb-2">
-          The same code as the live model pages (see their info buttons), run day by day over the last{" "}
-          <B>5 years of 15m candles</B>:
+          The live KBDT scanner, run day by day over 15m candles: <B>since 2015 for the F&amp;O indices</B> (as far back as Kite has them) and the <B>last 5 years for the stocks</B>:
         </p>
         <List>
-          <li>
-            <B>Opening Range Breakout</B> in 18 settings: opening range of <B>30, 45 or 60 minutes</B>; stop at the
-            tighter of the opposite range side and <B>0.5× or 1.0× ATR</B>; and a <B>minimum stop</B> of any, 0.6% or
-            1.0% of price (tighter setups are skipped). 30 min · 0.5× ATR · any stop is the live model.
-          </li>
-          <li>
-            <B>Fib Pullback</B> and <B>Key Break + Fib</B> with their live settings.
-          </li>
           <li>
             <B>Key Breakout Dow Theory</B>: signals from daily candles. Entry when price trades through the key-break
             level (at the level, or at the open if it gapped past); stop at the previous day's low (long) or high
@@ -479,7 +470,7 @@ export function BacktestInfo() {
             them once over the whole history would leak the future, because swing points are confirmed by later candles.
           </li>
           <li>
-            The table at the bottom compares every model and setting under the current dataset, cap and slippage.
+            The table at the bottom compares every exit and stop setting under the current dataset, cap and slippage.
           </li>
         </List>
       </Section>
@@ -493,19 +484,28 @@ export function BacktestInfo() {
           </li>
           <li>
             <B>F&amp;O indices</B>: the five NSE indices with futures (NIFTY 50, NIFTY BANK, NIFTY FIN SERVICE, NIFTY MID
-            SELECT, NIFTY NEXT 50), spot data standing in for their futures. An index has no volume, so ORB's{" "}
-            <B>volume and VWAP filters are off</B>; everything else is the same. The other models don't use volume.
+            SELECT, NIFTY NEXT 50), spot data standing in for their futures. 15m candles start where Kite's history
+            does: January 2015 for NIFTY, BANK and FIN SERVICE, November 2015 for NEXT 50 and January 2022 for MID
+            SELECT. Daily candles go back to 2000 for NIFTY and NEXT 50. Kite's early daily history for the others is
+            closing prices only (open = high = low = close), which has no swings or stops, so it is ignored: real
+            candles start in June 2005 for BANK, February 2012 for FIN SERVICE and January 2022 for MID SELECT.
+          </li>
+          <li>
+            <B>Indices before their 15m history</B> (NIFTY and NEXT 50 from 2001, BANK from 2006, FIN SERVICE from 2013, to 2015) are simulated on <B>daily candles</B>: entry
+            at the key-break level, or the open if it gapped past; a stop the entry day's range touches counts as hit
+            (worst case, since the order within the day is unknown); later days check an opening gap, then the low or
+            high; the time exit is the close of the last day instead of 15:15. These trades show "daily" as their
+            entry time. Signals start after 250 daily candles of warm-up.
           </li>
           <li>
             <B>Nifty 50 stocks</B>: today's 50 constituents from niftyindices.com, cash market with volume, full model.
           </li>
           <li>
-            Daily candles start about 4 months before the first 15m day, so the SMA50 trend and ATR(14) are ready from
-            the start.
+            For the stocks, daily candles start about 4 months before the first 15m day.
           </li>
           <li>
-            <B>Update data</B> downloads only candles newer than the last stored ones, then reruns every model and
-            setting (a few minutes).
+            <B>Update data</B> downloads only missing candles (new ones, and older history not yet stored), then reruns
+            every setting (a few minutes).
           </li>
         </List>
       </Section>
@@ -515,7 +515,7 @@ export function BacktestInfo() {
           <li>
             <B>R</B> is before costs. <B>Net R</B> subtracts NSE futures charges and slippage, converted to R using each
             trade's own risk: STT 0.05% on the sell side, exchange 0.00173% and SEBI on both sides, stamp 0.002% on the
-            buy side, ₹20 per order brokerage (3 orders if T1 is hit) and 18% GST.
+            buy side, ₹20 per order brokerage and 18% GST.
           </li>
           <li>
             Brokerage is turned into a percentage using an assumed one-lot value of ₹15 lakh for NIFTY and ₹7 lakh for a
@@ -537,7 +537,7 @@ export function BacktestInfo() {
           </li>
           <li>
             It uses <B>today's lot sizes</B> (NIFTY 65, BANKNIFTY 30, FINNIFTY 60, MIDCPNIFTY 120, NIFTYNXT50 25, and each
-            stock's current lot). Lot sizes changed over the 5 years, so older trades are shown as if traded at today's
+            stock's current lot). Lot sizes changed over the years, so older trades are shown as if traded at today's
             size.
           </li>
           <li>
@@ -554,8 +554,7 @@ export function BacktestInfo() {
             missing, and the ones that stayed tended to do well. This flatters the stock results.
           </li>
           <li>
-            <B>Cash vs futures</B>: futures trade at a premium to cash and have their own volume, so live fills and the
-            volume filter will differ a little.
+            <B>Cash vs futures</B>: futures trade at a premium to cash, so live fills will differ a little.
           </li>
           <li>
             <B>Fills</B>: entries at the 15m candle close and stops exactly at the stop price. If one candle touches both
@@ -579,6 +578,84 @@ export function BacktestInfo() {
           </li>
           <li>
             <B>Net R by month</B>: green and red cells, darker for bigger months. Click one to list its trades.
+          </li>
+        </List>
+      </Section>
+    </>
+  );
+}
+
+export function GapBacktestInfo() {
+  return (
+    <>
+      <Section title="The rules">
+        <p className="mb-2">
+          Ernest Chan's <B>buy-on-gap</B> (Algorithmic Trading: Winning Strategies and Their Rationale, ch. 4), pure
+          intraday:
+        </p>
+        <List>
+          <li>
+            <B>Buy at the 09:15 open</B> when a stock opens below the previous day's low by more than <B>1σ</B>, the
+            standard deviation of its last 90 daily close-to-close returns.
+          </li>
+          <li>
+            Only if the open is still <B>above its 20-day average close</B>: a dip in an uptrend, not a collapse.
+          </li>
+          <li>
+            Each day, take the <B>biggest gaps across the dataset</B> (top 5 or 10) and <B>sell at 15:15 the same day</B>.
+          </li>
+          <li>
+            <B>Long &amp; short</B> also sells the mirror image: an open above the previous high by more than 1σ, below
+            the 20-day average.
+          </li>
+          <li>
+            <B>Stop</B>: none is the book's rule (exit only at 15:15). 1σ puts a stop one standard deviation from entry.
+            Either way <B>1R = 1σ</B> from entry.
+          </li>
+          <li>Everything the signal uses is known at 09:15: the previous close, low and high, and today's open.</li>
+        </List>
+      </Section>
+
+      <Section title="Fixed to limit curve fitting">
+        <List>
+          <li>
+            The gap size (1σ), the 90-day and 20-day windows and the same-day exit are the book's values and are not
+            tuned. Earlier tests of a 1.5σ gap and of holding to the next, 3rd or 5th day were dropped: holding longer
+            kept the same edge per trade with 2–5× the drawdown.
+          </li>
+          <li>The default (top 10, long only, no stop) is the book's version; quote that one, not the best row.</li>
+        </List>
+      </Section>
+
+      <Section title="Data">
+        <List>
+          <li>
+            <B>All F&amp;O stocks</B>: every stock with a current NFO future, 15m candles from February 2015 (or listing,
+            if later). <B>Nifty 50 stocks</B> and <B>F&amp;O indices</B> use the same rules on their own lists.
+          </li>
+          <li>
+            Days where the first 15m open is more than 1% away from the daily open are skipped: a stale 09:15 print on a
+            corporate-action day (e.g. TMPV's 2025 demerger). Short special sessions are skipped too.
+          </li>
+          <li>
+            Net results are after <B>NSE futures charges and slippage</B>; rupees are for one lot at today's lot sizes.
+          </li>
+        </List>
+      </Section>
+
+      <Section title="Biases to keep in mind">
+        <List>
+          <li>
+            <B>Survivorship</B>: the lists are today's Nifty 50 and today's F&amp;O stocks for the whole period. Stocks
+            that gapped down and kept falling until they left F&amp;O or were delisted are missing, which flatters the
+            long side most.
+          </li>
+          <li>
+            <B>Entry fill</B>: the 09:15 open is the pre-open auction price; live you need to join the pre-open session
+            or accept some slippage.
+          </li>
+          <li>
+            <B>The real test</B> is paper trading the book version going forward: live results can't be fitted.
           </li>
         </List>
       </Section>

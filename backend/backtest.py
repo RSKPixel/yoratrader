@@ -1,17 +1,15 @@
-"""Five-year backtest of the intraday models on NSE cash data: the NIFTY 50 index and its 50 stocks.
+"""Five-year backtest of Key Breakout Dow Theory on NSE cash data: the F&O indices and the Nifty 50 stocks.
 
 Data lives in its own tables (bt_15m, bt_daily) so it never mixes with the live
 futures tables the model pages scan. Kite has no intraday history for expired
 futures, so cash data stands in:
 - "indices": the five NSE indices with futures (NIFTY 50, BANK, FIN SERVICE,
-  MID SELECT, NEXT 50), spot data. An index has no volume, so ORB runs without
-  its volume and VWAP filters; everything else is unchanged.
+  MID SELECT, NEXT 50), spot data.
 - "stocks": today's NIFTY 50 constituents (cash market, with volume), full models.
   Using today's list for the whole period flatters results (survivorship bias).
 
-Models: ORB in a grid of variants (opening range length, ATR stop, minimum stop
-distance), Fib Pullback and Key Break + Fib with their live settings, and Key
-Breakout Dow Theory (daily signals) with exits at 15:15 on day 1, 3 or 5.
+Key Breakout Dow Theory (daily signals) with exits at 15:15 on day 1, 3 or 5, and
+the model stop, a fixed % stop or the model stop capped at a %.
 
 KBDT signals are replayed day by day: each day is enriched and scanned using only
 the daily bars up to that day (a trailing window), exactly as the live scanner
@@ -31,28 +29,36 @@ import multiprocessing
 import time
 from datetime import date, datetime, timedelta
 from datetime import time as time_of_day
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 import requests
+from kiteconnect.exceptions import TokenException
 from psycopg2.extras import execute_values
 
-import fib
-import kbdtfib
 import kite_auth
 import orb
-import strategies
 from db import connect, stored_lot_sizes
 from enrich import enrich_eod
 from universaltrader.ut import signals2
 
-YEARS = 5
+IST = ZoneInfo("Asia/Kolkata")
+YEARS = 5  # history for the stocks
+# F&O indices: daily bars from 2000 (KBDT signals), 15m bars from as early as Kite has them
+# (2015 for NIFTY, BANK and FIN SERVICE; late 2015 for NEXT 50; 2022 for MID SELECT).
+INDEX_DAILY_FROM = date(2000, 1, 1)
+INDEX_15M_FROM = date(2015, 1, 1)
 CONSTITUENTS_URL = "https://www.niftyindices.com/IndexConstituent/ind_nifty50list.csv"
 CHUNK_15M = 190  # Kite allows 200 days per 15minute request
 CHUNK_DAY = 1900  # and 2000 per day request
 DAILY_LEAD = 120  # calendar days of daily bars before the first 15m day (SMA50 + ATR14)
 PAUSE = 0.35  # Kite historical API allows about 3 requests a second
-DATASETS = ("indices", "stocks")
-INDEX_DATASETS = ("indices",)  # spot index data: no volume
+DATASETS = ("indices", "stocks", "fno")
+# "fno": every stock with a current NFO future (today's list, so also survivorship-biased).
+# Buy-on-gap only: the KBDT replay is too slow for ~180 symbols.
+GAP_ONLY_DATASETS = ("fno",)
+# Downloaded as far back as Kite goes (daily from INDEX_DAILY_FROM, 15m from INDEX_15M_FROM).
+FULL_HISTORY_DATASETS = ("indices", "stocks", "fno")
 # NSE indices with futures: (Kite index name, futures name)
 FNO_INDICES = [
     ("NIFTY 50", "NIFTY"),
@@ -62,49 +68,47 @@ FNO_INDICES = [
     ("NIFTY NEXT 50", "NIFTYNXT50"),
 ]
 
-# ORB variants: opening range candles, ATR stop multiple, minimum stop as % of price.
-# "2-0.5-0.0" is the live model.
-ORB_RANGE_BARS = (2, 3, 4)
-ORB_STOP_ATR = (0.5, 1.0)
-ORB_MIN_RISK = (0.0, 0.6, 1.0)
-ORB_LIVE = "2-0.5-0.0"
-
-
-def orb_variant(bars, atr, min_risk):
-    return f"{bars}-{atr:.1f}-{min_risk:.1f}"
-
-
+# KBDT: exit day x stop. "5d" is the model stop (previous day's low/high);
+# "5d-fixed-0.75" puts the stop 0.75% from entry; "5d-cap-0.75" keeps the
+# model stop but never further than 0.75%.
 VARIANTS = {
-    "orb": {orb_variant(b, k, m): dict(or_bars=b, stop_atr=k, min_risk_pct=m)
-            for b, k, m in itertools.product(ORB_RANGE_BARS, ORB_STOP_ATR, ORB_MIN_RISK)},
-    "fib": {"live": {}},
-    "kbdtfib": {"live": {}},
-    # KBDT: exit day x stop. "5d" is the model stop (previous day's low/high);
-    # "5d-fixed-0.75" puts the stop 0.75% from entry; "5d-cap-0.75" keeps the
-    # model stop but never further than 0.75%.
     "kbdt": {
         **{f"{n}d": {"hold_days": n, "stop_mode": "model", "stop_pct": None} for n in (1, 3, 5)},
         **{f"{n}d-{mode}-{pct:g}": {"hold_days": n, "stop_mode": mode, "stop_pct": pct}
            for n in (1, 3, 5) for mode in ("fixed", "cap") for pct in (0.5, 0.75, 1.0, 1.5, 2.0)},
     },
 }
-# The six mechanical strategies in strategies.py.
-VARIANTS.update({
-    "nrib": {f"nr{n}-{h}d-{trend}": {"n": n, "hold_days": h, "trend": trend}
-             for n in (4, 7) for h in (1, 3) for trend in ("any", "with")},
-    "bbsq": {f"{k}atr-{h}d": {"stop_atr": k, "hold_days": h} for k in (1, 2) for h in (3, 5)},
-    "rsi2": {f"{t}-{sides}": {"threshold": t, "sides": sides} for t in (10, 5) for sides in ("long", "both")},
-    "ibs": {f"{t:g}-{mode}": {"threshold": t, "exit_mode": mode} for t in (0.2, 0.1) for mode in ("next", "ibs")},
-    "donch": {f"{n}-{x}": {"entry_n": n, "exit_n": x} for n in (20, 55) for x in (10, 20)},
-    "tom": {f"{e}-{x}": {"entry_from_end": e, "exit_day": x} for e in (1, 2) for x in (3, 5)},
-})
-STRATEGY_FUNCS = {"nrib": strategies.nr_inside, "bbsq": strategies.bollinger_squeeze, "rsi2": strategies.rsi2,
-                  "ibs": strategies.ibs, "donch": strategies.donchian, "tom": strategies.turn_of_month}
-
-MODEL_NAMES = {"orb": "Opening Range Breakout", "fib": "Fib Pullback", "kbdtfib": "Key Break + Fib",
-               "kbdt": "Key Breakout Dow Theory", "nrib": "NR4/NR7 inside day", "bbsq": "Bollinger squeeze",
-               "rsi2": "RSI(2) pullback", "ibs": "IBS mean reversion", "donch": "Donchian breakout",
-               "tom": "Turn of the month"}
+# Buy-on-gap (Ernest Chan, Algorithmic Trading ch. 4): buy at the open when a stock opens
+# below the previous day's low by more than `threshold` standard deviations of its 90-day
+# daily returns, but still above its 20-day average close; take the `top` biggest gaps of
+# the day across the dataset; exit at 15:15 on the `hold`-th trading day (1 = same day, the
+# book's rule; 2 = next day; entry day = day 1). One position per stock at a time. "both" also shorts the mirror image (open above
+# the previous high by the threshold, below the 20-day average). Stop "none" is the book's
+# rule (no stop; 1R = one 90-day standard deviation from entry); "1sd" enforces that stop.
+GAP_SD_DAYS = 90
+GAP_MA_DAYS = 20
+GAP_MIN_SESSION_BARS = 20  # skip short special sessions (Muhurat trading)
+GAP_OPEN_TOLERANCE = 0.01  # first 15m open vs daily open; larger means a bad print
+# Exit at 15:15 = the close of the 15:00 candle. (From August 2026 Kite's stock candles end with the
+# 15:00 candle; there is no 15:15 candle to take the open of. Indices still have one.)
+GAP_EXIT_BAR = (15, 0)
+# Gap threshold and exit stay at the book's values (1σ, same day): fewer knobs, less curve fitting.
+# Tested and dropped: a 1.5σ threshold, and holds to the next, 3rd and 5th day (same edge per
+# trade, 2-5x the drawdown). The hold machinery stays so GAP_HOLDS can bring them back.
+GAP_THRESHOLDS = (1.0,)
+GAP_HOLDS = (1,)
+VARIANTS["gap"] = {
+    f"{k:g}sd-top{n}-{sides}-{stop}-{hold}d": {"threshold": k, "top": n, "sides": sides, "stop": stop, "hold": hold}
+    for k in GAP_THRESHOLDS for n in (5, 10) for sides in ("long", "both") for stop in ("none", "1sd") for hold in GAP_HOLDS
+}
+GAP_BOOK = "1sd-top10-long-none-1d"  # Chan's version
+DEFAULT_MODEL, DEFAULT_VARIANT = "kbdt", "5d"
+MODEL_NAMES = {"kbdt": "Key Breakout Dow Theory", "gap": "Buy on gap"}
+# Kite's early daily history for some indices is closing prices only (open = high = low =
+# close): NIFTY BANK to June 2005, FIN SERVICE to February 2012, MID SELECT to January 2022.
+# Swings and stops need real candles, so daily bars up to the last close-only one are ignored.
+REAL_OHLC = ("day > COALESCE((SELECT max(day) FROM bt_daily f WHERE f.symbol = %s AND f.high = f.low "
+             "AND f.open = f.close), DATE '1900-01-01')")
 KBDT_WINDOW = 250  # trailing daily bars enriched for each replayed day
 KBDT_EXIT = (15, 15)  # exit at 15:15 on the last holding day
 
@@ -116,7 +120,7 @@ STAMP_BUY = 0.00002
 GST = 0.18
 BROKERAGE_PER_ORDER = 20
 # Assumed one-lot notional, used only to turn ₹20/order brokerage into a percentage.
-LOT_NOTIONAL = {"indices": 1_500_000, "stocks": 700_000}
+LOT_NOTIONAL = {"indices": 1_500_000, "stocks": 700_000, "fno": 700_000}
 FUTURES_NAME = dict(FNO_INDICES)  # index name -> futures name, for lot sizes
 
 
@@ -174,6 +178,7 @@ def _ensure_tables(cursor):
             symbol TEXT PRIMARY KEY,
             last_day DATE NOT NULL
         );
+        ALTER TABLE bt_kbdt_progress ADD COLUMN IF NOT EXISTS first_day DATE;
         CREATE TABLE IF NOT EXISTS bt_runs (
             dataset TEXT PRIMARY KEY,
             ran_at TIMESTAMPTZ NOT NULL,
@@ -181,6 +186,11 @@ def _ensure_tables(cursor):
             symbols INTEGER, days_scanned INTEGER
         );
         """
+    )
+    # Rows written before first_day existed were replayed from the first stored 15m day.
+    cursor.execute(
+        "UPDATE bt_kbdt_progress p SET first_day = (SELECT min(datetime AT TIME ZONE 'Asia/Kolkata')::date "
+        "FROM bt_15m b WHERE b.symbol = p.symbol) WHERE first_day IS NULL"
     )
 
 
@@ -204,12 +214,31 @@ def _constituents():
     return stored
 
 
-def _last_stored(cursor, table, column, symbol):
-    cursor.execute(f"SELECT max({column}) FROM {table} WHERE symbol = %s", (symbol,))
+def _fno_stocks():
+    """Every stock with a current NFO future (Kite instruments); falls back to the last stored list."""
+    try:
+        from contracts import list_contracts
+
+        indices = set(FUTURES_NAME.values())
+        # Index futures not in FNO_INDICES (e.g. NIFTYFPI) are not stocks either.
+        found = sorted({row["name"] for row in list_contracts("NSE")
+                        if row["name"] not in indices and not row["name"].startswith("NIFTY")})
+        if len(found) >= 100:
+            return [(name, name) for name in found]
+    except Exception as error:
+        print("Could not list F&O stocks:", error)
+    with connect() as conn, conn.cursor() as cursor:
+        _ensure_tables(cursor)
+        cursor.execute("SELECT symbol, name FROM bt_symbols WHERE dataset = 'fno' ORDER BY symbol")
+        return cursor.fetchall()
+
+
+def _last_stored(cursor, table, column, symbol, edge="max"):
+    cursor.execute(f"SELECT {edge}({column}) FROM {table} WHERE symbol = %s", (symbol,))
     value = cursor.fetchone()[0]
     if value is None:
         return None
-    return value.date() if isinstance(value, datetime) else value
+    return value.astimezone(IST).date() if isinstance(value, datetime) else value
 
 
 def _fetch(kite, token, start, end, interval, chunk):
@@ -230,6 +259,9 @@ def _fetch(kite, token, start, end, interval, chunk):
 
 
 def _store(cursor, symbol, bars_15m, bars_day):
+    # Kite occasionally returns the same candle twice; one INSERT can't update a row twice.
+    bars_15m = list({b["date"]: b for b in bars_15m}.values())
+    bars_day = list({b["date"].date(): b for b in bars_day}.values())
     if bars_15m:
         execute_values(
             cursor,
@@ -250,28 +282,32 @@ def _store(cursor, symbol, bars_15m, bars_day):
         )
 
 
-def download(on_progress=None):
-    """Fetch (or top up) 5 years of 15m and daily bars for the index and its stocks."""
+def download(on_progress=None, datasets=DATASETS, rerun=True):
+    """Fetch or top up 15m and daily bars: the F&O indices and F&O stocks from INDEX_DAILY_FROM /
+    INDEX_15M_FROM (as far as Kite has them; earlier history is backfilled)."""
     def report(**state):
         if on_progress:
             on_progress(state)
 
-    stocks = _constituents()
+    stocks = _constituents() if "stocks" in datasets else []
+    fno = _fno_stocks() if "fno" in datasets else []
     kite = kite_auth.trading_client()
     tokens = {
         row["tradingsymbol"]: row["instrument_token"]
         for row in kite.instruments("NSE")
         if row["segment"] in ("NSE", "INDICES")
     }
-    wanted = ([("indices", name, future) for name, future in FNO_INDICES]
-              + [("stocks", s, n) for s, n in stocks])
+    wanted = ([("indices", name, future) for name, future in FNO_INDICES if "indices" in datasets]
+              + [("fno", s, n) for s, n in fno] + [("stocks", s, n) for s, n in stocks])
     today = date.today()
     first = today - timedelta(days=round(365.25 * YEARS))
     candles, errors = 0, []
 
     with connect() as conn, conn.cursor() as cursor:
         _ensure_tables(cursor)
-        cursor.execute("DELETE FROM bt_symbols WHERE dataset = 'stocks' OR NOT (dataset = ANY(%s))", (list(DATASETS),))
+        refreshed = [d for d in ("stocks", "fno") if d in datasets]
+        cursor.execute("DELETE FROM bt_symbols WHERE dataset = ANY(%s) OR NOT (dataset = ANY(%s))",
+                       (refreshed, list(DATASETS)))
         execute_values(cursor, "INSERT INTO bt_symbols (dataset, symbol, name) VALUES %s ON CONFLICT DO NOTHING",
                        [(d, s, n) for d, s, n in wanted])
         conn.commit()
@@ -280,25 +316,42 @@ def download(on_progress=None):
         for index, (dataset, symbol, _) in enumerate(wanted):
             report(status="running", phase="download", done=index, total=len(wanted), symbol=symbol,
                    candles=candles, errors=list(errors))
+            if symbol in fetched:  # a Nifty 50 stock is also an F&O stock: one download
+                continue
             token = tokens.get(symbol)
             if token is None:
                 errors.append(f"{symbol}: not found in Kite instruments")
                 continue
             try:
-                last_15m = _last_stored(cursor, "bt_15m", "datetime", symbol)
-                last_day = _last_stored(cursor, "bt_daily", "day", symbol)
-                start_15m = last_15m if last_15m else first
-                start_day = last_day if last_day else first - timedelta(days=DAILY_LEAD)
-                bars_15m = _fetch(kite, token, start_15m, today, "15minute", CHUNK_15M)
-                bars_day = _fetch(kite, token, start_day, today, "day", CHUNK_DAY)
+                full = dataset in FULL_HISTORY_DATASETS
+                want_15m = INDEX_15M_FROM if full else first
+                want_day = INDEX_DAILY_FROM if full else first - timedelta(days=DAILY_LEAD)
+                bars_15m, bars_day = [], []
+                for table, column, want, interval, chunk, out in (
+                    ("bt_15m", "datetime", want_15m, "15minute", CHUNK_15M, bars_15m),
+                    ("bt_daily", "day", want_day, "day", CHUNK_DAY, bars_day),
+                ):
+                    first_have = _last_stored(cursor, table, column, symbol, "min")
+                    last_have = _last_stored(cursor, table, column, symbol)
+                    if first_have is None:
+                        out.extend(_fetch(kite, token, want, today, interval, chunk))
+                        continue
+                    if first_have > want + timedelta(days=7):  # backfill older history
+                        out.extend(_fetch(kite, token, want, first_have - timedelta(days=1), interval, chunk))
+                    out.extend(_fetch(kite, token, last_have, today, interval, chunk))
                 _store(cursor, symbol, bars_15m, bars_day)
                 conn.commit()
+                fetched.add(symbol)
                 candles += len(bars_15m)
+            except TokenException:
+                raise  # expired Kite login: every request would fail, so stop now
             except Exception as error:
                 conn.rollback()
                 print(f"Backtest download failed for {symbol}:", error)
                 errors.append(f"{symbol}: {error}")
 
+    if not rerun:
+        return {"symbols": len(wanted), "candles": candles, "errors": errors}
     report(status="running", phase="backtest", done=0, total=len(wanted), symbol="all models", candles=candles,
            errors=list(errors))
     run_backtest()
@@ -318,12 +371,17 @@ def _load_symbol(conn, symbol):
         conn, params=[symbol],
     )
     daily = pd.read_sql(
-        "SELECT day AS datetime, high, low, close FROM bt_daily WHERE symbol = %s ORDER BY day",
-        conn, params=[symbol],
+        f"SELECT day AS datetime, open, high, low, close FROM bt_daily WHERE symbol = %s AND {REAL_OHLC} ORDER BY day",
+        conn, params=[symbol, symbol],
     )
     if not bars.empty:
         bars["datetime"] = pd.to_datetime(bars["datetime"], utc=True).dt.tz_convert("Asia/Kolkata")
     return bars, daily
+
+
+def _load_dataset_symbol(conn, dataset, symbol):
+    """Every dataset uses each symbol's full stored history (the Nifty 50 stocks share candles with "fno")."""
+    return _load_symbol(conn, symbol)
 
 
 def _kbdt_signals(symbol, first_day):
@@ -335,13 +393,14 @@ def _kbdt_signals(symbol, first_day):
     """
     with connect() as conn:
         daily = pd.read_sql(
-            "SELECT day AS datetime, open, high, low, close, volume FROM bt_daily WHERE symbol = %s ORDER BY day",
-            conn, params=[symbol],
+            f"SELECT day AS datetime, open, high, low, close, volume FROM bt_daily WHERE symbol = %s AND {REAL_OHLC} "
+            "ORDER BY day",
+            conn, params=[symbol, symbol],
         )
         with conn.cursor() as cursor:
-            cursor.execute("SELECT last_day FROM bt_kbdt_progress WHERE symbol = %s", (symbol,))
+            cursor.execute("SELECT first_day, last_day FROM bt_kbdt_progress WHERE symbol = %s", (symbol,))
             row = cursor.fetchone()
-            done_through = row[0] if row else None
+            done_from, done_through = (row[0] or row[1], row[1]) if row else (None, None)
             cursor.execute("SELECT day, side, level, stop FROM bt_kbdt_signals WHERE symbol = %s", (symbol,))
             signals = {day: (side, level, stop) for day, side, level, stop in cursor.fetchall()}
         if daily.empty:
@@ -349,14 +408,14 @@ def _kbdt_signals(symbol, first_day):
         daily["datetime"] = pd.to_datetime(daily["datetime"])
         days = daily["datetime"].dt.date
         new = []
-        last = done_through
+        lo, hi = done_from, done_through
         for i in range(len(daily)):
             day = days.iloc[i]
-            if day < first_day or (done_through and day <= done_through) or day >= date.today():
+            if day < first_day or (done_through and done_from <= day <= done_through) or day >= date.today():
                 continue
             window = daily.iloc[max(0, i - KBDT_WINDOW + 1): i + 1]
             hits = signals2(enrich_eod(window, project=False), models=["KBDT"])
-            last = day
+            lo, hi = min(lo or day, day), max(hi or day, day)
             if hits.empty:
                 continue
             hit = hits.iloc[-1]
@@ -369,9 +428,10 @@ def _kbdt_signals(symbol, first_day):
             if new:
                 execute_values(cursor, "INSERT INTO bt_kbdt_signals (symbol, day, side, level, stop) VALUES %s "
                                        "ON CONFLICT (symbol, day) DO NOTHING", new)
-            if last and last != done_through:
-                cursor.execute("INSERT INTO bt_kbdt_progress (symbol, last_day) VALUES (%s, %s) ON CONFLICT (symbol) "
-                               "DO UPDATE SET last_day = EXCLUDED.last_day", (symbol, last))
+            if hi and (lo, hi) != (done_from, done_through):
+                cursor.execute("INSERT INTO bt_kbdt_progress (symbol, first_day, last_day) VALUES (%s, %s, %s) "
+                               "ON CONFLICT (symbol) DO UPDATE SET first_day = EXCLUDED.first_day, "
+                               "last_day = EXCLUDED.last_day", (symbol, lo, hi))
         conn.commit()
     return signals
 
@@ -464,46 +524,212 @@ def _epoch(ts):
 
 
 def _scan_one(item):
-    """Every model and variant for one symbol (runs in a worker process)."""
+    """Every KBDT variant and the buy-on-gap candidates for one symbol (runs in a worker process)."""
     dataset, symbol = item
     with connect() as conn:
-        bars, daily = _load_symbol(conn, symbol)
+        bars, daily = _load_dataset_symbol(conn, dataset, symbol)
     if bars.empty:
-        return dataset, symbol, None, []
-    filters = dataset not in INDEX_DATASETS
+        return dataset, symbol, None, [], {}
     rows = []
+    first_15m = bars["datetime"].dt.date.min()
+    # Indices: replay KBDT from the daily history (after KBDT_WINDOW bars of warm-up);
+    # days before the first 15m candle are simulated on daily candles.
+    daily_days = pd.to_datetime(daily["datetime"]).dt.date
+    first_day = first_15m
+    if dataset == "indices" and len(daily) > KBDT_WINDOW:
+        first_day = min(first_15m, daily_days.iloc[KBDT_WINDOW])
+    daily_ix = daily.set_index(pd.to_datetime(daily["datetime"]))
+    gap = _gap_candidates(dataset, symbol, bars, daily)
     for model, variants in VARIANTS.items():
-        if model in STRATEGY_FUNCS:
-            for variant, params in variants.items():
-                for t in STRATEGY_FUNCS[model](bars, daily, **params):
-                    rows.append((model, variant, dataset, symbol, t["date"], t["side"], t["entry_time"], t["entry_label"],
-                                 t["entry"], t["stop"], t["target"], t["exit"], t["exit_reason"], False, t["r"],
-                                 t["status"], t["exit_date"]))
+        if model != "kbdt" or dataset in GAP_ONLY_DATASETS:
             continue
-        if model == "kbdt":
-            signals = _kbdt_signals(symbol, bars["datetime"].dt.date.min())
-            for variant, params in variants.items():
-                for t in _kbdt_trades(signals, bars, params["hold_days"], params["stop_pct"], params["stop_mode"]):
-                    rows.append((model, variant, dataset, symbol, t["date"], t["side"], t["entry_time"], t["entry_label"],
-                                 t["entry"], t["stop"], None, t["exit"], t["exit_reason"], False, t["r"], t["status"],
-                                 t["exit_date"]))
-            continue
+        signals = _kbdt_signals(symbol, first_day)
+        early = {d: v for d, v in signals.items() if d < first_15m}
         for variant, params in variants.items():
-            if model == "orb":
-                found = orb._scan_symbol("NSE", symbol, bars, daily, use_volume=filters, use_vwap=filters, **params)
-            else:
-                found = (fib if model == "fib" else kbdtfib)._scan_symbol("NSE", symbol, bars, daily)
+            found, busy_until = [], None
+            for day in sorted(early):
+                if busy_until and day <= busy_until:
+                    continue
+                t = _daily_trade(day, early[day], daily_ix, params["hold_days"], params["stop_pct"], params["stop_mode"])
+                if t:
+                    t["entry_time"] = _epoch(pd.Timestamp(day).tz_localize("Asia/Kolkata") + pd.Timedelta(hours=9, minutes=15))
+                    found.append(t)
+                    busy_until = date.fromisoformat(t["exit_date"])
+            later = {d: v for d, v in signals.items() if d >= first_15m and not (busy_until and d <= busy_until)}
+            found += _kbdt_trades(later, bars, params["hold_days"], params["stop_pct"], params["stop_mode"])
             for t in found:
-                if t["status"] in ("closed", "open"):
-                    rows.append((model, variant, dataset, symbol, t["date"], t["side"], t["entry_time"], t["entry_label"],
-                                 t["entry"], t["stop"], t["target"], t["exit"], t["exit_reason"], t["t1_hit"], t["r"],
-                                 t["status"], t["date"]))
+                rows.append((model, variant, dataset, symbol, t["date"], t["side"], t["entry_time"], t["entry_label"],
+                             t["entry"], t["stop"], None, t["exit"], t["exit_reason"], False, t["r"], t["status"],
+                             t["exit_date"]))
+    covered = daily_days[(daily_days >= first_day)]
+    return (dataset, symbol, (first_day, max(covered.max(), bars["datetime"].dt.date.max()), covered.nunique()),
+            rows, gap)
+
+
+def _gap_candidates(dataset, symbol, bars, daily):
+    """Every buy-on-gap setup of one symbol, simulated on its 15m bars, before the daily top-N ranking.
+
+    Returns {(threshold, sides, stop, hold): [(day, score, row), ...]}; score is the size of the gap
+    (as a return from the previous low/high to the open) used to rank the day's candidates.
+    Signals use only data known at the open: the previous day's low/high, the 20-day average
+    and the 90-day standard deviation of close-to-close returns up to the previous close.
+    """
+    out = {}
+    if bars.empty or len(daily) <= GAP_SD_DAYS:
+        return out
+    d = daily.copy()
+    d["day"] = pd.to_datetime(d["datetime"]).dt.date
+    d = d.set_index("day")
+    prev_close = d["close"].shift(1)
+    sd = d["close"].pct_change().rolling(GAP_SD_DAYS).std().shift(1)
+    ma = d["close"].rolling(GAP_MA_DAYS).mean().shift(1)
+    gap_down = d["open"] / d["low"].shift(1) - 1  # negative: opened below the previous low
+    gap_up = d["open"] / d["high"].shift(1) - 1  # positive: opened above the previous high
+
+    bars = bars.reset_index(drop=True)
+    day_of = bars["datetime"].dt.date
+    time_of = bars["datetime"].dt.time
+    groups = bars.groupby(day_of).indices
+    trading_days = sorted(groups)
+    day_pos = {dd: k for k, dd in enumerate(trading_days)}
+    o, h, l, c = (bars[col].to_numpy(float) for col in ("open", "high", "low", "close"))
+    exit_bar_at = time_of_day(*GAP_EXIT_BAR)
+    today = date.today()
+
+    def time_exit(day, hold):
+        """(bar index, price, reason, status) of the time exit on the hold-th day from `day`:
+        the close of its 15:00 candle, i.e. the price at 15:15."""
+        k = day_pos[day] + hold - 1
+        if k >= len(trading_days):  # the hold runs past the data: still open at the last close
+            return len(bars) - 1, c[-1], "open", "open"
+        idx = groups[trading_days[k]]
+        i = next((int(j) for j in idx if time_of.iloc[j] == exit_bar_at), None)
+        if i is None:  # a short session with no 15:00 candle: out at its close
+            i = int(idx[-1])
+            return i, c[i], "session end", "closed"
+        return i, c[i], "time", "closed"
+
+    for day, idx in groups.items():
+        if day not in d.index or day >= today or len(idx) < GAP_MIN_SESSION_BARS:
+            continue
+        sigma, avg = sd.get(day), ma.get(day)
+        if pd.isna(sigma) or pd.isna(avg) or sigma <= 0 or pd.isna(prev_close.get(day)):
+            continue
+        start, end = int(idx[0]), int(idx[-1])
+        if time_of.iloc[start] != time_of_day(9, 15):
+            continue
+        if not any(time_of.iloc[i] == exit_bar_at for i in range(start + 1, end + 1)):
+            continue
+        exits = {hold: time_exit(day, hold) for hold in GAP_HOLDS}
+        entry = o[start]
+        # Corporate-action days can carry a stale 09:15 print (TMPV on its 2025-10-14 demerger
+        # opened at 400 but the first 15m candle shows 561.65): skip when the two opens disagree.
+        if abs(entry / d.at[day, "open"] - 1) > GAP_OPEN_TOLERANCE:
+            continue
+        for side, gap_ret, ok in (("long", gap_down[day], entry > avg), ("short", gap_up[day], entry < avg)):
+            if pd.isna(gap_ret) or not ok:
+                continue
+            long = side == "long"
+            sigmas = -gap_ret / sigma if long else gap_ret / sigma
+            risk = entry * sigma
+            stop = entry - risk if long else entry + risk
+            for threshold in {p["threshold"] for p in VARIANTS["gap"].values()}:
+                if sigmas <= threshold:
+                    continue
+                for stop_mode, hold in itertools.product(("none", "1sd"), GAP_HOLDS):
+                    exit_bar, exit_px, reason, status = exits[hold]
+                    if stop_mode == "1sd":
+                        for i in range(start, exit_bar + 1):  # the exit candle counts: we exit at its close
+                            if i > start and ((long and o[i] <= stop) or (not long and o[i] >= stop)):
+                                exit_bar, exit_px, reason, status = i, o[i], "stop (gap)", "closed"
+                                break
+                            if (long and l[i] <= stop) or (not long and h[i] >= stop):
+                                exit_bar, exit_px, reason, status = i, stop, "stop", "closed"
+                                break
+                    sign = 1 if long else -1
+                    ts = bars["datetime"].iloc[start]
+                    row = (dataset, symbol, day.isoformat(), side, _epoch(ts), ts.strftime("%H:%M"),
+                           round(float(entry), 2), round(float(stop), 2), None, round(float(exit_px), 2), reason, False,
+                           round(float(sign * (exit_px - entry) / risk), 3), status, day_of.iloc[exit_bar].isoformat())
+                    for sides in ("long", "both"):
+                        if sides == "long" and not long:
+                            continue
+                        out.setdefault((threshold, sides, stop_mode, hold), []).append((day, abs(float(gap_ret)), row))
+    return out
+
+
+def _gap_one(item):
+    """Buy-on-gap candidates and the scanned span of one symbol (runs in a worker process)."""
+    dataset, symbol = item
+    with connect() as conn:
+        bars, daily = _load_dataset_symbol(conn, dataset, symbol)
+    if bars.empty:
+        return dataset, None, {}
     days = bars["datetime"].dt.date
-    return dataset, symbol, (days.min(), days.max(), days.nunique()), rows
+    return dataset, (days.min(), days.max(), days.nunique()), _gap_candidates(dataset, symbol, bars, daily)
+
+
+def run_gap_backtest():
+    """Rerun only the buy-on-gap model: replaces its trades and leaves every other model's untouched.
+    Also records the run span of the gap-only datasets (bt_runs)."""
+    with connect() as conn, conn.cursor() as cursor:
+        _ensure_tables(cursor)
+        conn.commit()
+        cursor.execute("SELECT dataset, symbol FROM bt_symbols ORDER BY dataset, symbol")
+        items = cursor.fetchall()
+    workers = max(1, min(8, (multiprocessing.cpu_count() or 2) - 1))
+    with multiprocessing.get_context("spawn").Pool(workers) as pool:
+        found = pool.map(_gap_one, items)
+    rows = _gap_rows([(dataset, gap) for dataset, _, gap in found])
+    runs = {}
+    for dataset, span, _ in found:
+        if span and dataset in GAP_ONLY_DATASETS:
+            run = runs.setdefault(dataset, {"first": span[0], "last": span[1], "days": 0, "symbols": 0})
+            run["first"], run["last"] = min(run["first"], span[0]), max(run["last"], span[1])
+            run["days"], run["symbols"] = max(run["days"], span[2]), run["symbols"] + 1
+    with connect() as conn, conn.cursor() as cursor:
+        cursor.execute("DELETE FROM bt_trades WHERE model = 'gap'")
+        execute_values(cursor, "INSERT INTO bt_trades (model, variant, dataset, symbol, date, side, entry_time, entry_label, "
+                               "entry, stop, target, exit, exit_reason, t1_hit, r, status, exit_date) VALUES %s "
+                               "ON CONFLICT DO NOTHING", rows, page_size=5000)
+        for dataset, run in runs.items():
+            cursor.execute(
+                "INSERT INTO bt_runs (dataset, ran_at, first_day, last_day, symbols, days_scanned) "
+                "VALUES (%s, now(), %s, %s, %s, %s) ON CONFLICT (dataset) DO UPDATE SET ran_at = EXCLUDED.ran_at, "
+                "first_day = EXCLUDED.first_day, last_day = EXCLUDED.last_day, symbols = EXCLUDED.symbols, "
+                "days_scanned = EXCLUDED.days_scanned",
+                (dataset, run["first"], run["last"], run["symbols"], run["days"]),
+            )
+        conn.commit()
+    _compare_cache.clear()
+    return len(rows)
+
+
+def _gap_rows(candidates):
+    """Rank each day's gap candidates per dataset and keep the top N for every gap variant.
+
+    Stocks still held from an earlier gap (multi-day holds) can't be bought again until the
+    day after their exit, so they drop out before the day's ranking."""
+    rows = []
+    for variant, params in VARIANTS["gap"].items():
+        key = (params["threshold"], params["sides"], params["stop"], params["hold"])
+        by_day = {}
+        for dataset, found in candidates:
+            for day, score, row in found.get(key, []):
+                by_day.setdefault((dataset, day), []).append((score, row))
+        busy = {}  # (dataset, symbol) -> exit date (ISO)
+        for (dataset, day), picks in sorted(by_day.items(), key=lambda kv: kv[0][1]):
+            iso = day.isoformat()
+            picks = [p for p in picks if busy.get((dataset, p[1][1]), "") < iso]
+            picks.sort(key=lambda p: -p[0])
+            for _, row in picks[: params["top"]]:
+                rows.append(("gap", variant, *row))
+                busy[(dataset, row[1])] = row[-1]
+    return rows
 
 
 def run_backtest():
-    """Rerun every model and variant over all stored symbols and replace the stored trades."""
+    """Rerun every KBDT and buy-on-gap variant over all stored symbols and replace the stored trades."""
     with connect() as conn, conn.cursor() as cursor:
         _ensure_tables(cursor)
         conn.commit()
@@ -514,10 +740,12 @@ def run_backtest():
     with multiprocessing.get_context("spawn").Pool(workers) as pool:
         results_ = pool.map(_scan_one, items)
     runs = {}
+    gap_rows = _gap_rows([(dataset, gap) for dataset, _, _, _, gap in results_])
+    results_.append((None, None, None, gap_rows, None))
     with connect() as conn, conn.cursor() as cursor:
         cursor.execute("DELETE FROM bt_trades")
         cursor.execute("DELETE FROM bt_runs WHERE NOT (dataset = ANY(%s))", (list(DATASETS),))
-        for dataset, _, span, rows in results_:
+        for dataset, _, span, rows, _ in results_:
             if span:
                 first, last, days = span
                 run = runs.setdefault(dataset, {"first": first, "last": last, "days": 0, "symbols": 0})
@@ -693,8 +921,8 @@ def compare(dataset, max_per_day=3, slippage=0.0002, model_filter=None):
                 continue
             _, _, summary = _summary(trades)
             rows.append({"model": model, "variant": variant, "name": MODEL_NAMES[model], "params": params,
-                         "live": model in ("fib", "kbdtfib") or variant == ORB_LIVE
-                         or (model == "kbdt" and params["stop_mode"] == "model"), **summary})
+                         "live": params.get("stop_mode") == "model" or (model == "gap" and variant == GAP_BOOK),
+                         **summary})
     _compare_cache[key] = rows
     return rows
 

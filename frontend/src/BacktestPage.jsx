@@ -1,103 +1,39 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createChart, LineSeries } from "lightweight-charts";
-import ModelInfoModal, { BacktestInfo, InfoButton } from "./ModelInfoModal";
+import ModelInfoModal, { BacktestInfo, GapBacktestInfo, InfoButton } from "./ModelInfoModal";
 import { formatR, formatRs, KBDT_EXITS, KBDT_STOP_MODES, KBDT_STOP_PCTS, rClass, Segmented, SLIPPAGE, Stat } from "./backtestShared";
 
-const DATASETS = [
+const ALL_DATASETS = [
   ["indices", "F&O indices"],
   ["stocks", "Nifty 50 stocks"],
+  ["fno", "All F&O stocks"],
 ];
+// KBDT isn't run on the full F&O stock list (its day-by-day replay is too slow for ~180 symbols).
+const MODEL_DATASETS = { kbdt: ["indices", "stocks"], gap: ["indices", "stocks", "fno"] };
 
-const MODELS = [
-  ["orb", "Opening Range Breakout"],
-  ["fib", "Fib Pullback"],
-  ["kbdtfib", "Key Break + Fib"],
-  ["kbdt", "Key Breakout Dow Theory"],
-  ["nrib", "NR4/NR7 inside day"],
-  ["bbsq", "Bollinger squeeze"],
-  ["rsi2", "RSI(2) pullback"],
-  ["ibs", "IBS mean reversion"],
-  ["donch", "Donchian breakout"],
-  ["tom", "Turn of the month"],
+const MODEL_NAMES = { kbdt: "Key Breakout Dow Theory", gap: "Buy on gap" };
+
+// Buy-on-gap variant id: "<threshold>sd-top<N>-<sides>-<stop>-<hold>", e.g. "1sd-top10-long-none-1d" (Chan's version).
+// Threshold (1σ) and exit (same day) are fixed at the book's values; only Take, Side and Stop vary.
+const GAP_DIMS = [
+  { key: "top", label: "Take", options: [["5", "Top 5"], ["10", "Top 10"]], title: "Biggest gaps of the day across the dataset" },
+  { key: "sides", label: "Side", options: [["long", "Long only"], ["both", "Long & short"]], title: "Long & short also sells opens above the previous high, below the 20-day average" },
+  { key: "stop", label: "Stop", options: [["none", "None"], ["1sd", "1σ"]], title: "None is the book's rule (exit only at 15:15). 1σ: stop one standard deviation from entry. Either way 1R = 1σ." },
 ];
+const GAP_INITIAL = { threshold: "1", top: "10", sides: "long", stop: "none", hold: "1d" };
 
-// The six mechanical strategies: each variant id joins its dimension values with "-".
-const TREND = [
-  ["any", "Both sides"],
-  ["with", "With SMA50 trend"],
-];
-const STRATEGY_SPECS = {
-  nrib: {
-    dims: [
-      { key: "setup", label: "Setup", options: [["nr4", "NR4 inside day"], ["nr7", "NR7 inside day"]] },
-      { key: "hold", label: "Exit", options: [["1d", "Same day 15:15"], ["3d", "3rd day 15:15"]] },
-      { key: "trend", label: "Side", options: TREND },
-    ],
-    initial: { setup: "nr7", hold: "3d", trend: "any" },
-    rules:
-      "Toby Crabel's NR4/NR7 inside day: the setup day is both the narrowest range of the last 4 (or 7) days and an inside day (inside the day before). Next day, buy the break of its high or sell the break of its low, at the level or the open if it gaps past. Stop: the other side of the setup day's range. Exit at 15:15 the same day or on the 3rd day.",
-  },
-  bbsq: {
-    dims: [
-      { key: "stop", label: "Stop", options: [["1atr", "1× ATR"], ["2atr", "2× ATR"]] },
-      { key: "hold", label: "Exit", options: [["3d", "3rd day 15:15"], ["5d", "5th day 15:15"]] },
-    ],
-    initial: { stop: "2atr", hold: "5d" },
-    rules:
-      "Bollinger squeeze: when the 20-day Bollinger Band width (4 standard deviations ÷ the 20-day average) is at its lowest in 120 days, trade the break of that day's high (buy) or low (sell) the next day. Stop: 1× or 2× the daily ATR from entry. Exit at 15:15 on the 3rd or 5th day.",
-  },
-  rsi2: {
-    dims: [
-      { key: "thr", label: "Signal", options: [["10", "RSI(2) < 10"], ["5", "RSI(2) < 5"]] },
-      { key: "side", label: "Side", options: [["long", "Long only"], ["both", "Long & short"]] },
-    ],
-    initial: { thr: "10", side: "long" },
-    rules:
-      "Larry Connors' RSI(2) pullback: on the daily close, if 2-day RSI is below 10 (or 5) and the close is above its 200-day average, buy at the next open; optionally sell when RSI is above 90 (95) below the 200-day average. Exit at the next open after the close crosses the 5-day average, or after 5 days. Protective stop 2× ATR. The 200-day average needs history, so signals start in mid-2022.",
-  },
-  ibs: {
-    dims: [
-      { key: "thr", label: "Buy when IBS", options: [["0.2", "< 0.2"], ["0.1", "< 0.1"]] },
-      { key: "exit", label: "Exit", options: [["next", "Next day 15:15"], ["ibs", "IBS > 0.8 (max 5 days)"]] },
-    ],
-    initial: { thr: "0.2", exit: "ibs" },
-    rules:
-      "Internal Bar Strength: at 15:15, IBS = (price − day's low) ÷ (day's high − day's low) from the day's 15m candles. Below 0.2 (or 0.1), the close is near the day's low: buy at 15:15. Exit at 15:15 the next day, or at 15:15 once IBS is above 0.8 (at most 5 days). Long only. Protective stop 2× ATR.",
-  },
-  donch: {
-    dims: [
-      { key: "entry", label: "Entry", options: [["20", "20-day breakout"], ["55", "55-day breakout"]] },
-      { key: "exit", label: "Exit", options: [["10", "10-day opposite"], ["20", "20-day opposite"]] },
-    ],
-    initial: { entry: "20", exit: "10" },
-    rules:
-      "Donchian / Turtle breakout: buy a break of the 20-day (or 55-day) high, sell a break of the 20-day (or 55-day) low, at the level or the open if it gaps past. Stop 2× ATR from entry; exit on a break of the 10-day (or 20-day) low for longs, high for shorts. No time limit: trends are held as long as they run.",
-  },
-  tom: {
-    dims: [
-      { key: "entry", label: "Buy on", options: [["1", "Last trading day"], ["2", "2nd-last trading day"]] },
-      { key: "exit", label: "Sell on", options: [["3", "3rd trading day"], ["5", "5th trading day"]] },
-    ],
-    initial: { entry: "1", exit: "3" },
-    rules:
-      "Turn of the month: buy at 15:15 on the last (or 2nd-last) trading day of the month and sell at 15:15 on the 3rd (or 5th) trading day of the next month. Long only, about 4–7 days a month. Protective stop 2× ATR.",
-  },
-};
-
-function specVariant(model, parts) {
-  return STRATEGY_SPECS[model].dims.map((d) => parts[d.key]).join("-");
+function gapVariant({ threshold, top, sides, stop, hold }) {
+  return `${threshold}sd-top${top}-${sides}-${stop}-${hold}`;
 }
 
-function parseSpecVariant(model, id) {
-  const values = id.split("-");
-  return Object.fromEntries(STRATEGY_SPECS[model].dims.map((d, i) => [d.key, values[i]]));
+function parseGapVariant(id) {
+  const [threshold, top, sides, stop, hold] = id.split("-");
+  return { threshold: threshold.replace("sd", ""), top: top.replace("top", ""), sides, stop, hold };
 }
 
-function specLabel(model, id) {
-  const parts = parseSpecVariant(model, id);
-  return STRATEGY_SPECS[model].dims
-    .map((d) => `${d.label} ${d.options.find(([v]) => v === parts[d.key])?.[1] ?? parts[d.key]}`)
-    .join(" · ");
+function gapLabel(params) {
+  const stop = params.stop === "none" ? "no stop" : "1σ stop";
+  return `Top ${params.top} · ${params.sides === "long" ? "long only" : "long & short"} · ${stop}`;
 }
 
 function kbdtVariant({ exit, mode, pct }) {
@@ -109,43 +45,16 @@ function parseKbdtVariant(id) {
   return { exit, mode: mode || "model", pct: pct ? Number(pct) : 0.75 };
 }
 
-// ORB variant parts; the variant id is "bars-atr-minrisk", e.g. "2-0.5-0.0" (the live model).
-const RANGE_BARS = [
-  [2, "30 min"],
-  [3, "45 min"],
-  [4, "60 min"],
-];
-const STOP_ATR = [
-  [0.5, "0.5× ATR"],
-  [1.0, "1.0× ATR"],
-];
-const MIN_RISK = [
-  [0.0, "Any"],
-  [0.6, "≥ 0.6%"],
-  [1.0, "≥ 1.0%"],
-];
-const LIVE = { bars: 2, atr: 0.5, minRisk: 0.0 };
-
-function variantId({ bars, atr, minRisk }) {
-  return `${bars}-${atr.toFixed(1)}-${minRisk.toFixed(1)}`;
-}
-
-function variantLabel(model, params, id) {
-  if (STRATEGY_SPECS[model] && id) return specLabel(model, id);
-  if (model === "kbdt") {
-    const exit = KBDT_EXITS.find(([v]) => v === `${params.hold_days}d`)?.[1].toLowerCase();
-    const stop =
-      params.stop_mode === "fixed"
-        ? `stop ${params.stop_pct}%`
-        : params.stop_mode === "cap"
-          ? `prev-day stop, max ${params.stop_pct}%`
-          : "prev-day stop";
-    return `Exit ${exit} · ${stop}`;
-  }
-  if (model !== "orb") return "Live settings";
-  const range = RANGE_BARS.find(([b]) => b === params.or_bars)?.[1];
-  const minRisk = params.min_risk_pct ? `stop ≥ ${params.min_risk_pct}%` : "any stop";
-  return `${range} · ${params.stop_atr}× ATR · ${minRisk}`;
+function variantLabel(params) {
+  if (params.top != null) return gapLabel(params);
+  const exit = KBDT_EXITS.find(([v]) => v === `${params.hold_days}d`)?.[1].toLowerCase();
+  const stop =
+    params.stop_mode === "fixed"
+      ? `stop ${params.stop_pct}%`
+      : params.stop_mode === "cap"
+        ? `prev-day stop, max ${params.stop_pct}%`
+        : "prev-day stop";
+  return `Exit ${exit} · ${stop}`;
 }
 
 const CAPS = [
@@ -278,7 +187,7 @@ function MonthGrid({ months, years, selected, onSelect, unit }) {
   );
 }
 
-function CompareTable({ rows, model, variant, onSelect, unit }) {
+function CompareTable({ rows, variant, onSelect, unit }) {
   const rs = unit === "rs";
   const sorted = useMemo(() => [...rows].sort((a, b) => b.avg_net_r - a.avg_net_r), [rows]);
   return (
@@ -286,7 +195,7 @@ function CompareTable({ rows, model, variant, onSelect, unit }) {
       <table className="w-full min-w-[900px] text-sm">
         <thead className="text-left text-xs uppercase tracking-[0.1em] text-[#6f6a62]">
           <tr>
-            {["Model", "Settings", "Trades", "Gross / trade", "Cost / trade", "Net / trade", rs ? "Net ₹ / lot" : "Net R", "Profit factor", "t-stat", "Green years"].map(
+            {["Settings", "Trades", "Gross / trade", "Cost / trade", "Net / trade", rs ? "Net ₹ / lot" : "Net R", "Profit factor", "t-stat", "Green years"].map(
               (h) => (
                 <th key={h} className="px-3 py-2 font-medium">
                   {h}
@@ -297,18 +206,21 @@ function CompareTable({ rows, model, variant, onSelect, unit }) {
         </thead>
         <tbody className="divide-y divide-[#2c313a] whitespace-nowrap font-mono text-xs">
           {sorted.map((r) => {
-            const active = r.model === model && r.variant === variant;
+            const active = r.variant === variant;
             return (
               <tr
-                key={`${r.model}-${r.variant}`}
-                onClick={() => onSelect(r.model, r.variant)}
+                key={r.variant}
+                onClick={() => onSelect(r.variant)}
                 className={`cursor-pointer ${active ? "bg-[#e2c08a]/10" : "hover:bg-white/[0.03]"}`}
               >
                 <td className="px-3 py-2 text-[#e7e4dc]">
-                  {r.name}
-                  {r.live && <span className="ml-2 rounded bg-white/10 px-1.5 py-0.5 text-[0.65rem] text-[#9b968c]">live</span>}
+                  {variantLabel(r.params)}
+                  {r.live && (
+                    <span className="ml-2 rounded bg-white/10 px-1.5 py-0.5 text-[0.65rem] text-[#9b968c]">
+                      {r.model === "gap" ? "book" : "model stop"}
+                    </span>
+                  )}
                 </td>
-                <td className="px-3 py-2 text-[#9b968c]">{variantLabel(r.model, r.params, r.variant)}</td>
                 <td className="px-3 py-2">{r.trades}</td>
                 <td className={`px-3 py-2 ${rClass(r.avg_gross_r)}`}>
                   {rs ? formatRs(r.gross_rs / r.trades) : formatR(r.avg_gross_r, 3)}
@@ -435,15 +347,14 @@ function TradesTable({ trades }) {
   );
 }
 
-export default function BacktestPage({ lockModel }) {
-  const [model, setModel] = useState(lockModel || "kbdt");
-  const [specParts, setSpecParts] = useState(() =>
-    Object.fromEntries(Object.entries(STRATEGY_SPECS).map(([m, spec]) => [m, spec.initial]))
-  );
-  const [orbParts, setOrbParts] = useState(LIVE);
+export default function BacktestPage({ model = "kbdt" }) {
+  const isGap = model === "gap";
+  const MODEL_NAME = MODEL_NAMES[model];
+  const DATASETS = ALL_DATASETS.filter(([d]) => MODEL_DATASETS[model].includes(d));
   const [kbdtParts, setKbdtParts] = useState({ exit: "5d", mode: "model", pct: 0.75 });
+  const [gapParts, setGapParts] = useState(GAP_INITIAL);
   const [compareRows, setCompareRows] = useState([]);
-  const [dataset, setDataset] = useState("indices");
+  const [dataset, setDataset] = useState(isGap ? "fno" : "indices");
   const [maxPerDay, setMaxPerDay] = useState(0);
   const [unit, setUnit] = useState("r");
   const [slippage, setSlippage] = useState(0.02);
@@ -456,15 +367,9 @@ export default function BacktestPage({ lockModel }) {
   const [monthLoading, setMonthLoading] = useState(false);
   const [showInfo, setShowInfo] = useState(false);
 
-  const cap = maxPerDay;
-  const variant =
-    model === "orb"
-      ? variantId(orbParts)
-      : model === "kbdt"
-        ? kbdtVariant(kbdtParts)
-        : STRATEGY_SPECS[model]
-          ? specVariant(model, specParts[model])
-          : "live";
+  // Buy-on-gap ranks and caps each day itself (top N), so the page cap is off.
+  const cap = isGap ? 0 : maxPerDay;
+  const variant = isGap ? gapVariant(gapParts) : kbdtVariant(kbdtParts);
   const baseQuery = `dataset=${dataset}&max_per_day=${cap}&slippage=${slippage}`;
   const query = `model=${model}&variant=${variant}&${baseQuery}`;
 
@@ -489,24 +394,19 @@ export default function BacktestPage({ lockModel }) {
   }, [load]);
 
   const loadCompare = useCallback(() => {
-    fetch(`/api/backtest/orb/compare?${baseQuery}${lockModel ? `&model=${lockModel}` : ""}`)
+    fetch(`/api/backtest/orb/compare?${baseQuery}&model=${model}`)
       .then((r) => r.json())
       .then((payload) => setCompareRows(payload.data || []))
       .catch(() => setCompareRows([]));
-  }, [baseQuery, lockModel]);
+  }, [baseQuery, model]);
 
   useEffect(() => {
     loadCompare();
   }, [loadCompare]);
 
-  const selectVariant = (nextModel, nextVariant) => {
-    setModel(nextModel);
-    if (nextModel === "orb") {
-      const [bars, atr, minRisk] = nextVariant.split("-").map(Number);
-      setOrbParts({ bars, atr, minRisk });
-    }
-    if (nextModel === "kbdt") setKbdtParts(parseKbdtVariant(nextVariant));
-    if (STRATEGY_SPECS[nextModel]) setSpecParts((all) => ({ ...all, [nextModel]: parseSpecVariant(nextModel, nextVariant) }));
+  const selectVariant = (nextVariant) => {
+    if (isGap) setGapParts(parseGapVariant(nextVariant));
+    else setKbdtParts(parseKbdtVariant(nextVariant));
     setMonth("");
   };
 
@@ -564,32 +464,24 @@ export default function BacktestPage({ lockModel }) {
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-2xl font-semibold tracking-tight">
-              {lockModel ? `Backtest · ${MODELS.find(([m]) => m === lockModel)[1]}` : "Backtest · All models"}
+              Backtest · {MODEL_NAME}
             </h1>
             <InfoButton onClick={() => setShowInfo(true)} label="How this backtest works" />
           </div>
+          {!isGap && (
           <p className="mt-1 max-w-3xl text-sm text-[#9b968c]">
-            {lockModel && STRATEGY_SPECS[lockModel] ? (
-              <>
-                {STRATEGY_SPECS[lockModel].rules} 5 years of NSE cash data for the F&amp;O indices and the Nifty 50 stocks;
-                net results are after NSE futures charges and slippage, rupees for one lot at today's lot sizes.
-              </>
-            ) : (
-              <>
-            The trading models over 5 years of NSE cash data: Key Breakout Dow Theory with 1, 3 or 5-day holds, and the
-            intraday models (ORB in several stop and range settings). On the indices, ORB runs without its volume and
-            VWAP filters (an index has no volume). Net results are after NSE futures charges and slippage; rupees are for
-            one lot at today's lot sizes.
-              </>
-            )}
+            Key Breakout Dow Theory over NSE cash data for the F&amp;O indices and the Nifty 50 stocks, with 1, 3 or
+            5-day holds and the model, fixed or capped stop. Net results are after NSE futures charges and slippage;
+            rupees are for one lot at today's lot sizes.
           </p>
+          )}
         </div>
         <div className="flex flex-col items-end gap-1">
           <button
             type="button"
             onClick={startDownload}
             disabled={running}
-            title="Download 5 years of 15m and daily data (only new bars after the first run), then rerun the backtest"
+            title="Download 15m and daily data (F&amp;O indices and F&amp;O stocks: daily from 2000, 15m from 2015, as far as Kite has them; Nifty 50 stocks 5 years; only missing bars after the first run), then rerun the backtest"
             className="rounded-md border border-[#e2c08a]/60 px-3 py-1.5 text-sm text-[#e2c08a] hover:bg-white/5 disabled:opacity-40"
           >
             {running ? (job.phase === "backtest" ? "Running backtest…" : `Downloading ${job.done + 1}/${job.total}…`) : "Update data"}
@@ -608,78 +500,40 @@ export default function BacktestPage({ lockModel }) {
         </div>
       </header>
 
+      {isGap ? (
       <div className="mb-3 flex flex-wrap items-center gap-3">
-        {!lockModel && (
-          <Segmented
-            options={MODELS}
-            value={model}
-            onChange={(v) => {
-              setModel(v);
-              setMonth("");
-            }}
-          />
-        )}
-        {STRATEGY_SPECS[model] &&
-          STRATEGY_SPECS[model].dims.map((d) => (
-            <div key={d.key} className="flex items-center gap-2">
-              <span className="text-xs uppercase tracking-[0.14em] text-[#6f6a62]">{d.label}</span>
-              <Segmented
-                options={d.options}
-                value={specParts[model][d.key]}
-                onChange={(v) => setSpecParts((all) => ({ ...all, [model]: { ...all[model], [d.key]: v } }))}
-              />
-            </div>
-          ))}
-        {model === "kbdt" && (
-          <>
-            <div className="flex items-center gap-2" title="Exit at 15:15 on this trading day unless the stop is hit first">
-              <span className="text-xs uppercase tracking-[0.14em] text-[#6f6a62]">Exit</span>
-              <Segmented options={KBDT_EXITS} value={kbdtParts.exit} onChange={(exit) => setKbdtParts({ ...kbdtParts, exit })} />
-            </div>
-            <div
-              className="flex items-center gap-2"
-              title="Previous day: the model's stop (previous day's low for longs, high for shorts). Fixed: the stop sits this % from entry instead. Capped: the model stop, but never further than this %."
-            >
-              <span className="text-xs uppercase tracking-[0.14em] text-[#6f6a62]">Stop</span>
-              <Segmented options={KBDT_STOP_MODES} value={kbdtParts.mode} onChange={(mode) => setKbdtParts({ ...kbdtParts, mode })} />
-              {kbdtParts.mode !== "model" && (
-                <Segmented options={KBDT_STOP_PCTS} value={kbdtParts.pct} onChange={(pct) => setKbdtParts({ ...kbdtParts, pct })} />
-              )}
-            </div>
-          </>
-        )}
-        {model === "orb" && (
-          <>
-            <div className="flex items-center gap-2" title="Opening range length">
-              <span className="text-xs uppercase tracking-[0.14em] text-[#6f6a62]">Range</span>
-              <Segmented options={RANGE_BARS} value={orbParts.bars} onChange={(bars) => setOrbParts({ ...orbParts, bars })} />
-            </div>
-            <div className="flex items-center gap-2" title="Stop: the tighter of the opposite range side and this ATR multiple">
-              <span className="text-xs uppercase tracking-[0.14em] text-[#6f6a62]">Stop</span>
-              <Segmented options={STOP_ATR} value={orbParts.atr} onChange={(atr) => setOrbParts({ ...orbParts, atr })} />
-            </div>
-            <div className="flex items-center gap-2" title="Skip trades whose stop is closer than this percent of price">
-              <span className="text-xs uppercase tracking-[0.14em] text-[#6f6a62]">Min stop</span>
-              <Segmented
-                options={MIN_RISK}
-                value={orbParts.minRisk}
-                onChange={(minRisk) => setOrbParts({ ...orbParts, minRisk })}
-              />
-            </div>
-            {variantId(orbParts) === variantId(LIVE) ? (
-              <span className="rounded bg-white/10 px-2 py-0.5 text-xs text-[#9b968c]">live settings</span>
-            ) : (
-              <button
-                type="button"
-                onClick={() => setOrbParts(LIVE)}
-                className="rounded border border-[#2c313a] px-2 py-0.5 text-xs text-[#c8c3b8] hover:bg-white/5"
-              >
-                Reset to live
-              </button>
-            )}
-          </>
-        )}
+        {GAP_DIMS.map((dim) => (
+          <div key={dim.key} className="flex items-center gap-2" title={dim.title}>
+            <span className="text-xs uppercase tracking-[0.14em] text-[#6f6a62]">{dim.label}</span>
+            <Segmented
+              options={dim.options}
+              value={gapParts[dim.key]}
+              onChange={(v) => {
+                setGapParts({ ...gapParts, [dim.key]: v });
+                setMonth("");
+              }}
+            />
+          </div>
+        ))}
       </div>
+      ) : (
+      <div className="mb-3 flex flex-wrap items-center gap-3">
+        <div className="flex items-center gap-2" title="Exit at 15:15 on this trading day unless the stop is hit first">
+          <span className="text-xs uppercase tracking-[0.14em] text-[#6f6a62]">Exit</span>
+          <Segmented options={KBDT_EXITS} value={kbdtParts.exit} onChange={(exit) => setKbdtParts({ ...kbdtParts, exit })} />
+        </div>
+        <div
+          className="flex items-center gap-2"
+          title="Previous day: the model's stop (previous day's low for longs, high for shorts). Fixed: the stop sits this % from entry instead. Capped: the model stop, but never further than this %."
+        >
+          <span className="text-xs uppercase tracking-[0.14em] text-[#6f6a62]">Stop</span>
+          <Segmented options={KBDT_STOP_MODES} value={kbdtParts.mode} onChange={(mode) => setKbdtParts({ ...kbdtParts, mode })} />
+          {kbdtParts.mode !== "model" && (
+            <Segmented options={KBDT_STOP_PCTS} value={kbdtParts.pct} onChange={(pct) => setKbdtParts({ ...kbdtParts, pct })} />
+          )}
+        </div>
+      </div>
+      )}
 
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <Segmented
@@ -690,9 +544,11 @@ export default function BacktestPage({ lockModel }) {
             setMonth("");
           }}
         />
-        <div title="Max trades per day across the dataset; first by entry time, ties go to the tighter stop">
-          <Segmented options={CAPS} value={maxPerDay} onChange={setMaxPerDay} />
-        </div>
+        {!isGap && (
+          <div title="Max trades per day across the dataset; first by entry time, ties go to the tighter stop">
+            <Segmented options={CAPS} value={maxPerDay} onChange={setMaxPerDay} />
+          </div>
+        )}
         <div className="flex items-center gap-2" title="Slippage per side, as a percent of price, on top of charges">
           <span className="text-xs uppercase tracking-[0.14em] text-[#6f6a62]">Slippage</span>
           <Segmented options={SLIPPAGE} value={slippage} onChange={setSlippage} />
@@ -707,7 +563,7 @@ export default function BacktestPage({ lockModel }) {
       {error && <p className="mb-4 text-sm text-[#f0b4b4]">{error}</p>}
       {!error && !loading && !s && (
         <p className="rounded-md border border-[#2c313a] bg-[#181b20] px-4 py-10 text-center text-sm text-[#9b968c]">
-          No backtest yet. Click Update data to download 5 years of data and run it.
+          No backtest yet. Click Update data to download the data and run it.
         </p>
       )}
 
@@ -719,7 +575,7 @@ export default function BacktestPage({ lockModel }) {
               {dataset === "indices" && data.lots?.length
                 ? `: ${data.lots.map((l) => `${l.symbol} ${l.lot_size}`).join(" · ")}`
                 : " (each stock's current futures lot)"}
-              . Lot sizes changed over the 5 years, so older trades are shown as if traded at today's size.
+              . Lot sizes changed over the years, so older trades are shown as if traded at today's size.
               {s.no_lot_size > 0 && <span className="text-[#f0b4b4]"> {s.no_lot_size} trades have no lot size and count as ₹0.</span>}
             </p>
           )}
@@ -770,6 +626,17 @@ export default function BacktestPage({ lockModel }) {
             )}
           </div>
 
+
+          <section className="mb-4 rounded-md border border-[#2c313a] bg-[#181b20] px-4 py-3">
+            <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+              <p className="text-xs uppercase tracking-[0.14em] text-[#6f6a62]">
+                {unit === "rs" ? "Net ₹ by month (one lot per trade)" : "Net R by month"}
+              </p>
+              <p className="font-mono text-xs text-[#9b968c]">Click a month to open its trades</p>
+            </div>
+            <MonthGrid months={data.months} years={data.years} selected={month} onSelect={setMonth} unit={unit} />
+          </section>
+
           <section className="mb-4 rounded-md border border-[#2c313a] bg-[#181b20] px-4 py-3">
             <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
               <p className="text-xs uppercase tracking-[0.14em] text-[#6f6a62]">
@@ -786,23 +653,13 @@ export default function BacktestPage({ lockModel }) {
           <section className="mb-4 rounded-md border border-[#2c313a] bg-[#181b20] px-4 py-3">
             <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
               <p className="text-xs uppercase tracking-[0.14em] text-[#6f6a62]">
-                {unit === "rs" ? "Net ₹ by month (one lot per trade)" : "Net R by month"}
-              </p>
-              <p className="font-mono text-xs text-[#9b968c]">Click a month to open its trades</p>
-            </div>
-            <MonthGrid months={data.months} years={data.years} selected={month} onSelect={setMonth} unit={unit} />
-          </section>
-
-          <section className="mb-4 rounded-md border border-[#2c313a] bg-[#181b20] px-4 py-3">
-            <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
-              <p className="text-xs uppercase tracking-[0.14em] text-[#6f6a62]">
-                {lockModel ? `All ${MODELS.find(([m]) => m === lockModel)[1]} settings` : "All models and settings"} ·{" "}
+                All {MODEL_NAME} settings ·{" "}
                 {DATASETS.find(([d]) => d === dataset)[1]}
  · {cap ? `${cap}/day` : "no cap"} · {slippage}% slippage
               </p>
               <p className="font-mono text-xs text-[#9b968c]">Best net per trade first · click a row to open it</p>
             </div>
-            <CompareTable rows={compareRows} model={model} variant={variant} onSelect={selectVariant} unit={unit} />
+            <CompareTable rows={compareRows} variant={variant} onSelect={selectVariant} unit={unit} />
           </section>
 
           {month && (
@@ -811,18 +668,10 @@ export default function BacktestPage({ lockModel }) {
               summary={data.months.find((m) => m.month === month)}
               trades={monthTrades}
               loading={monthLoading}
-              settings={`${MODELS.find(([m]) => m === model)[1]} · ${
-                model === "orb"
-                  ? variantLabel("orb", { or_bars: orbParts.bars, stop_atr: orbParts.atr, min_risk_pct: orbParts.minRisk })
-                  : model === "kbdt"
-                    ? variantLabel("kbdt", {
-                        hold_days: Number(kbdtParts.exit[0]),
-                        stop_mode: kbdtParts.mode,
-                        stop_pct: kbdtParts.pct,
-                      })
-                    : STRATEGY_SPECS[model]
-                      ? specLabel(model, variant)
-                      : "Live settings"
+              settings={`${MODEL_NAME} · ${
+                isGap
+                  ? gapLabel(gapParts)
+                  : variantLabel({ hold_days: Number(kbdtParts.exit[0]), stop_mode: kbdtParts.mode, stop_pct: kbdtParts.pct })
               } · ${DATASETS.find(([d]) => d === dataset)[1]} · ${cap ? `${cap}/day` : "no cap"} · ${slippage}% slippage`}
               onClose={() => setMonth("")}
             />
@@ -831,8 +680,8 @@ export default function BacktestPage({ lockModel }) {
       )}
 
       {showInfo && (
-        <ModelInfoModal title="How the backtest works" onClose={() => setShowInfo(false)}>
-          <BacktestInfo />
+        <ModelInfoModal title={isGap ? "Buy on gap · how it works" : "How the backtest works"} onClose={() => setShowInfo(false)}>
+          {isGap ? <GapBacktestInfo /> : <BacktestInfo />}
         </ModelInfoModal>
       )}
     </div>
