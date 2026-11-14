@@ -306,15 +306,44 @@ def _max_frame(variant, dataset):
     return f.copy()
 
 
-def _frame(variant, dataset, slippage):
+def _max_lots_frame(variant, dataset):
+    """One futures lot per stock held (today's lot sizes), in rupees / 100 so "_pct" fields read as
+    rupees, for a "-max<N>" variant: the N stocks are N lots. Includes the monthly roll; hedged: the
+    Nifty lots nearest the stocks' value, set at each rebalance."""
+    key = ("lots", dataset, variant)
+    with _lock:
+        hit = _cache.get(key)
+        if hit and time.time() - hit[0] < CACHE_SECONDS:
+            return hit[1].copy()
+    base, hedged, cap = _split(variant)
+    c = _closes_cached(dataset)
+    b = _book(c, base, cap)
+    first = b["w"].index[(b["w"].sum(axis=1) > 0).to_numpy()].min()
+    days = c.index[c.index >= first]
+    rows = xsmom._lot_rows(c, b, xsmr.lot_series(c.columns), days)
+    if hedged:
+        nifty, nifty_r = _nifty(c.index)
+        from db import stored_lot_sizes
+        _, rows = _hedged(c, b, [(d, 0.0, 0.0, 0.0, 0.0, 0) for d, *_ in rows], rows, nifty, nifty_r,
+                          stored_lot_sizes()[HEDGE_LOT_KEY])
+    f = pd.DataFrame(rows, columns=["day", "gross_ret", "turnover", "long_ret", "short_ret", "notional_rs", "stocks"])
+    for col in ("gross_ret", "turnover", "long_ret", "short_ret"):
+        f[col] = f[col] / 100
+    with _lock:
+        _cache[key] = (time.time(), f)
+    return f.copy()
+
+
+def _frame(variant, dataset, slippage, lots=False):
     if _split(variant)[2]:
-        return xsmr.with_costs(_max_frame(variant, dataset), slippage)
-    return xsmr._load(variant, dataset, slippage, model=MODEL)
+        f = _max_lots_frame(variant, dataset) if lots else _max_frame(variant, dataset)
+        return xsmr.with_costs(f, slippage)
+    return xsmr._load(variant, dataset, slippage, model=MODEL, lots=lots)
 
 
 def results(variant, dataset, slippage=0.0002, lots=False):
     if _split(variant)[2]:
-        return xsmr.results_from(_frame(variant, dataset, slippage), slippage)
+        return xsmr.results_from(_frame(variant, dataset, slippage, lots), slippage, lots)
     return xsmr.results(variant, dataset, slippage, model=MODEL, lots=lots)
 
 
@@ -326,7 +355,7 @@ def compare(dataset, slippage=0.0002, take="all", lots=False, variant=None):
         b, hedged, m = _split(v)
         if m != (None if b == "universe" else cap):
             continue
-        f = _frame(v, dataset, slippage)
+        f = _frame(v, dataset, slippage, lots)
         if not f.empty:
             rows.append({"variant": v, "label": meta["label"], "book": _split(v)[0] == "book" and m == cap, **xsmr._stats(f)})
     return rows
@@ -334,7 +363,7 @@ def compare(dataset, slippage=0.0002, take="all", lots=False, variant=None):
 
 def month_days(variant, dataset, month, slippage=0.0002, lots=False):
     if _split(variant)[2]:
-        return xsmr.month_days_from(_frame(variant, dataset, slippage), month)
+        return xsmr.month_days_from(_frame(variant, dataset, slippage, lots), month)
     return xsmr.month_days(variant, dataset, month, slippage, model=MODEL, lots=lots)
 
 
