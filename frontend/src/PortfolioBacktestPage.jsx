@@ -213,9 +213,57 @@ function MonthGrid({ months, years, fmt, selected, onSelect }) {
   );
 }
 
+function HoldTrades({ trades }) {
+  const hold = trades[0]?.hold;
+  return (
+    <div className="max-h-96 overflow-auto px-3 py-2">
+      <p className="mb-1 font-mono text-[0.7rem] text-[#9b968c]">
+        {trades.length} positions held into this 15:15 · bought and sold at 15:15, {hold} trading days apart · RSI = 2-day RSI
+        when bought · trade = the whole trade, buy to sell · today = this day's move and its share of the book
+      </p>
+      <table className="w-full text-xs">
+        <thead className="sticky top-0 bg-[#181b20] text-left uppercase tracking-[0.1em] text-[#6f6a62]">
+          <tr>
+            {["Stock", "RSI", "Buy date", "Buy", "Sell date", "Sell", "Trade", "Day", "Weight", "Today", "Contribution", "Lot", "Trade, 1 lot ₹"].map((h) => (
+              <th key={h} className="px-2 py-1 font-medium">
+                {h}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-[#23272e] whitespace-nowrap font-mono">
+          {trades.map((t) => (
+            <tr key={`${t.symbol}-${t.bought}`}>
+              <td className="px-2 py-1 text-[#e7e4dc]">{t.symbol}</td>
+              <td className="px-2 py-1 text-[#c8c3b8]">{t.signal_pct}</td>
+              <td className="px-2 py-1 text-[#c8c3b8]">{t.bought}</td>
+              <td className="px-2 py-1 text-[#c8c3b8]">{t.buy}</td>
+              <td className="px-2 py-1 text-[#c8c3b8]">{t.sold ?? "open"}</td>
+              <td className="px-2 py-1 text-[#c8c3b8]">{t.sell ?? "—"}</td>
+              <td className={`px-2 py-1 ${pctClass(t.trade_pct)}`}>{t.trade_pct == null ? "—" : fmtPct(t.trade_pct, 2)}</td>
+              <td className="px-2 py-1 text-[#9b968c]">
+                {t.day_of_hold} / {t.hold}
+              </td>
+              <td className="px-2 py-1 text-[#9b968c]">{t.weight_pct.toFixed(2)}%</td>
+              <td className={`px-2 py-1 ${pctClass(t.move_pct)}`}>{fmtPct(t.move_pct, 2)}</td>
+              <td className={`px-2 py-1 ${pctClass(t.contribution_bps)}`}>
+                {t.contribution_bps > 0 ? "+" : ""}
+                {t.contribution_bps.toFixed(2)} bps
+              </td>
+              <td className="px-2 py-1 text-[#9b968c]">{t.lot_size ?? "—"}</td>
+              <td className={`px-2 py-1 ${pctClass(t.trade_rs)}`}>{t.trade_rs == null ? "—" : formatRs(t.trade_rs)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function DayTrades({ trades, loading, model }) {
   if (loading) return <p className="px-3 py-2 font-mono text-xs text-[#6f6a62]">Loading trades…</p>;
   if (!trades.length) return <p className="px-3 py-2 font-mono text-xs text-[#6f6a62]">No trades stored for this day.</p>;
+  if (model === "connors") return <HoldTrades trades={trades} />;
   const longs = trades.filter((t) => t.side === "long").length;
   const hasStop = trades.some((t) => t.stop != null);
   const stopped = trades.filter((t) => t.stopped).length;
@@ -223,9 +271,7 @@ function DayTrades({ trades, loading, model }) {
     <div className="max-h-96 overflow-auto px-3 py-2">
       <p className="mb-1 font-mono text-[0.7rem] text-[#9b968c]">
         {trades.length} stocks · {longs} long · {trades.length - longs} short · weight = share of {model === "qmom" ? "capital" : "gross exposure"} ·
-        {model === "connors"
-          ? "RSI = 2-day RSI on the day bought · entry/exit = previous/this 15:15"
-          : model === "qmom"
+        {model === "qmom"
           ? `signal = 12-to-1-month return at the ${trades[0]?.ranked} rebalance · FIP: lower = smoother · entry/exit = previous close/this close`
           : model === "xsmom"
           ? "signal = 12-month return when ranked · entry/exit = previous close/this close"
@@ -235,7 +281,7 @@ function DayTrades({ trades, loading, model }) {
       <table className="w-full text-xs">
         <thead className="sticky top-0 bg-[#181b20] text-left uppercase tracking-[0.1em] text-[#6f6a62]">
           <tr>
-            {["Stock", "Side", "Weight", model === "connors" ? "RSI" : "Signal", ...(model === "qmom" ? ["FIP"] : []), ...(model === "connors" ? ["Bought"] : []), "Entry", ...(hasStop ? ["Stop"] : []), "Exit", "Move", "Contribution", "Lot", "1 lot ₹"].map((h) => (
+            {["Stock", "Side", "Weight", "Signal", ...(model === "qmom" ? ["FIP"] : []), "Entry", ...(hasStop ? ["Stop"] : []), "Exit", "Move", "Contribution", "Lot", "1 lot ₹"].map((h) => (
               <th key={h} className="px-2 py-1 font-medium">
                 {h}
               </th>
@@ -248,12 +294,7 @@ function DayTrades({ trades, loading, model }) {
               <td className="px-2 py-1 text-[#e7e4dc]">{t.symbol}</td>
               <td className={`px-2 py-1 ${t.side === "long" ? "text-[#8fbf9f]" : "text-[#f0b4b4]"}`}>{t.side}</td>
               <td className="px-2 py-1 text-[#9b968c]">{t.weight_pct.toFixed(2)}%</td>
-              {model === "connors" ? (
-                <td className="px-2 py-1 text-[#c8c3b8]">{t.signal_pct ?? "—"}</td>
-              ) : (
-                <td className={`px-2 py-1 ${pctClass(t.signal_pct)}`}>{fmtPct(t.signal_pct, model === "xsmom" || model === "qmom" ? 1 : 2)}</td>
-              )}
-              {model === "connors" && <td className="px-2 py-1 text-[#9b968c]">{t.bought || "—"}</td>}
+              <td className={`px-2 py-1 ${pctClass(t.signal_pct)}`}>{fmtPct(t.signal_pct, model === "xsmom" || model === "qmom" ? 1 : 2)}</td>
               {model === "qmom" && <td className="px-2 py-1 text-[#9b968c]">{t.fip ?? "—"}</td>}
               <td className="px-2 py-1 text-[#c8c3b8]">{t.entry}</td>
               {hasStop && <td className="px-2 py-1 text-[#f0b4b4]">{t.stop ?? "—"}</td>}

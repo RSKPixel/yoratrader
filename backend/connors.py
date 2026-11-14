@@ -70,6 +70,9 @@ def _data(dataset, start=None, end=None):
     """15:15 prices, and the setups computed live at 15:15 (closes to yesterday + today's 15:15)."""
     p = xsmr._prices(dataset, start, end)
     px = p["px1515"]
+    # Sparse special sessions (Muhurat trading: an hour in the evening, no 15:15 price) aren't days.
+    count = px.notna().sum(axis=1)
+    px = px[count >= 0.8 * count.rolling(21, center=True, min_periods=1).median()]
     c = xsmom._closes(dataset)
     if start is not None:
         c = c[c.index >= pd.Timestamp(start) - timedelta(days=500)]
@@ -172,33 +175,38 @@ def month_days(variant, dataset, month, slippage=0.0002, lots=False):
 
 
 def day_trades(variant, dataset, day):
-    """Every stock held into one day's 15:15: weight, when it was bought and its 2-day RSI then, the day's move."""
+    """Every position held into one day's 15:15, one row per purchase: when it was bought and at what
+    2-day RSI and price, when and at what price it is sold (hold days later), the whole trade's
+    result, and today's move and contribution."""
     ts = pd.Timestamp(day)
-    d = _data(dataset, day - timedelta(days=30), day)
-    if ts not in d["px"].index:
+    d = _data(dataset, day - timedelta(days=30), day + timedelta(days=20))
+    idx = d["px"].index
+    if ts not in idx:
         return []
     b = _book(d, variant)
-    i = d["px"].index.get_loc(ts)
+    i = idx.get_loc(ts)
+    hold = VARIANTS[parse_variant(variant)[0]]["hold"]
     if i < 1:
         return []
-    prev = d["px"].index[i - 1]
-    held = b["w"].loc[prev]
-    hold = VARIANTS[parse_variant(variant)[0]]["hold"]
-    window = d["px"].index[max(0, i - hold):i]
+    picks_per_day = b["hit"].sum(axis=1)
     rows, lot = [], xsmr.lot_series(d["px"].columns)
-    for symbol, w in held.items():
-        if w <= 0:
-            continue
-        bought = [t for t in window if b["hit"].at[t, symbol]]
-        last = bought[-1] if bought else prev
-        move = float(b["r"].at[ts, symbol])
-        size = lot.get(symbol)
-        rsi = d["rsi"].at[last, symbol]
-        rows.append({"symbol": symbol, "side": "long", "weight_pct": round(100 * w, 3),
-                     "signal_pct": round(float(rsi), 1) if pd.notna(rsi) else None,
-                     "bought": ", ".join(t.date().isoformat() for t in bought),
-                     "entry": round(float(d["px"].at[prev, symbol]), 2), "exit": round(float(d["px"].at[ts, symbol]), 2),
-                     "move_pct": round(100 * move, 2), "contribution_bps": round(10000 * w * move, 2),
-                     "lot_size": int(size) if pd.notna(size) else None,
-                     "pnl_rs": round(size * move * float(d["px"].at[prev, symbol])) if pd.notna(size) else None})
-    return sorted(rows, key=lambda x: -x["contribution_bps"])
+    for j in range(max(0, i - hold), i):  # purchases still held into today
+        t = idx[j]
+        for symbol in b["hit"].columns[b["hit"].loc[t].to_numpy()]:
+            buy = float(d["px"].at[t, symbol])
+            sold_at = idx[j + hold] if j + hold < len(idx) else None
+            sell = float(d["px"].at[sold_at, symbol]) if sold_at is not None and pd.notna(d["px"].at[sold_at, symbol]) else None
+            w = 1.0 / (hold * int(picks_per_day[t]))
+            move = float(b["r"].at[ts, symbol])
+            size = lot.get(symbol)
+            rows.append({"symbol": symbol, "side": "long", "weight_pct": round(100 * w, 3),
+                         "signal_pct": round(float(d["rsi"].at[t, symbol]), 1),
+                         "bought": t.date().isoformat(), "buy": round(buy, 2),
+                         "sold": sold_at.date().isoformat() if sold_at is not None else None,
+                         "sell": round(sell, 2) if sell is not None else None,
+                         "trade_pct": round(100 * (sell / buy - 1), 2) if sell is not None else None,
+                         "day_of_hold": i - j, "hold": hold,
+                         "move_pct": round(100 * move, 2), "contribution_bps": round(float(10000 * w * move), 2),
+                         "lot_size": int(size) if pd.notna(size) else None,
+                         "trade_rs": round(size * (sell - buy)) if pd.notna(size) and sell is not None else None})
+    return sorted(rows, key=lambda x: (x["bought"], x["symbol"]))
