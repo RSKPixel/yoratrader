@@ -344,6 +344,11 @@ def _load(variant, dataset, slippage, model="xsmr", lots=False):
             f = pd.read_sql("SELECT day, gross_ret, turnover, long_ret, short_ret, stocks FROM bt_portfolio "
                             "WHERE model = %s AND variant = %s AND dataset = %s ORDER BY day",
                             conn, params=[model, variant, dataset])
+    return with_costs(f, slippage)
+
+
+def with_costs(f, slippage):
+    """Adds cost and net to a daily frame (day, gross_ret, turnover, long_ret, short_ret, stocks)."""
     if f.empty:
         return f
     f["cost"] = f["turnover"] * cost_per_side(slippage)
@@ -389,7 +394,11 @@ def summary(variant, dataset, slippage=0.0002):
 
 def results(variant, dataset, slippage=0.0002, model="xsmr", lots=False):
     """Everything the backtest page shows for one variant (of any model stored in bt_portfolio)."""
-    f = _load(variant, dataset, slippage, model, lots)
+    return results_from(_load(variant, dataset, slippage, model, lots), slippage, lots)
+
+
+def results_from(f, slippage, lots=False):
+    """results() for a daily frame from with_costs (models computed on request)."""
     if f.empty:
         return {"summary": None, "years": [], "months": [], "equity": []}
     f["year"], f["month"] = f["day"].dt.year, f["day"].dt.strftime("%Y-%m")
@@ -427,7 +436,10 @@ def compare(dataset, slippage=0.0002, take="all", lots=False):
 
 def month_days(variant, dataset, month, slippage=0.0002, model="xsmr", lots=False):
     """Each trading day of one month (YYYY-MM): what the month cell on the page adds up."""
-    f = _load(variant, dataset, slippage, model, lots)
+    return month_days_from(_load(variant, dataset, slippage, model, lots), month)
+
+
+def month_days_from(f, month):
     if f.empty:
         return []
     f = f[f["day"].dt.strftime("%Y-%m") == month]

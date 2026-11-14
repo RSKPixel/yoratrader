@@ -64,12 +64,9 @@ const LC_HOLDS = [
   ["5d", "5 days (book)"],
   ["2d", "2 days"],
 ];
-const LC_POSITIONS = [
-  ["", "Many (book)"],
-  ["-max1", "1"],
-  ["-max2", "2"],
-  ["-max3", "3"],
-  ["-max5", "5"],
+const LC_TIMINGS = [
+  ["", "15:15 (2015 on)"],
+  ["-close", "Close (2004 on)"],
 ];
 const LC_STOPS = [
   ["", "None (book)"],
@@ -663,7 +660,8 @@ export default function PortfolioBacktestPage({ model = "xsmr" }) {
   const isLc = model === "connors";
   const [lcSetup, setLcSetup] = useState("rsi2");
   const [lcHold, setLcHold] = useState("5d");
-  const [lcRepeat, setLcRepeat] = useState("");
+  const [lcOpen, setLcOpen] = useState(0); // max open positions; 0 = many (the book)
+  const [lcTiming, setLcTiming] = useState("");
   const [lcStop, setLcStop] = useState("");
   const [momFill, setMomFill] = useState("book");
   const [qmVersion, setQmVersion] = useState("book");
@@ -687,8 +685,8 @@ export default function PortfolioBacktestPage({ model = "xsmr" }) {
   const shownUnit = data ? (data.lotsMode ? "lots" : unit === "lots" ? "pct" : unit) : unit;
   const fmt = useMemo(() => makeFmt(shownUnit, capital), [shownUnit, capital]);
 
-  const lcMax = isLc ? lcRepeat : "";
-  const base = isLc ? `${lcSetup}-${lcHold}${lcMax}${lcStop}` : isQm ? `${qmVersion}${qmHedge === "nifty" ? "-hedged" : ""}` : isMom ? momFill : isPairs ? `${method}${fill === "next" ? "-next" : ""}` : version === "daily" ? "daily" : `intraday-${entry}${entry === "0915" && stop === "1sd" ? "-1sd" : ""}`;
+  const lcMax = isLc && lcOpen ? `-max${lcOpen}` : "";
+  const base = isLc ? `${lcSetup}-${lcHold}${lcMax}${lcStop}${lcTiming}` : isQm ? `${qmVersion}${qmHedge === "nifty" ? "-hedged" : ""}` : isMom ? momFill : isPairs ? `${method}${fill === "next" ? "-next" : ""}` : version === "daily" ? "daily" : `intraday-${entry}${entry === "0915" && stop === "1sd" ? "-1sd" : ""}`;
   const variant = take === "all" || lcMax ? base : `${base}-${take}`;
   const [month, setMonth] = useState(null);
   const [monthRows, setMonthRows] = useState({ rows: [], loading: false });
@@ -729,8 +727,9 @@ export default function PortfolioBacktestPage({ model = "xsmr" }) {
     if (isLc) {
       setLcSetup(b.split("-")[0]);
       setLcHold(b.split("-")[1]);
-      setLcRepeat(b.match(/-max\d+/)?.[0] ?? "");
-      setLcStop(b.endsWith("-1sd") ? "-1sd" : b.endsWith("-2sd") ? "-2sd" : "");
+      setLcOpen(Number(b.match(/-max(\d+)/)?.[1] ?? 0));
+      setLcStop(b.includes("-1sd") ? "-1sd" : b.includes("-2sd") ? "-2sd" : "");
+      setLcTiming(b.endsWith("-close") ? "-close" : "");
     } else if (isQm) {
       setQmVersion(b.replace(/-hedged$/, ""));
       setQmHedge(b.endsWith("-hedged") ? "nifty" : "none");
@@ -803,15 +802,13 @@ export default function PortfolioBacktestPage({ model = "xsmr" }) {
               <span className="text-xs uppercase tracking-[0.14em] text-[#6f6a62]">Hold</span>
               <Segmented options={LC_HOLDS} value={lcHold} onChange={setLcHold} />
             </div>
-            {(
             <div
               className="flex items-center gap-2"
-              title="Many: each day's picks share a fifth of capital, so up to 5 days of picks are open together (the book). 1 / 2 / 3 / 5: at most that many positions open at once, each capital ÷ N (equal rupees); a new trade only when a slot frees up, the most oversold qualifying stock not already held. Size it to your margin: each open futures position needs its own."
+              title="15:15: the signal from closes to yesterday plus today's 15:15 price, bought and sold at 15:15 — what you can trade, from 15m candles (2015 on). Close: the official closes for everything, from daily candles (2004 on); the close is a 30-minute average, so it can't be traded exactly, but from 2015 the two are within a few points a year."
             >
-              <span className="text-xs uppercase tracking-[0.14em] text-[#6f6a62]">Max open</span>
-              <Segmented options={LC_POSITIONS} value={lcRepeat} onChange={setLcRepeat} />
+              <span className="text-xs uppercase tracking-[0.14em] text-[#6f6a62]">Prices</span>
+              <Segmented options={LC_TIMINGS} value={lcTiming} onChange={setLcTiming} />
             </div>
-            )}
             <div
               className="flex items-center gap-2"
               title="Not in the book (Connors argues stops hurt mean reversion). 1σ / 2σ: a stop 1 or 2 standard deviations of the stock's last 90 daily returns below the buy price, on the daily low (out at the open on a gap through it) and the 15m lows to 15:15 on the sell day."
@@ -900,6 +897,27 @@ export default function PortfolioBacktestPage({ model = "xsmr" }) {
           <div className="flex items-center gap-2" title={isPairs ? "Total capital, split equally across the year's pairs" : isQm || isLc ? "Capital, fully invested long, the same every day" : "Gross exposure: half long, half short, the same every day"}>
             <span className="text-xs uppercase tracking-[0.14em] text-[#6f6a62]">Capital</span>
             <Segmented options={CAPITALS} value={capital} onChange={setCapital} />
+          </div>
+        )}
+        {isLc && (
+          <div
+            className="flex items-center gap-2"
+            title="Many: each day's picks share a fifth of capital, so up to 5 days of picks are open together (the book). 1–10: at most that many positions open at once, each capital ÷ N (equal rupees); a new trade only when a slot frees up, the most oversold qualifying stock not already held. Size it to your margin: each open futures position needs its own."
+          >
+            <span className="text-xs uppercase tracking-[0.14em] text-[#6f6a62]">Max open</span>
+            <input
+              type="range"
+              min={0}
+              max={10}
+              step={1}
+              value={lcOpen}
+              onChange={(e) => setLcOpen(Number(e.target.value))}
+              className="w-32 accent-[#e2c08a]"
+              aria-label="Max open positions"
+            />
+            <span className="w-28 font-mono text-xs text-[#e7e4dc]">
+              {lcOpen ? `${lcOpen} · ${unit === "rs" ? `${formatRs(capital / lcOpen)} each` : `${(100 / lcOpen).toFixed(1)}% each`}` : "Many (book)"}
+            </span>
           </div>
         )}
         {loading && <span className="font-mono text-xs text-[#6f6a62]">Loading…</span>}

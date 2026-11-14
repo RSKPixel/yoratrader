@@ -1076,6 +1076,11 @@ export function ConnorsInfo() {
           <li>
             <B>Exit</B>: the 15:15 price 5 trading days later (the book's week); 2 days as a check.
           </li>
+          <li>
+            <B>Prices · Close</B> runs the same rules on official closes from daily candles, so it goes back to 2004.
+            The close is a 30-minute average and can't be traded exactly, but on 2015–2026 the two versions are within a
+            few points a year of each other.
+          </li>
         </List>
       </Section>
 
@@ -1100,7 +1105,7 @@ export function ConnorsInfo() {
         <List>
           <li>
             <B>Max open</B> is a margin budget. <B>Many</B> (the book): each day's picks share a fifth of capital, and a stock picked again
-            while held is bought again. <B>1 / 2 / 3 / 5</B>: at most that many trades open at once, for a margin
+            while held is bought again. <B>1–10</B> (the slider next to Capital): at most that many positions open at once, for a margin
             budget (each open futures lot needs its own margin). Each position gets capital ÷ N, equal rupees (in futures, rounded to whole lots in practice). A new trade
             starts only when a slot frees up: the most oversold qualifying stock not already held, from that 15:15 on.
             The take doesn't apply. Fewer slots means bigger swings.
@@ -1141,7 +1146,7 @@ export function ConnorsInfo() {
             year (a 5-day hold), so slippage matters. The futures roll is not charged.
           </li>
           <li>
-            15-minute candles start in February 2015. A stock qualifies only with 200 straight closes and no daily move over
+            15-minute candles start in February 2015 (daily closes in 2003 for the Close version). Every book is computed on request; the first view after a restart takes ~15 s to load the prices. A stock qualifies only with 200 straight closes and no daily move over
             20% in the window; a day's move over 20% earns nothing.
           </li>
           <li>
