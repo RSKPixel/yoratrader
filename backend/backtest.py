@@ -125,9 +125,12 @@ REAL_OHLC = ("day > COALESCE((SELECT max(day) FROM bt_daily f WHERE f.symbol = %
 KBDT_WINDOW = 250  # trailing daily bars enriched for each replayed day
 KBDT_EXIT = (15, 15)  # exit at 15:15 on the last holding day
 
-# NSE futures charges as a fraction of turnover (same schedule as the model pages).
+# NSE futures charges as a fraction of turnover (same schedule as the model pages), as on Zerodha's
+# charges page (checked 2026-11-14): STT 0.05% on sells (raised from 0.02% on 1 Apr 2026, Budget 2026),
+# NSE transaction 0.00183%, SEBI ₹10/crore, stamp 0.002% on buys, GST 18% on brokerage + exchange +
+# SEBI, brokerage ₹20/order. Today's rates are used for every year: the question is what it costs now.
 STT_SELL = 0.0005
-EXCHANGE = 0.0000173
+EXCHANGE = 0.0000183
 SEBI = 0.000001
 STAMP_BUY = 0.00002
 GST = 0.18
