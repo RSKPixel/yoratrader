@@ -275,9 +275,60 @@ function HoldTrades({ trades }) {
   );
 }
 
-function DayTrades({ trades, loading, model }) {
+function QmomDayTrades({ trades, fmt, capital, unit, costBps }) {
+  // Weights are shares of capital; quantity = allocation / price (lot sizes ignored), costs on what was traded.
+  const cost = (t) => (t.traded_pct * costBps) / 10000;
+  const totalCost = trades.reduce((a, t) => a + cost(t), 0);
+  const traded = trades.filter((t) => t.traded_pct > 0).length;
+  return (
+    <div className="max-h-96 overflow-auto px-3 py-2">
+      <p className="mb-1 font-mono text-[0.7rem] text-[#9b968c]">
+        {trades.length} positions · {traded ? `${traded} traded at this close, costs ${fmt.big(-totalCost, 2)}` : "nothing traded at this close"} ·
+        momentum and FIP from the {trades[0]?.ranked} rebalance · qty = allocation ÷ price (no lots) · P&amp;L = the day's move on
+        what was held into the close
+      </p>
+      <table className="w-full text-xs">
+        <thead className="sticky top-0 bg-[#181b20] text-left uppercase tracking-[0.1em] text-[#6f6a62]">
+          <tr>
+            {["Stock", "Action", "Momentum", "FIP", "Prev close", "Close", "Move", "Held", "Qty", "P&L", "Traded", "Cost"].map((h) => (
+              <th key={h} className="px-2 py-1 font-medium">
+                {h}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-[#23272e] whitespace-nowrap font-mono">
+          {trades.map((t) => {
+            const pos = t.after_pct > 0 ? t.after_pct : t.weight_pct;
+            const qty = unit === "rs" && t.exit ? Math.round((capital * pos) / 100 / t.exit) : null;
+            const pnl = (t.weight_pct * t.move_pct) / 100;
+            return (
+              <tr key={t.symbol}>
+                <td className="px-2 py-1 text-[#e7e4dc]">{t.symbol}</td>
+                <td className={`px-2 py-1 ${t.action === "bought" ? "text-[#8fbf9f]" : t.action === "sold" ? "text-[#f0b4b4]" : t.action === "held" ? "text-[#6f6a62]" : "text-[#e2c08a]"}`}>{t.action}</td>
+                <td className={`px-2 py-1 ${pctClass(t.signal_pct)}`}>{fmtPct(t.signal_pct, 1)}</td>
+                <td className="px-2 py-1 text-[#9b968c]">{t.fip ?? "—"}</td>
+                <td className="px-2 py-1 text-[#c8c3b8]">{t.entry ?? "—"}</td>
+                <td className="px-2 py-1 text-[#c8c3b8]">{t.exit ?? "—"}</td>
+                <td className={`px-2 py-1 ${pctClass(t.move_pct)}`}>{fmtPct(t.move_pct, 2)}</td>
+                <td className="px-2 py-1 text-[#9b968c]">{t.weight_pct ? fmt.big(t.weight_pct, 2) : "—"}</td>
+                <td className="px-2 py-1 text-[#c8c3b8]">{qty == null ? "—" : qty.toLocaleString("en-IN")}</td>
+                <td className={`px-2 py-1 ${pctClass(pnl)}`}>{t.weight_pct ? fmt.big(pnl, 2) : "—"}</td>
+                <td className="px-2 py-1 text-[#9b968c]">{t.traded_pct ? fmt.big(t.traded_pct, 2) : "—"}</td>
+                <td className="px-2 py-1 text-[#f0b4b4]">{t.traded_pct ? fmt.big(-cost(t), 2) : "—"}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function DayTrades({ trades, loading, model, fmt, capital, unit, costBps }) {
   if (loading) return <p className="px-3 py-2 font-mono text-xs text-[#6f6a62]">Loading trades…</p>;
   if (!trades.length) return <p className="px-3 py-2 font-mono text-xs text-[#6f6a62]">No trades stored for this day.</p>;
+  if (model === "qmom") return <QmomDayTrades trades={trades} fmt={fmt} capital={capital} unit={unit} costBps={costBps} />;
   if (model === "connors") return <HoldTrades trades={trades} />;
   const longs = trades.filter((t) => t.side === "long").length;
   const hasStop = trades.some((t) => t.stop != null);
@@ -370,7 +421,7 @@ function MonthModal({ month, settings, onClose, children }) {
   );
 }
 
-function MonthDays({ month, days, loading, fmt, onClose, variant, dataset, model }) {
+function MonthDays({ month, days, loading, fmt, onClose, variant, dataset, model, capital, unit, costBps }) {
   const [openDay, setOpenDay] = useState(null);
   const [trades, setTrades] = useState({ rows: [], loading: false });
   useEffect(() => setOpenDay(null), [month, variant, dataset]);
@@ -427,7 +478,7 @@ function MonthDays({ month, days, loading, fmt, onClose, variant, dataset, model
                 openDay === d.day && (
                   <tr key={`${d.day}-trades`}>
                     <td colSpan={7} className="bg-[#14161a] p-0">
-                      <DayTrades trades={trades.rows} loading={trades.loading} model={model} />
+                      <DayTrades trades={trades.rows} loading={trades.loading} model={model} fmt={fmt} capital={capital} unit={unit} costBps={costBps} />
                     </td>
                   </tr>
                 ),
@@ -1069,6 +1120,9 @@ export default function PortfolioBacktestPage({ model = "xsmr" }) {
               variant={variant}
               dataset={dataset}
               model={model}
+              capital={capital}
+              unit={shownUnit}
+              costBps={data.cost_per_side_bps}
             />
           )}
         </MonthModal>

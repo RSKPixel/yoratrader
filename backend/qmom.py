@@ -144,6 +144,7 @@ def _book(c, base, cap=None):
     cols = list(c.columns)
     w = np.zeros((len(c), len(cols)))
     turn = np.zeros(len(c))
+    traded = np.zeros((len(c), len(cols)))  # share of capital traded per stock (rebalance + roll)
     picks, cur, cash = {}, np.zeros(len(cols)), 0.0
     rv = r.to_numpy()
     for i, day in enumerate(c.index):
@@ -159,15 +160,18 @@ def _book(c, base, cap=None):
             if names:
                 new[[cols.index(s) for s in names]] = 1.0 / (cap if cap and base != "universe" else len(names))
             picks[day] = names
-            turn[i] = np.abs(new - cur).sum()
+            traded[i] = np.abs(new - cur)
             if day in month_ends:  # the positions kept are rolled to next month's contract
-                turn[i] += 2 * np.minimum(new, cur).sum()
+                traded[i] += 2 * np.minimum(new, cur)
+            turn[i] = traded[i].sum()
             cur, cash = new, 1.0 - new.sum()
         elif day in month_ends:  # futures roll: sell this month's contract, buy next month's
-            turn[i] += 2 * cur.sum()
+            traded[i] = 2 * cur
+            turn[i] = traded[i].sum()
         w[i] = cur
     return {"w": pd.DataFrame(w, index=c.index, columns=cols), "r": r, "mom": mom, "fip": fip,
-            "picks": picks, "rebal": rebal, "turn": pd.Series(turn, index=c.index)}
+            "picks": picks, "rebal": rebal, "turn": pd.Series(turn, index=c.index),
+            "traded": pd.DataFrame(traded, index=c.index, columns=cols)}
 
 
 def _nifty(index):
@@ -339,31 +343,45 @@ def month_days(variant, dataset, month, slippage=0.0002, lots=False):
 
 
 def day_trades(variant, dataset, day):
-    """Every stock held into one day's close: weight, momentum and FIP at the last rebalance, the day's move."""
+    """Every position on one day: held into the close (weight = share of capital), and what was traded
+    at that close (a rebalance: bought / sold / resized; a month end: the futures roll). The page turns
+    weights into quantities and rupees for the chosen capital (quantity = allocation / price)."""
     parse_variant(variant)
     base, _, cap = _split(variant)
     c = _closes_cached(dataset)
-    c = c[(c.index >= pd.Timestamp(day) - timedelta(days=900)) & (c.index <= pd.Timestamp(day))]
+    c = c[(c.index >= pd.Timestamp(day) - timedelta(days=900)) & (c.index <= pd.Timestamp(day) + timedelta(days=10))]
     ts = pd.Timestamp(day)
-    if ts not in c.index or len(c.index) < 2:
+    if ts not in c.index or c.index.get_loc(ts) < 1:
         return []
     b = _book(c, base, cap)
     prev = c.index[c.index.get_loc(ts) - 1]
-    held = b["w"].loc[prev]
-    past = [d for d in b["picks"] if d <= prev]
-    ranked = max(past) if past else prev
-    rows, lot = [], xsmr.lot_series(c.columns)
-    for symbol, w in held.items():
-        if w <= 0:
+    before, after, traded = b["w"].loc[prev], b["w"].loc[ts], b["traded"].loc[ts]
+    past = [d for d in b["picks"] if d <= ts]
+    ranked = max(past) if past else ts
+    rebalance = ts in b["rebal"]
+    rows = []
+    for symbol in c.columns:
+        wb, wa, tr = float(before[symbol]), float(after[symbol]), float(traded[symbol])
+        if wb <= 0 and wa <= 0:
             continue
         move = float(b["r"].at[ts, symbol])
+        if wb <= 0:
+            action = "bought"
+        elif wa <= 0:
+            action = "sold"
+        elif rebalance and abs(tr - 2 * min(wa, wb)) > 1e-9 and tr > 2 * min(wa, wb) - 1e-12 and abs(wa - wb * (1 + move)) > 1e-4:
+            action = "resized" + (" + rolled" if tr > abs(wa - wb * (1 + move)) + 1e-9 else "")
+        elif tr > 0:
+            action = "rolled"
+        else:
+            action = "held"
         m, f = b["mom"].at[ranked, symbol], b["fip"].at[ranked, symbol]
-        size = lot.get(symbol)
-        rows.append({"symbol": symbol, "side": "long", "weight_pct": round(100 * w, 3),
+        price_prev, price = c.at[prev, symbol], c.at[ts, symbol]
+        rows.append({"symbol": symbol, "side": "long", "action": action,
+                     "weight_pct": round(100 * wb, 3), "after_pct": round(100 * wa, 3), "traded_pct": round(100 * tr, 3),
                      "signal_pct": round(100 * float(m), 1) if pd.notna(m) else None,
                      "fip": round(float(f), 3) if pd.notna(f) else None, "ranked": ranked.date().isoformat(),
-                     "entry": round(float(c.at[prev, symbol]), 2), "exit": round(float(c.at[ts, symbol]), 2),
-                     "move_pct": round(100 * move, 2), "contribution_bps": round(10000 * w * move, 2),
-                     "lot_size": int(size) if pd.notna(size) else None,
-                     "pnl_rs": round(size * move * float(c.at[prev, symbol])) if pd.notna(size) else None})
-    return sorted(rows, key=lambda x: -x["contribution_bps"])
+                     "entry": round(float(price_prev), 2) if pd.notna(price_prev) else None,
+                     "exit": round(float(price), 2) if pd.notna(price) else None,
+                     "move_pct": round(100 * move, 2), "contribution_bps": round(10000 * wb * move, 2)})
+    return sorted(rows, key=lambda x: (x["action"] != "held", -x["contribution_bps"]))
