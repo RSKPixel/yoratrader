@@ -362,6 +362,33 @@ def results(variant, slippage=0.0002):
                           "green": int((g["net"] > 0).sum()), "trades": int(g["trades"].sum())}
                          for y, g in f.groupby("year")]
     out["take_n"] = TAKES[take]
+    # Pairs have real trades: count them (closed trades, on the book's capital) for the cards and the month grid.
+    with connect() as conn:
+        t = pd.read_sql(
+            """SELECT t.exit_day, t.gross_ret, t.turnover, (SELECT count(*) FROM bt_pairs p WHERE p.variant = t.variant
+                      AND p.year = t.year AND p.rank <= %(n)s) AS pairs
+               FROM bt_pair_trades t WHERE t.variant = %(v)s AND t.rank <= %(n)s""",
+            conn, params={"v": base, "n": _take_n(take)})
+    if out["summary"] and not t.empty:
+        t["net"] = (t["gross_ret"] - t["turnover"] * cost) / t["pairs"]
+        t["gnet"] = t["gross_ret"] - t["turnover"] * cost
+        t["exit_day"] = pd.to_datetime(t["exit_day"])
+        wins, losses = t.loc[t["net"] > 0, "net"].sum(), -t.loc[t["net"] < 0, "net"].sum()
+        out["summary"].update({
+            "trades": int(len(t)), "win_rate": round(float(100 * (t["net"] > 0).mean()), 1),
+            "win_rate_gross": round(float(100 * (t["gross_ret"] > 0).mean()), 1),
+            "avg_cost_pct": round(float(100 * (t["turnover"] * cost / t["pairs"]).mean()), 4),
+            "avg_net_pct": round(float(100 * t["net"].mean()), 4),
+            "profit_factor": round(float(wins / losses), 2) if losses > 0 else None,
+        })
+        for key, fmt in (("years", "%Y"), ("months", "%Y-%m")):
+            g = t.groupby(t["exit_day"].dt.strftime(fmt))["net"]
+            counts, rate = g.size(), g.apply(lambda x: (x > 0).mean())
+            label = "year" if key == "years" else "month"
+            for row in out[key]:
+                k = str(row[label])
+                row["trades"] = int(counts.get(k, 0))
+                row["win_rate"] = round(float(100 * rate[k]), 1) if k in rate.index else None
     return out
 
 

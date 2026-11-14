@@ -75,7 +75,7 @@ function makeFmt(unit, capital) {
   const rs = (pct) => (pct * capital) / 100;
   return {
     big: (pct, digits = 1) => (pct == null ? "—" : unit === "rs" ? formatRs(rs(pct)) : fmtPct(pct, digits)),
-    cell: (pct) => (unit === "rs" ? compactRs(rs(pct)) : fmtPct(pct)),
+    cell: (pct) => (unit === "rs" ? compactRs(rs(pct)) : `${pct > 0 ? "+" : ""}${pct.toFixed(1)}`),
     bps: (bps) => (unit === "rs" ? formatRs((bps / 10000) * capital) : `${bps > 0 ? "+" : bps < 0 ? "−" : ""}${Math.abs(bps).toFixed(1)} bps`),
     axis: (pct) => (unit === "rs" ? `₹${(rs(pct) / 100000).toFixed(1)}L` : `${pct.toFixed(0)}%`),
   };
@@ -128,7 +128,8 @@ function MonthGrid({ months, years, fmt, selected, onSelect }) {
               </th>
             ))}
             <th className="px-2 py-1 font-medium">Year</th>
-            <th className="px-2 py-1 font-medium">Win days</th>
+            <th className="px-2 py-1 font-medium">Trades</th>
+            <th className="px-2 py-1 font-medium">Win</th>
           </tr>
         </thead>
         <tbody>
@@ -143,7 +144,7 @@ function MonthGrid({ months, years, fmt, selected, onSelect }) {
                       <button
                         type="button"
                         onClick={() => onSelect(m.month === selected ? null : m.month)}
-                        title={`${m.days} days · ${m.win_days_pct}% winning days · net ${fmt.big(m.net_pct, 2)} · gross ${fmt.big(m.gross_pct, 2)} · click for the days`}
+                        title={`${m.trades} trades · ${m.win_rate ?? "—"}% win · net ${fmt.big(m.net_pct, 2)} · gross ${fmt.big(m.gross_pct, 2)} · click for the days`}
                         style={cellStyle(m.net_pct, scale)}
                         className={`block w-full cursor-pointer rounded px-1 py-1.5 text-center text-[#e7e4dc] hover:ring-1 hover:ring-[#e2c08a]/60 ${
                           m.month === selected ? "ring-2 ring-[#e2c08a]" : ""
@@ -160,7 +161,8 @@ function MonthGrid({ months, years, fmt, selected, onSelect }) {
               <td className="rounded px-2 py-1.5 text-center text-[#e7e4dc]" style={cellStyle(y.net_pct, yearScale)}>
                 {fmt.big(y.net_pct)}
               </td>
-              <td className="px-2 py-1 text-center text-[#9b968c]">{y.win_days_pct}%</td>
+              <td className="px-2 py-1 text-center text-[#9b968c]">{y.trades}</td>
+              <td className="px-2 py-1 text-center text-[#9b968c]">{y.win_rate == null ? "—" : `${y.win_rate}%`}</td>
             </tr>
           ))}
         </tbody>
@@ -564,6 +566,7 @@ export default function PortfolioBacktestPage({ model = "xsmr" }) {
   const s = data?.summary;
   const capitalLabel = CAPITALS.find(([c]) => c === capital)[1];
   const Info = page.info;
+  const unitSign = unit === "rs" ? "₹" : "%";
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-auto">
@@ -665,22 +668,34 @@ export default function PortfolioBacktestPage({ model = "xsmr" }) {
             </p>
           )}
           <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-8">
-            <Stat label="Net / year" value={fmt.big(s.net.ann_return_pct)} className={pctClass(s.net.ann_return_pct)} title="Mean daily net return × 248, at a fixed size (not compounded)" />
-            <Stat label="Gross / year" value={fmt.big(s.gross.ann_return_pct)} className={pctClass(s.gross.ann_return_pct)} title="Before charges and slippage" />
-            <Stat label="Cost / day" value={fmt.bps(-s.avg_cost_bps)} title={`${s.avg_turnover}× capital traded a day at ${data.cost_per_side_bps} bps per side`} />
-            <Stat label="Net / day" value={fmt.bps(s.net.avg_day_bps)} className={pctClass(s.net.avg_day_bps)} />
-            <Stat label="Net Sharpe" value={s.net.sharpe ?? "—"} className={pctClass(s.net.sharpe)} title={`Before costs: ${s.gross.sharpe}`} />
-            <Stat label="Max drawdown" value={fmt.big(s.net.max_dd_pct)} className="text-[#f0b4b4]" title="Largest fall in cumulative net, at a fixed size" />
-            <Stat label="Win days" value={`${s.net.win_days_pct}%`} title="Days with a positive net return" />
-            <Stat label="Green years" value={`${s.green_years}/${s.years}`} title={`Gross bps a day: long side ${s.long_bps}, short side ${s.short_bps}`} />
+            <Stat
+              label="Trades"
+              value={s.trades.toLocaleString("en-IN")}
+              title={isPairs ? `Pair trades closed · ${s.days} days` : `One trade = one day's book (${s.days} days, ~${s.avg_stocks} stocks a day)`}
+            />
+            <Stat label="Win rate" value={`${s.win_rate}%`} title={`After costs. Before costs: ${s.win_rate_gross}%`} />
+            <Stat label={`Gross ${unitSign}`} value={fmt.big(s.gross_total_pct)} className={pctClass(s.gross_total_pct)} title={`Before costs. ${s.gross.ann_return_pct}% a year`} />
+            <Stat label="Avg cost" value={fmt.big(-s.avg_cost_pct, 3)} title={`Charges + slippage per trade (${data.cost_per_side_bps} bps per side)`} />
+            <Stat label={`Net ${unitSign}`} value={fmt.big(s.net_total_pct)} className={pctClass(s.net_total_pct)} title={`${s.net.ann_return_pct}% a year · Sharpe ${s.net.sharpe ?? "—"}`} />
+            <Stat label="Net / trade" value={fmt.big(s.avg_net_pct, 3)} className={pctClass(s.avg_net_pct)} />
+            <Stat
+              label="Profit factor"
+              value={s.profit_factor ?? "—"}
+              className={s.profit_factor >= 1 ? "text-[#8fbf9f]" : "text-[#f0b4b4]"}
+              title={isPairs ? "Net winning trades ÷ net losing trades" : "Net winning days ÷ net losing days"}
+            />
+            <Stat label="Max drawdown" value={fmt.big(s.net.max_dd_pct)} className="text-[#f0b4b4]" title="Largest peak-to-trough fall in cumulative net, at a fixed size" />
           </div>
+          <p className="-mt-2 mb-4 font-mono text-xs text-[#6f6a62]">
+            {fmt.big(s.net.ann_return_pct)} net a year · Sharpe {s.net.sharpe ?? "—"} · {s.green_years}/{s.years} green years · gross bps a day: long {s.long_bps}, short {s.short_bps}
+          </p>
 
           <section className="mb-4 rounded-md border border-[#2c313a] bg-[#181b20] px-4 py-3">
             <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
               <p className="text-xs uppercase tracking-[0.14em] text-[#6f6a62]">
                 {unit === "rs" ? `Net ₹ by month (${capitalLabel})` : "Net % by month"}
               </p>
-              <p className="font-mono text-xs text-[#9b968c]">Click a month for its {isPairs ? "trades" : "days"}</p>
+              <p className="font-mono text-xs text-[#9b968c]">Click a month to open its trades</p>
             </div>
             <MonthGrid months={data.months} years={data.years} fmt={fmt} selected={month} onSelect={setMonth} />
             {month &&

@@ -262,7 +262,14 @@ def _stats(f):
             "win_days_pct": round(float(100 * (r > 0).mean()), 1),
         }
     yearly = f.groupby(f["day"].dt.year)["net_ret"].sum()
+    wins, losses = f.loc[f["net_ret"] > 0, "net_ret"].sum(), -f.loc[f["net_ret"] < 0, "net_ret"].sum()
     return {
+        # The same cards as the per-trade backtests; here one "trade" is one day's book.
+        "trades": int(len(f)), "win_rate": round(float(100 * (f["net_ret"] > 0).mean()), 1),
+        "win_rate_gross": round(float(100 * (f["gross_ret"] > 0).mean()), 1),
+        "gross_total_pct": round(float(100 * f["gross_ret"].sum()), 2), "net_total_pct": round(float(100 * f["net_ret"].sum()), 2),
+        "avg_cost_pct": round(float(100 * f["cost"].mean()), 4), "avg_net_pct": round(float(100 * f["net_ret"].mean()), 4),
+        "profit_factor": round(float(wins / losses), 2) if losses > 0 else None,
         "days": int(len(f)), "from": f["day"].iloc[0].date().isoformat(), "to": f["day"].iloc[-1].date().isoformat(),
         "avg_stocks": round(float(f["stocks"].mean())), "avg_turnover": round(float(f["turnover"].mean()), 2),
         "avg_cost_bps": round(float(10000 * f["cost"].mean()), 2),
@@ -286,7 +293,8 @@ def results(variant, dataset, slippage=0.0002, model="xsmr"):
 
     def group(key):
         g = f.groupby(key)
-        return [{key: (int(k) if key == "year" else k), "days": int(len(x)), "net_pct": round(float(100 * x["net_ret"].sum()), 2),
+        return [{key: (int(k) if key == "year" else k), "days": int(len(x)), "trades": int(len(x)),
+                 "win_rate": round(float(100 * (x["net_ret"] > 0).mean()), 1), "net_pct": round(float(100 * x["net_ret"].sum()), 2),
                  "gross_pct": round(float(100 * x["gross_ret"].sum()), 2),
                  "win_days_pct": round(float(100 * (x["net_ret"] > 0).mean()), 1)} for k, x in g]
 
