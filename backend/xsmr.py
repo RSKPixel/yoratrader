@@ -11,6 +11,9 @@ from the book, no parameters:
   open ("intraday-0915"); "intraday-0916" (from the 1-minute candles: a market order sent once the
   open is known), "-0930" and "-0945" use the same signal but enter later. They are an execution check, not alternatives: the edge sits almost entirely in the
   09:15 auction price.
+  "intraday-0915-1sd": the book plus Buy on gap's stop: one standard deviation of the stock's last
+  90 daily returns from entry (below for longs, above for shorts). Hit when a 15m candle from 09:15
+  to 15:00 trades through it; out at the stop price. The positions and weights are the book's.
 - "daily": r = previous day's 15:15 -> today's 15:15; hold to 15:15 the next day, rebalancing
   daily. Turnover: sum |w_t - w_t-1|.
 
@@ -27,6 +30,7 @@ from db import connect, stored_lot_sizes
 
 VARIANTS = {
     "intraday-0915": {"label": "Intraday · enter 09:15 (book)", "entry": "09:15"},
+    "intraday-0915-1sd": {"label": "Intraday · enter 09:15 · 1σ stop", "entry": "09:15", "stop": True},
     "intraday-0916": {"label": "Intraday · enter 09:16", "entry": "09:16"},
     "intraday-0930": {"label": "Intraday · enter 09:30", "entry": "09:30"},
     "intraday-0945": {"label": "Intraday · enter 09:45", "entry": "09:45"},
@@ -131,7 +135,7 @@ def _prices(dataset, start=None, end=None):
             WITH s AS (SELECT symbol FROM bt_symbols WHERE dataset = %(ds)s),
             b AS (
               SELECT symbol, (datetime AT TIME ZONE 'Asia/Kolkata')::date AS day,
-                     (datetime AT TIME ZONE 'Asia/Kolkata')::time AS t, open, close
+                     (datetime AT TIME ZONE 'Asia/Kolkata')::time AS t, open, high, low, close
               FROM bt_15m WHERE symbol IN (SELECT symbol FROM s)
                 AND datetime >= COALESCE(%(start)s::date, DATE '1900-01-01')
                 AND datetime < COALESCE(%(end)s::date, DATE '2999-01-01') + 1
@@ -141,6 +145,8 @@ def _prices(dataset, start=None, end=None):
                    max(b.open) FILTER (WHERE b.t = '09:30') AS open930,
                    max(b.open) FILTER (WHERE b.t = '09:45') AS open945,
                    max(b.close) FILTER (WHERE b.t = '15:00') AS px1515,
+                   min(b.low) FILTER (WHERE b.t <= '15:00') AS low1515,
+                   max(b.high) FILTER (WHERE b.t <= '15:00') AS high1515,
                    max(d.open) AS day_open, max(d.close) AS day_close,
                    max(d.high) AS day_high, max(d.low) AS day_low
             FROM b JOIN bt_daily d ON d.symbol = b.symbol AND d.day = b.day
@@ -157,6 +163,9 @@ def _prices(dataset, start=None, end=None):
         frame.loc[(frame[col] > frame["day_high"] * (1 + RANGE_TOLERANCE))
                   | (frame[col] < frame["day_low"] * (1 - RANGE_TOLERANCE)) | (frame[col] <= 0), col] = np.nan
     frame.loc[frame["day_close"] <= 0, "day_close"] = np.nan
+    # Intraday range to 15:15 for the stop; a 15m print outside the day's range is clipped to it.
+    frame["low1515"] = frame[["low1515", "day_low"]].max(axis=1)
+    frame["high1515"] = frame[["high1515", "day_high"]].min(axis=1)
     # 09:16 price: the open of the 09:16 minute candle (minute index 1 in bt_1m), where downloaded.
     with connect() as conn:
         m = pd.read_sql("SELECT symbol, day, open[array_position(minute, 1::smallint)] AS open916 FROM bt_1m "
@@ -166,9 +175,26 @@ def _prices(dataset, start=None, end=None):
     frame = frame.merge(m, on=["symbol", "day"], how="left")
     frame.loc[(frame["open916"] > frame["day_high"] * (1 + RANGE_TOLERANCE))
               | (frame["open916"] < frame["day_low"] * (1 - RANGE_TOLERANCE)) | (frame["open916"] <= 0), "open916"] = np.nan
+    # 1σ for the stop, as in Buy on gap: the standard deviation of the last 90 daily close-to-close
+    # returns before the day (backtest.GAP_SD_DAYS).
+    with connect() as conn:
+        sd = pd.read_sql(
+            """
+            WITH r AS (
+              SELECT symbol, day, close / lag(close) OVER (PARTITION BY symbol ORDER BY day) - 1 AS ret
+              FROM bt_daily WHERE close > 0 AND symbol IN (SELECT symbol FROM bt_symbols WHERE dataset = %(ds)s)
+                AND day >= COALESCE(%(start)s::date, DATE '1900-01-01') - 200
+                AND day <= COALESCE(%(end)s::date, DATE '2999-01-01')
+            )
+            SELECT symbol, day,
+                   CASE WHEN count(ret) OVER w = %(n)s THEN stddev_samp(ret) OVER w END AS sigma
+            FROM r WINDOW w AS (PARTITION BY symbol ORDER BY day ROWS BETWEEN %(n)s PRECEDING AND 1 PRECEDING)
+            """,
+            conn, params={"ds": dataset, "start": start, "end": end, "n": backtest.GAP_SD_DAYS})
+    frame = frame.merge(sd, on=["symbol", "day"], how="left")
     frame["day"] = pd.to_datetime(frame["day"])
     return {col: frame.pivot(index="day", columns="symbol", values=col).sort_index()
-            for col in ("open915", "open916", "open930", "open945", "px1515", "day_close")}
+            for col in ("open915", "open916", "open930", "open945", "px1515", "day_close", "low1515", "high1515", "sigma")}
 
 
 def _weights(signal, top=None):
@@ -185,15 +211,16 @@ def _weights(signal, top=None):
     return w.where(dev.notna())
 
 
-ENTRY_COLS = {"intraday-0915": "open915", "intraday-0916": "open916", "intraday-0930": "open930",
+ENTRY_COLS = {"intraday-0915": "open915", "intraday-0915-1sd": "open915", "intraday-0916": "open916", "intraday-0930": "open930",
               "intraday-0945": "open945"}
 
 
 def _book(p, variant):
-    variant, take = parse_variant(variant)
     """Signal, weights, entry and exit prices per day and stock for one variant.
     Intraday: signal previous official close -> 09:15 open; position entry -> 15:15 the same day.
-    Daily: signal 15:15(t-1) -> 15:15(t); position 15:15(t) -> 15:15(t+1), rebalanced daily."""
+    Daily: signal 15:15(t-1) -> 15:15(t); position 15:15(t) -> 15:15(t+1), rebalanced daily.
+    With a stop: the same positions; the exit is the stop price where the day's range reached it."""
+    variant, take = parse_variant(variant)
     if variant == "daily":
         px = p["px1515"]
         sig = px / px.shift(1) - 1
@@ -204,7 +231,16 @@ def _book(p, variant):
     pos = exit_ / entry - 1
     ok = sig.notna() & pos.notna() & (sig.abs() <= MAX_MOVE) & (pos.abs() <= MAX_MOVE)
     w = _weights(sig.where(ok), TAKES[take]).fillna(0.0)
-    return {"sig": sig, "w": w, "pos": pos, "entry": entry, "exit": exit_, "n": ok.sum(axis=1)}
+    stopped = pd.DataFrame(False, index=w.index, columns=w.columns)
+    stop = None
+    if VARIANTS[variant].get("stop"):
+        risk = entry * p["sigma"]
+        stop = (entry - risk).where(w > 0, entry + risk).where(w != 0)
+        stopped = ((w > 0) & (p["low1515"] <= stop)) | ((w < 0) & (p["high1515"] >= stop))
+        exit_ = exit_.where(~stopped, stop)
+        pos = exit_ / entry - 1
+    return {"sig": sig, "w": w, "pos": pos, "entry": entry, "exit": exit_, "n": ok.sum(axis=1),
+            "stop": stop, "stopped": stopped}
 
 
 def run(dataset):
@@ -252,6 +288,8 @@ def day_trades(variant, dataset, day):
                      "signal_pct": round(100 * float(b["sig"].at[ts, symbol]), 2),
                      "entry": round(float(b["entry"].at[ts, symbol]), 2), "exit": round(float(b["exit"].at[ts, symbol]), 2),
                      "move_pct": round(100 * r, 2), "contribution_bps": round(10000 * w * r, 2),
+                     "stop": round(float(b["stop"].at[ts, symbol]), 2) if b["stop"] is not None and pd.notna(b["stop"].at[ts, symbol]) else None,
+                     "stopped": bool(b["stopped"].at[ts, symbol]),
                      "lot_size": int(size) if pd.notna(size) else None, "pnl_rs": round(pnl) if pnl is not None else None})
     return sorted(rows, key=lambda x: -x["contribution_bps"])
 

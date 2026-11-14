@@ -21,6 +21,10 @@ const ENTRIES = [
   ["0930", "09:30"],
   ["0945", "09:45"],
 ];
+const XSMR_STOPS = [
+  ["none", "None (book)"],
+  ["1sd", "1σ"],
+];
 const XSMR_TAKES = [
   ["all", "All (book)"],
   ["top5", "5 + 5"],
@@ -188,6 +192,8 @@ function DayTrades({ trades, loading, model }) {
   if (loading) return <p className="px-3 py-2 font-mono text-xs text-[#6f6a62]">Loading trades…</p>;
   if (!trades.length) return <p className="px-3 py-2 font-mono text-xs text-[#6f6a62]">No trades stored for this day.</p>;
   const longs = trades.filter((t) => t.side === "long").length;
+  const hasStop = trades.some((t) => t.stop != null);
+  const stopped = trades.filter((t) => t.stopped).length;
   return (
     <div className="max-h-96 overflow-auto px-3 py-2">
       <p className="mb-1 font-mono text-[0.7rem] text-[#9b968c]">
@@ -195,12 +201,12 @@ function DayTrades({ trades, loading, model }) {
         {model === "xsmom"
           ? "signal = 12-month return when ranked · entry/exit = previous close/this close"
           : "signal = the move the model fades"}{" "}
-        · sorted by contribution
+        {hasStop && ` · ${stopped} stopped out (exit at the stop)`} · sorted by contribution
       </p>
       <table className="w-full text-xs">
         <thead className="sticky top-0 bg-[#181b20] text-left uppercase tracking-[0.1em] text-[#6f6a62]">
           <tr>
-            {["Stock", "Side", "Weight", "Signal", "Entry", "Exit", "Move", "Contribution", "Lot", "1 lot ₹"].map((h) => (
+            {["Stock", "Side", "Weight", "Signal", "Entry", ...(hasStop ? ["Stop"] : []), "Exit", "Move", "Contribution", "Lot", "1 lot ₹"].map((h) => (
               <th key={h} className="px-2 py-1 font-medium">
                 {h}
               </th>
@@ -215,7 +221,11 @@ function DayTrades({ trades, loading, model }) {
               <td className="px-2 py-1 text-[#9b968c]">{t.weight_pct.toFixed(2)}%</td>
               <td className={`px-2 py-1 ${pctClass(t.signal_pct)}`}>{fmtPct(t.signal_pct, model === "xsmom" ? 1 : 2)}</td>
               <td className="px-2 py-1 text-[#c8c3b8]">{t.entry}</td>
-              <td className="px-2 py-1 text-[#c8c3b8]">{t.exit}</td>
+              {hasStop && <td className="px-2 py-1 text-[#f0b4b4]">{t.stop ?? "—"}</td>}
+              <td className={`px-2 py-1 ${t.stopped ? "text-[#f0b4b4]" : "text-[#c8c3b8]"}`}>
+                {t.exit}
+                {t.stopped && " · stop"}
+              </td>
               <td className={`px-2 py-1 ${pctClass(t.move_pct)}`}>{fmtPct(t.move_pct, 2)}</td>
               <td className={`px-2 py-1 ${pctClass(t.contribution_bps)}`}>
                 {t.contribution_bps > 0 ? "+" : ""}
@@ -546,6 +556,7 @@ export default function PortfolioBacktestPage({ model = "xsmr" }) {
   const [momFill, setMomFill] = useState("book");
   const [version, setVersion] = useState("intraday");
   const [entry, setEntry] = useState("0915");
+  const [stop, setStop] = useState("none");
   const [dataset, setDataset] = useState("fno");
   const [take, setTake] = useState("all");
   const [method, setMethod] = useState("bollinger");
@@ -562,7 +573,7 @@ export default function PortfolioBacktestPage({ model = "xsmr" }) {
   const shownUnit = data ? (data.lotsMode ? "lots" : unit === "lots" ? "pct" : unit) : unit;
   const fmt = useMemo(() => makeFmt(shownUnit, capital), [shownUnit, capital]);
 
-  const base = isMom ? momFill : isPairs ? `${method}${fill === "next" ? "-next" : ""}` : version === "daily" ? "daily" : `intraday-${entry}`;
+  const base = isMom ? momFill : isPairs ? `${method}${fill === "next" ? "-next" : ""}` : version === "daily" ? "daily" : `intraday-${entry}${entry === "0915" && stop === "1sd" ? "-1sd" : ""}`;
   const variant = take === "all" ? base : `${base}-${take}`;
   const [month, setMonth] = useState(null);
   const [monthRows, setMonthRows] = useState({ rows: [], loading: false });
@@ -608,6 +619,7 @@ export default function PortfolioBacktestPage({ model = "xsmr" }) {
     else {
       setVersion("intraday");
       setEntry(b.split("-")[1]);
+      setStop(b.endsWith("-1sd") ? "1sd" : "none");
     }
   };
 
@@ -672,6 +684,15 @@ export default function PortfolioBacktestPage({ model = "xsmr" }) {
               >
                 <span className="text-xs uppercase tracking-[0.14em] text-[#6f6a62]">Entry</span>
                 <Segmented options={ENTRIES} value={entry} onChange={setEntry} />
+              </div>
+            )}
+            {version === "intraday" && entry === "0915" && (
+              <div
+                className="flex items-center gap-2"
+                title="None is the book's rule (exit only at 15:15). 1σ: as in Buy on gap, a stop one standard deviation of the stock's last 90 daily returns from entry; hit on the 15m candles to 15:15, out at the stop price. Same positions either way."
+              >
+                <span className="text-xs uppercase tracking-[0.14em] text-[#6f6a62]">Stop</span>
+                <Segmented options={XSMR_STOPS} value={stop} onChange={setStop} />
               </div>
             )}
           </>

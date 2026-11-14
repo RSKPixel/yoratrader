@@ -766,6 +766,17 @@ export function XsmrInfo() {
         </List>
       </Section>
 
+      <Section title="Stop (not in the book)">
+        <List>
+          <li>
+            <B>1σ</B> uses Buy on gap's stop: one standard deviation of the stock's last 90 daily returns from entry,
+            below for longs and above for shorts. It's hit when a 15m candle up to 15:15 trades through it, and the
+            exit is at the stop price.
+          </li>
+          <li>The positions and weights stay the same as the book's; only the exit changes. It's only available for the 09:15 entry.</li>
+        </List>
+      </Section>
+
       <Section title="Returns and costs">
         <List>
           <li>
