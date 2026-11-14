@@ -687,8 +687,7 @@ export default function PortfolioBacktestPage({ model = "xsmr" }) {
   const shownUnit = data ? (data.lotsMode ? "lots" : unit === "lots" ? "pct" : unit) : unit;
   const fmt = useMemo(() => makeFmt(shownUnit, capital), [shownUnit, capital]);
 
-  // Max open is a margin budget in lots, so it applies in "1 lot / stock" mode only.
-  const lcMax = isLc && lots ? lcRepeat : "";
+  const lcMax = isLc ? lcRepeat : "";
   const base = isLc ? `${lcSetup}-${lcHold}${lcMax}${lcStop}` : isQm ? `${qmVersion}${qmHedge === "nifty" ? "-hedged" : ""}` : isMom ? momFill : isPairs ? `${method}${fill === "next" ? "-next" : ""}` : version === "daily" ? "daily" : `intraday-${entry}${entry === "0915" && stop === "1sd" ? "-1sd" : ""}`;
   const variant = take === "all" || lcMax ? base : `${base}-${take}`;
   const [month, setMonth] = useState(null);
@@ -804,10 +803,10 @@ export default function PortfolioBacktestPage({ model = "xsmr" }) {
               <span className="text-xs uppercase tracking-[0.14em] text-[#6f6a62]">Hold</span>
               <Segmented options={LC_HOLDS} value={lcHold} onChange={setLcHold} />
             </div>
-            {lots && (
+            {(
             <div
               className="flex items-center gap-2"
-              title="Many: each day's picks share a fifth of capital, so up to 5 days of picks are open together (the book). 1 / 2 / 3 / 5: at most that many trades open at once, each 1/N of capital (one lot each); a new trade only when a slot frees up, the most oversold qualifying stock not already held. Size it to your margin: each open futures lot needs its own."
+              title="Many: each day's picks share a fifth of capital, so up to 5 days of picks are open together (the book). 1 / 2 / 3 / 5: at most that many positions open at once, each capital ÷ N (equal rupees); a new trade only when a slot frees up, the most oversold qualifying stock not already held. Size it to your margin: each open futures position needs its own."
             >
               <span className="text-xs uppercase tracking-[0.14em] text-[#6f6a62]">Max open</span>
               <Segmented options={LC_POSITIONS} value={lcRepeat} onChange={setLcRepeat} />
@@ -895,7 +894,7 @@ export default function PortfolioBacktestPage({ model = "xsmr" }) {
         </div>
         <div className="flex items-center gap-2" title="Show results as % of capital, or in rupees for the chosen capital">
           <span className="text-xs uppercase tracking-[0.14em] text-[#6f6a62]">Show</span>
-          <Segmented options={isPairs ? UNITS : UNITS_LOTS} value={unit} onChange={setUnit} />
+          <Segmented options={isPairs || isLc ? UNITS : UNITS_LOTS} value={unit} onChange={setUnit} />
         </div>
         {unit === "rs" && (
           <div className="flex items-center gap-2" title={isPairs ? "Total capital, split equally across the year's pairs" : isQm || isLc ? "Capital, fully invested long, the same every day" : "Gross exposure: half long, half short, the same every day"}>
@@ -926,7 +925,11 @@ export default function PortfolioBacktestPage({ model = "xsmr" }) {
             <p className="mb-2 font-mono text-xs text-[#9b968c]">
               {isPairs
                 ? `${capitalLabel} capital split equally across the year's pairs (${data.take_n ? `${data.take_n}` : "all selected"}), ~${s.avg_stocks} open on an average day.`
-                : isQm || isLc
+                : isLc && lcMax
+                ? `${capitalLabel} split into ${lcMax.slice(4)} position${lcMax === "-max1" ? "" : "s"} of ${formatRs(capital / Number(lcMax.slice(4)))} each; a free slot waits in cash for the next signal (~${s.avg_stocks} open on an average day).`
+                : isLc
+                ? `${capitalLabel} split across the last 5 days' picks, a fifth each day (~${s.avg_stocks} positions open on an average day).`
+                : isQm
                 ? `${capitalLabel} invested long every day, spread over ~${s.avg_stocks} stocks.`
                 : `${capitalLabel} gross exposure every day: half long, half short, spread over ~${s.avg_stocks} stocks.`}{" "}
               Rupees are the % results scaled to that size, not compounded.
