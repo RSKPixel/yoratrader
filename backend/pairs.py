@@ -26,7 +26,7 @@ Capital: equal per selected pair, idle when the pair is flat, so the portfolio r
 the sum of pair returns / number of pairs selected that year. A pair stops for the rest of the
 year if either stock moves more than 20% in a day or has no price (corporate action or bad
 data; that day's P&L is not counted). Costs: NSE futures charges + slippage per rupee traded
-(xsmr.cost_per_side). Survivorship bias: today's F&O list is used for every year.
+(xsmr.cost_per_side), including the monthly futures roll on legs held through a month end. Survivorship bias: today's F&O list is used for every year.
 """
 
 import csv
@@ -229,6 +229,7 @@ def _trade(method, lag, y, x, pair, year_mask):
         wy = 1 / (1 + np.abs(slope))
         wx = slope / (1 + np.abs(slope))
     idx = np.flatnonzero(year_mask)
+    month_end = xsmr.month_ends(y.index).to_numpy()
     last = idx[-1]
     rows, held_y, held_x, stopped = [], 0.0, 0.0, None
     for i in idx:
@@ -248,6 +249,8 @@ def _trade(method, lag, y, x, pair, year_mask):
         else:
             target_y, target_x = s * wy[i], s * wx[i]
         traded = abs(target_y - held_y) + abs(target_x - held_x)
+        if month_end[i] and s and s == np.sign(held_y):  # futures roll on the legs kept through the month end
+            traded += 2 * (min(abs(held_y), abs(target_y)) + min(abs(held_x), abs(target_x)))
         rows.append((y.index[i], ret, traded, int(s)))
         held_y, held_x = target_y, target_x
         if bad:
@@ -292,7 +295,7 @@ def run():
                             b.at[day, "open"] += 1
                     if current is not None:  # the open trade earns today's P&L
                         current["ret"] += ret
-                        current["turnover"] += (traded if sig == 0 else traded / 2) if sig != prev else 0.0
+                        current["turnover"] += (traded if sig == 0 else traded / 2) if sig != prev else traded
                         if sig != prev:  # closed (or flipped) at today's close
                             current["exit"], current["days"] = day.date(), current["days"] + 1
                             trades_out.append(current)

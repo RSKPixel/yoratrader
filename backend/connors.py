@@ -19,8 +19,9 @@ Take: "all" buys every signal; "top5"/"top3" only the 5 / 3 lowest 2-day RSIs of
 every setup, so the take means the same thing across setups). A stock picked again while held adds
 a slice. One-lot mode: one lot per stock held, however many slices.
 
-Computed on request (see _run), not stored. Costs: NSE futures charges + slippage on every rupee traded (xsmr.cost_per_side); the futures roll
-is not charged. Data hygiene: 200 straight closes and no move over 20% in the window to qualify;
+Computed on request (see _run), not stored. Costs: NSE futures charges + slippage on every rupee
+traded (xsmr.cost_per_side), including the futures roll: a trade held through a month end (standing
+in for expiry) is sold and bought again in next month's contract. Data hygiene: 200 straight closes and no move over 20% in the window to qualify;
 a day's move over 20% earns nothing. Survivorship bias: today's F&O list is used for every year,
 which flatters every long position. The "every" setup is the control: with take "all" it buys
 every stock above its 200-day average (the baseline); with "top5"/"top3" it buys the day's 5 / 3
@@ -196,6 +197,7 @@ def _simulate(d, variant, lot=None):
     gross, turn, held = np.zeros(n), np.zeros(n), np.zeros(n, dtype=int)
     g_rs, t_rs, not_rs, held_lots = np.zeros(n), np.zeros(n), np.zeros(n), np.zeros(n, dtype=int)
     open_trades, trades = [], []
+    month_end = xsmr.month_ends(idx).to_numpy()
     for i in range(n):
         still = []
         for tr in open_trades:  # each open trade's move from yesterday's 15:15 to today's
@@ -233,6 +235,12 @@ def _simulate(d, variant, lot=None):
             else:
                 still.append(tr)
         open_trades = still
+        if month_end[i]:  # futures roll: trades held through the month end are sold and bought again
+            for tr in open_trades:
+                turn[i] += 2 * tr["w"] * tr["last"] / tr["buy"]
+                tr["roll"] = tr.get("roll", 0.0) + 2 * tr["last"] / tr["buy"]
+                if tr["lot"]:
+                    t_rs[i] += 2 * tr["lot"] * tr["last"]
         cand = np.flatnonzero(hit[i])
         if cap:  # free slots only, stocks not already held
             held_now = {tr["s"] for tr in open_trades}
@@ -316,10 +324,10 @@ def results(variant, dataset, slippage=0.0002, lots=False):
     idx = d["px"].index
     t = pd.DataFrame({"sell_day": [idx[x["sell_i"]] for x in closed], "w": [x["w"] for x in closed],
                       "buy": [x["buy"] for x in closed], "sell": [x["sell"] for x in closed],
-                      "reason": [x["reason"] for x in closed]})
+                      "reason": [x["reason"] for x in closed], "roll": [x.get("roll", 0.0) for x in closed]})
     cost = xsmr.cost_per_side(slippage)
     t["gross"] = t["w"] * (t["sell"] / t["buy"] - 1)
-    t["cost"] = t["w"] * (1 + t["sell"] / t["buy"]) * cost
+    t["cost"] = t["w"] * (1 + t["sell"] / t["buy"] + t["roll"]) * cost  # buy, sale and any futures roll
     t["net"] = t["gross"] - t["cost"]
     wins, losses = t.loc[t["net"] > 0, "net"].sum(), -t.loc[t["net"] < 0, "net"].sum()
     out["summary"].update({

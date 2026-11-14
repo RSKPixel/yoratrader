@@ -864,8 +864,8 @@ export function PairsInfo() {
             % of total capital, summed day by day, not compounded. Annual = mean daily × 248.
           </li>
           <li>
-            Costs on every rupee traded: NSE futures charges plus the chosen slippage. Short legs need futures (or SLB) to
-            hold overnight.
+            Costs on every rupee traded: NSE futures charges plus the chosen slippage, including the monthly futures roll
+            on both legs of a trade held through a month end. Short legs need futures (or SLB) to hold overnight.
           </li>
           <li>
             Click a month for the trades closed in it. "Pair" results are on that pair's own capital; "book" is its share
@@ -932,8 +932,9 @@ export function XsmomInfo() {
             Results are % of gross exposure (long + short), summed day by day, not compounded. Annual = mean daily × 248.
           </li>
           <li>
-            Costs on every rupee traded: NSE futures charges plus the chosen slippage. Turnover is about 6× capital a year.
-            The monthly futures roll is not charged; short legs need futures to hold overnight.
+            Costs on every rupee traded: NSE futures charges plus the chosen slippage, including the monthly futures roll
+            (positions held through a month end are sold and bought again in next month's contract). Short legs need
+            futures to hold overnight.
           </li>
           <li>Click a month for its days, and a day for every stock held into that close.</li>
         </List>
@@ -1154,7 +1155,8 @@ export function ConnorsInfo() {
           <li>Results are % of capital, invested long, summed day by day, not compounded. Annual = mean daily × 248.</li>
           <li>
             Costs on every rupee traded: NSE futures charges plus the chosen slippage. Turnover is about 90× capital a
-            year (a 5-day hold), so slippage matters. The futures roll is not charged.
+            year (a 5-day hold), so slippage matters. A trade held through a month end also pays the futures roll (sold
+            and bought again in next month's contract).
           </li>
           <li>
             15-minute candles start in February 2015 (daily closes in 2003 for the Close version). Every book is computed on request; the first view after a restart takes ~15 s to load the prices. A stock qualifies with 90% of the last 200 closes (Kite's daily history has a hole from 24 May to 22 June 2004, when most stocks are missing; days like that aren't counted) and no move over

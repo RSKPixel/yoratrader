@@ -20,7 +20,8 @@ earns nothing. Sparse special sessions (Muhurat, Saturday budget days, where onl
 have a close) are dropped. Days with fewer than 20 rankable stocks hold nothing.
 
 Returns are on gross exposure (long + short = 1), not compounded. Costs: NSE futures charges and
-slippage on every rupee traded (xsmr.cost_per_side); the monthly futures roll is not charged.
+slippage on every rupee traded (xsmr.cost_per_side), including the monthly futures roll
+(positions held through a month end are sold and bought again: xsmr.roll_turnover).
 Survivorship bias: today's F&O list is used for every year.
 """
 
@@ -123,6 +124,9 @@ def _lot_rows(c, b, lot, days):
     prev_close = c[cols].ffill().shift(1)  # across a data hole, the last price before it
     move = (held * prev_close * b["r"][cols]).fillna(0.0)  # a >20% day earns nothing, as in the % series
     traded = ((target - held).abs() * c[cols]).fillna(0.0)
+    # the monthly futures roll: lots carried through a month end are sold and bought again
+    kept = held.abs().where(np.sign(held) == np.sign(target), 0.0)
+    traded += (2 * kept * c[cols].ffill()).fillna(0.0).mul(xsmr.month_ends(c.index).astype(float), axis=0)
     notional = (held.abs() * prev_close).fillna(0.0)
     return [(d.date(), float(move.loc[d].sum()), float(traded.loc[d].sum()), float(move.loc[d][held.loc[d] > 0].sum()),
              float(move.loc[d][held.loc[d] < 0].sum()), float(notional.loc[d].sum()), int((held.loc[d] != 0).sum()))
@@ -141,7 +145,7 @@ def run(dataset):
             gross = (held * b["r"]).sum(axis=1)
             longs = (held.clip(lower=0) * b["r"]).sum(axis=1)
             shorts = (held.clip(upper=0) * b["r"]).sum(axis=1)
-            turnover = (b["w"] - held).abs().sum(axis=1)
+            turnover = (b["w"] - held).abs().sum(axis=1) + xsmr.roll_turnover(held, b["w"], c.index)
             stocks = (held != 0).sum(axis=1)  # positions carried into the day
             live = (held.abs().sum(axis=1) > 0.5) | (b["w"].abs().sum(axis=1) > 0.5)
             first = live.idxmax()  # from the first fully built book; later empty days stay in (as flat days)

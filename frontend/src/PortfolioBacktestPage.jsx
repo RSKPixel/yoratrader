@@ -751,6 +751,8 @@ export default function PortfolioBacktestPage({ model = "xsmr" }) {
   };
 
   const s = data?.summary;
+  // Daily books (cross-sectional, momentum): one "trade" in the cards is one day of the book.
+  const perDay = !!s && !isPairs && s.trades === s.days;
   const capitalLabel = CAPITALS.find(([c]) => c === capital)[1];
   const Info = page.info;
   const unitSign = shownUnit === "pct" ? "%" : "₹";
@@ -987,15 +989,23 @@ export default function PortfolioBacktestPage({ model = "xsmr" }) {
           )}
           <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-8">
             <Stat
-              label="Trades"
+              label={perDay ? "Days" : "Trades"}
               value={s.trades.toLocaleString("en-IN")}
               title={isPairs ? `Pair trades closed · ${s.days} days` : isLc && s.trades !== s.days ? `Trades closed (buy to sell) · ${s.days} days${s.stopped_pct ? ` · ${s.stopped_pct}% stopped` : ""} · win rate, cost and net per trade are each trade's share of the book` : `One trade = one day's book (${s.days} days, ~${s.avg_stocks} stocks a day)`}
             />
-            <Stat label="Win rate" value={`${s.win_rate}%`} title={`After costs. Before costs: ${s.win_rate_gross}%`} />
+            <Stat label={perDay ? "Win days" : "Win rate"} value={`${s.win_rate}%`} title={`${perDay ? "Days net positive. " : ""}After costs. Before costs: ${s.win_rate_gross}%`} />
             <Stat label={`Gross ${unitSign}`} value={fmt.big(s.gross_total_pct)} className={pctClass(s.gross_total_pct)} title={`Before costs. ${s.gross.ann_return_pct}% a year`} />
-            <Stat label="Avg cost" value={fmt.big(-s.avg_cost_pct, 3)} title={`Charges + slippage per trade (${data.cost_per_side_bps} bps per side)`} />
+            <Stat
+              label={perDay ? "Avg cost / day" : "Avg cost"}
+              value={fmt.big(-s.avg_cost_pct, 3)}
+              title={
+                perDay
+                  ? `Charges + slippage (${data.cost_per_side_bps} bps per side) averaged over every day: ${fmt.big(-s.avg_cost_pct * 248, 2)} a year. They fall on the days the book trades (rebalances, futures rolls), not evenly.`
+                  : `Charges + slippage per trade (${data.cost_per_side_bps} bps per side)`
+              }
+            />
             <Stat label={`Net ${unitSign}`} value={fmt.big(s.net_total_pct)} className={pctClass(s.net_total_pct)} title={`${s.net.ann_return_pct}% a year · Sharpe ${s.net.sharpe ?? "—"}`} />
-            <Stat label="Net / trade" value={fmt.big(s.avg_net_pct, 3)} className={pctClass(s.avg_net_pct)} />
+            <Stat label={perDay ? "Net / day" : "Net / trade"} value={fmt.big(s.avg_net_pct, 3)} className={pctClass(s.avg_net_pct)} />
             <Stat
               label="Profit factor"
               value={s.profit_factor ?? "—"}

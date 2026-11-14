@@ -15,7 +15,8 @@ from the book, no parameters:
   90 daily returns from entry (below for longs, above for shorts). Hit when a 15m candle from 09:15
   to 15:00 trades through it; out at the stop price. The positions and weights are the book's.
 - "daily": r = previous day's 15:15 -> today's 15:15; hold to 15:15 the next day, rebalancing
-  daily. Turnover: sum |w_t - w_t-1|.
+  daily. Turnover: sum |w_t - w_t-1|, plus the monthly futures roll on positions kept through a
+  month end.
 
 Results are portfolio returns on gross exposure (not R per trade). Costs: NSE futures charges and
 slippage on every rupee traded (costs_per_side). Stored per day in bt_portfolio.
@@ -116,6 +117,9 @@ def lot_rows(side, entry, exit_, lot, carried, days=None):
     notional = (qty.abs() * entry).where(qty != 0, 0.0).fillna(0.0)
     if carried:
         traded = ((qty - qty.shift(1).fillna(0.0)).abs() * entry).fillna(0.0)
+        prev_q = qty.shift(1).fillna(0.0)  # the futures roll on lots kept through a month end
+        kept = np.minimum(prev_q.abs(), qty.abs()).where(np.sign(prev_q) == np.sign(qty), 0.0)
+        traded += (2 * kept * entry).fillna(0.0).mul(month_ends(qty.index).astype(float), axis=0)
     else:
         traded = 2 * notional
     days = side.index if days is None else days
@@ -247,6 +251,7 @@ def run(dataset):
     p = _prices(dataset)
     out, lots_out = {}, {}
     lot = lot_series(p["open915"].columns)
+    ends = month_ends(p["open915"].index)
     for variant in (variant_id(v, t) for v in VARIANTS for t in TAKES):
         b = _book(p, variant)
         kept = b["n"].index[b["n"] >= MIN_STOCKS]
@@ -260,6 +265,8 @@ def run(dataset):
             wd, rd = b["w"].loc[day], b["pos"].loc[day].fillna(0.0)
             if variant.startswith("daily"):  # rebalance from yesterday's book
                 traded = float(wd.abs().sum() if prev is None else (wd - prev).abs().sum())
+                if prev is not None and ends[day]:  # futures roll on what's kept through the month end
+                    traded += float(2 * np.minimum(prev.abs(), wd.abs()).where(np.sign(prev) == np.sign(wd), 0.0).sum())
                 prev = wd
             else:  # the whole book in at the open, out at 15:15
                 traded = float(2 * wd.abs().sum())
@@ -319,6 +326,23 @@ def store_lots(cursor, model, dataset, lots):
         execute_values(cursor, "INSERT INTO bt_portfolio_lots (model, variant, dataset, day, gross_rs, turnover_rs, "
                                "long_rs, short_rs, notional_rs, positions) VALUES %s",
                        [(model, variant, dataset, *r) for r in rows], page_size=5000)
+
+
+def month_ends(index):
+    """Boolean Series: the last trading day of each month (not the data's last, unfinished month).
+    Stands in for futures expiry (a few days earlier in fact) when charging the monthly roll."""
+    days = pd.Series(index, index=index)
+    ends = days.groupby([index.year, index.month]).max().values[:-1]
+    return pd.Series(index.isin(ends), index=index)
+
+
+def roll_turnover(held, w, index):
+    """The monthly futures roll on a daily weight book: at each month end, positions carried into the
+    day and still held (same side) after its close are sold and bought again in next month's contract,
+    2 x the size kept. held: weights carried into each day; w: weights after its close."""
+    same = np.sign(held) == np.sign(w)
+    kept = np.minimum(held.abs(), w.abs()).where(same, 0.0).sum(axis=1)
+    return 2 * kept * month_ends(index).astype(float)
 
 
 def cost_per_side(slippage=0.0002, notional=None):
