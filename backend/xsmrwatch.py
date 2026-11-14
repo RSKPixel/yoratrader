@@ -6,6 +6,10 @@
   exposure per stock). The open is the entry; the last price at the snapshot (if taken by 09:15:30)
   is stored as the live fill.
 - finalize(): after 15:15, exit at the close of the 15:00 candle (the backtest's 15:15 price).
+- 1σ stop, tracked alongside on the same positions (the backtest's "intraday-0915-1sd"): σ is the
+  standard deviation of the stock's last 90 daily returns; the stop sits 1σ from the open (below for
+  longs, above for shorts); if a 15m candle from 09:15 to 15:00 trades through it, that version
+  exits at the stop price. The book (no stop) is unchanged.
 
 Runs from gapwatch's production scheduler, right after buy-on-gap's recording. Nothing here
 places orders.
@@ -27,6 +31,7 @@ IST = backtest.IST
 PER_SIDE = 5
 WEIGHT = 0.5 / PER_SIDE  # share of gross exposure per stock
 BACKTEST_VARIANT = "intraday-0915-top5"
+BACKTEST_VARIANT_STOP = "intraday-0915-1sd-top5"
 
 
 def _ensure_tables(cursor):
@@ -49,6 +54,12 @@ def _ensure_tables(cursor):
             closed_at TIMESTAMPTZ,
             PRIMARY KEY (day, symbol)
         );
+        ALTER TABLE xsmr_paper ADD COLUMN IF NOT EXISTS sigma DOUBLE PRECISION;  -- 1σ stop version
+        ALTER TABLE xsmr_paper ADD COLUMN IF NOT EXISTS stop DOUBLE PRECISION;
+        ALTER TABLE xsmr_paper ADD COLUMN IF NOT EXISTS exit_stop DOUBLE PRECISION;
+        ALTER TABLE xsmr_paper ADD COLUMN IF NOT EXISTS stopped BOOLEAN;
+        ALTER TABLE xsmr_paper ADD COLUMN IF NOT EXISTS ret_stop DOUBLE PRECISION;
+        ALTER TABLE xsmr_paper ADD COLUMN IF NOT EXISTS ret_stop_live DOUBLE PRECISION;
         CREATE TABLE IF NOT EXISTS xsmr_paper_days (
             day DATE PRIMARY KEY,
             recorded_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -57,6 +68,24 @@ def _ensure_tables(cursor):
         );
         """
     )
+
+
+def _sigmas(symbols, today):
+    """1σ for the stop, as in the backtest: the standard deviation of the last 90 daily
+    close-to-close returns before today."""
+    with connect() as conn, conn.cursor() as cursor:
+        cursor.execute(
+            """
+            WITH r AS (
+              SELECT symbol, day, close / lag(close) OVER (PARTITION BY symbol ORDER BY day) - 1 AS ret
+              FROM bt_daily WHERE close > 0 AND symbol = ANY(%(s)s) AND day < %(d)s AND day >= %(d)s::date - 200
+            ), last AS (
+              SELECT symbol, ret, row_number() OVER (PARTITION BY symbol ORDER BY day DESC) AS n FROM r
+            )
+            SELECT symbol, CASE WHEN count(ret) = %(n)s THEN stddev_samp(ret) END
+            FROM last WHERE n <= %(n)s GROUP BY symbol
+            """, {"s": list(symbols), "d": today, "n": backtest.GAP_SD_DAYS})
+        return {s_: float(v) for s_, v in cursor.fetchall() if v is not None}
 
 
 def record_open(force=False):
@@ -95,13 +124,19 @@ def record_open(force=False):
         ordered = sorted(stocks, key=lambda s: s["signal"])
         picks = [("long", i + 1, s) for i, s in enumerate(ordered[:PER_SIDE])]
         picks += [("short", i + 1, s) for i, s in enumerate(reversed(ordered[-PER_SIDE:]))]
+    sigmas = _sigmas([s["symbol"] for _, _, s in picks], today) if picks else {}
+
+    def stop_for(side, s):
+        sd = sigmas.get(s["symbol"])
+        return (s["open"] * (1 - sd) if side == "long" else s["open"] * (1 + sd)) if sd else None
     rows = [(today, s["symbol"], side, rank, s["prev"], s["open"], round(100 * s["signal"], 3),
              round(100 * (s["signal"] - mean), 3), s["live"] or None,
-             snap.time().replace(microsecond=0) if s["live"] else None) for side, rank, s in picks]
+             snap.time().replace(microsecond=0) if s["live"] else None,
+             sigmas.get(s["symbol"]), stop_for(side, s)) for side, rank, s in picks]
     with connect() as conn, conn.cursor() as cursor:
         if rows:
             execute_values(cursor, "INSERT INTO xsmr_paper (day, symbol, side, rank, prev_close, entry, signal_pct, dev_pct, "
-                                   "entry_live, live_at) VALUES %s ON CONFLICT DO NOTHING", rows)
+                                   "entry_live, live_at, sigma, stop) VALUES %s ON CONFLICT DO NOTHING", rows)
         cursor.execute("INSERT INTO xsmr_paper_days (day, quoted, mean_signal_pct) VALUES (%s, %s, %s) ON CONFLICT (day) "
                        "DO UPDATE SET recorded_at = now(), quoted = EXCLUDED.quoted, mean_signal_pct = EXCLUDED.mean_signal_pct",
                        (today, len(stocks), round(100 * mean, 3) if mean is not None else None))
@@ -116,13 +151,13 @@ def finalize():
     with connect() as conn, conn.cursor() as cursor:
         _ensure_tables(cursor)
         conn.commit()
-        cursor.execute("SELECT day, symbol, side, entry, entry_live FROM xsmr_paper WHERE status = 'open' ORDER BY day")
+        cursor.execute("SELECT day, symbol, side, entry, entry_live, stop FROM xsmr_paper WHERE status = 'open' ORDER BY day")
         pending = [r for r in cursor.fetchall() if r[0] < now.date() or now.time() >= gapwatch.EXIT_AT]
     if not pending:
         return 0
     kite = kite_auth.trading_client()
     closed = 0
-    for day, symbol, side, entry, entry_live in pending:
+    for day, symbol, side, entry, entry_live, stop in pending:
         token = gapwatch._token(kite, symbol)
         if token is None:
             continue
@@ -139,17 +174,32 @@ def finalize():
         sign = 1 if side == "long" else -1
         ret = sign * (exit_px / entry - 1)
         ret_live = sign * (exit_px / entry_live - 1) if entry_live else None
+        # 1σ stop version: the first 15m candle from 09:15 to the exit candle that trades through the stop.
+        stopped, exit_stop = False, exit_px
+        if stop:
+            for b in bars:
+                if b["date"].time() < clock(9, 15) or b["date"].time() > exit_bar["date"].time():
+                    continue
+                if (side == "long" and b["low"] <= stop) or (side == "short" and b["high"] >= stop):
+                    stopped, exit_stop = True, float(stop)
+                    break
+        ret_stop = sign * (exit_stop / entry - 1)
+        ret_stop_live = sign * (exit_stop / entry_live - 1) if entry_live else None
         with connect() as conn, conn.cursor() as cursor:
             cursor.execute("UPDATE xsmr_paper SET exit = %s, exit_reason = %s, ret = %s, ret_live = %s, status = 'closed', "
+                           "exit_stop = %s, stopped = %s, ret_stop = %s, ret_stop_live = %s, "
                            "closed_at = now() WHERE day = %s AND symbol = %s",
-                           (round(exit_px, 2), reason, ret, ret_live, day, symbol))
+                           (round(exit_px, 2), reason, ret, ret_live, round(exit_stop, 2), stopped, ret_stop, ret_stop_live,
+                            day, symbol))
             conn.commit()
         closed += 1
     return closed
 
 
-def paper(slippage=0.0002):
-    """Today's book (live returns while open), the daily log and a summary next to the backtest."""
+def paper(slippage=0.0002, stop=False):
+    """Today's book (live returns while open), the daily log and a summary next to the backtest.
+    stop=True: the 1σ stop version of the same positions (closed: its stored exit; open: the live
+    price, or the stop price if the price is already past it)."""
     now = gapwatch._now()
     cost = 2 * xsmr.cost_per_side(slippage)  # in at the open, out at 15:15: the book trades twice a day
     lots = stored_lot_sizes()
@@ -159,6 +209,11 @@ def paper(slippage=0.0002):
         cursor.execute("SELECT * FROM xsmr_paper ORDER BY day DESC, side, rank")
         cols = [c.name for c in cursor.description]
         rows = [dict(zip(cols, r)) for r in cursor.fetchall()]
+        if stop:
+            for r in rows:
+                if r["status"] == "closed":
+                    r["exit"], r["ret"], r["ret_live"] = r["exit_stop"], r["ret_stop"], r["ret_stop_live"]
+                    r["exit_reason"] = "stop" if r["stopped"] else r["exit_reason"]
         cursor.execute("SELECT day, recorded_at, quoted, mean_signal_pct FROM xsmr_paper_days ORDER BY day DESC")
         days = cursor.fetchall()
     today = now.date()
@@ -173,8 +228,12 @@ def paper(slippage=0.0002):
                 if q:
                     sign = 1 if r["side"] == "long" else -1
                     r["ltp"] = float(q["last_price"])
-                    r["ret"] = sign * (r["ltp"] / r["entry"] - 1)
-                    r["ret_live"] = sign * (r["ltp"] / r["entry_live"] - 1) if r["entry_live"] else None
+                    px_now = r["ltp"]
+                    if stop and r.get("stop") and ((r["side"] == "long" and px_now <= r["stop"]) or
+                                                   (r["side"] == "short" and px_now >= r["stop"])):
+                        px_now, r["exit_reason"] = r["stop"], "stop (live)"
+                    r["ret"] = sign * (px_now / r["entry"] - 1)
+                    r["ret_live"] = sign * (px_now / r["entry_live"] - 1) if r["entry_live"] else None
         except Exception as error:
             print("Cross-sectional LTP failed:", error)
 
@@ -184,6 +243,9 @@ def paper(slippage=0.0002):
         r["lot_value"] = round(r["lot_size"] * r["entry"]) if r["lot_size"] else None
         for k in ("ret", "ret_live"):
             r[f"{k}_pct"] = round(100 * r.pop(k), 3) if r.get(k) is not None else None
+        for k in ("ret_stop", "ret_stop_live", "exit_stop", "sigma"):
+            r.pop(k, None)
+        r["stop"] = round(r["stop"], 2) if r.get("stop") else None
         r["live_at"] = r["live_at"].strftime("%H:%M:%S") if r.get("live_at") else None
         for k in ("recorded_at", "closed_at"):
             r[k] = r[k].astimezone(IST).strftime("%Y-%m-%d %H:%M") if r[k] else None
@@ -212,7 +274,7 @@ def paper(slippage=0.0002):
 
     backtest_ref = None
     try:
-        f = xsmr._load(BACKTEST_VARIANT, "fno", slippage)
+        f = xsmr._load(BACKTEST_VARIANT_STOP if stop else BACKTEST_VARIANT, "fno", slippage)
         if not f.empty:
             recent = f[f["day"].dt.year == f["day"].iloc[-1].year]
             backtest_ref = {"all_bps": round(10000 * float(f["net_ret"].mean()), 1),
@@ -228,7 +290,7 @@ def paper(slippage=0.0002):
         "today_recorded": bool(days and days[0][0] == today), "ltp_at": ltp_at,
         "positions": rows, "log": log, "cost_pct": round(100 * cost, 3),
         "summary": {"open": summary("net_pct"), "live": summary("net_live_pct")}, "backtest": backtest_ref,
-        "per_side": PER_SIDE, "weight": WEIGHT,
+        "per_side": PER_SIDE, "weight": WEIGHT, "stop": stop,
     }
 
 

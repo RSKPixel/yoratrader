@@ -32,13 +32,13 @@ function Card({ title, right, children }) {
   );
 }
 
-function Positions({ rows, money, perStock }) {
+function Positions({ rows, money, perStock, stop }) {
   return (
     <div className="overflow-x-auto">
       <table className="w-full min-w-[980px] text-xs">
         <thead className="text-left uppercase tracking-[0.1em] text-[#6f6a62]">
           <tr>
-            {["Side", "Stock", "Prev close", "Open (entry)", "Gap", "vs average", "Live fill", "Now / exit", "Return", "@ live fill", "Lot", "Lots for " + formatRs(perStock)].map((h) => (
+            {["Side", "Stock", "Prev close", "Open (entry)", "Gap", "vs average", "Live fill", ...(stop ? ["1σ stop"] : []), "Now / exit", "Return", "@ live fill", "Lot", "Lots for " + formatRs(perStock)].map((h) => (
               <th key={h} className="px-2 py-1.5 font-medium">
                 {h}
               </th>
@@ -59,8 +59,10 @@ function Positions({ rows, money, perStock }) {
               <td className="px-2 py-1.5 text-[#c8c3b8]" title={r.live_at ? `last price at ${r.live_at}` : "no snapshot by 09:15:30"}>
                 {px(r.entry_live)}
               </td>
-              <td className="px-2 py-1.5 text-[#c8c3b8]">
+              {stop && <td className="px-2 py-1.5 text-[#f0b4b4]">{px(r.stop)}</td>}
+              <td className={`px-2 py-1.5 ${stop && r.exit_reason?.startsWith("stop") ? "text-[#f0b4b4]" : "text-[#c8c3b8]"}`}>
                 {r.status === "closed" ? px(r.exit) : px(r.ltp)}
+                {stop && r.exit_reason?.startsWith("stop") && <span className="ml-1">· {r.exit_reason}</span>}
                 {r.status === "open" && r.ltp != null && <span className="ml-1 text-[#6f6a62]">live</span>}
               </td>
               <td className={`px-2 py-1.5 ${cls(r.ret_pct)}`}>{money(r.ret_pct)}</td>
@@ -77,7 +79,7 @@ function Positions({ rows, money, perStock }) {
   );
 }
 
-function Log({ log, positions, fmtBook, money, perStock }) {
+function Log({ log, positions, fmtBook, money, perStock, stop }) {
   const [open, setOpen] = useState(null);
   if (!log.length) return <p className="py-6 text-center text-sm text-[#9b968c]">No days recorded yet. The first one is recorded at 09:15:01 on the next trading day.</p>;
   return (
@@ -113,7 +115,7 @@ function Log({ log, positions, fmtBook, money, perStock }) {
             open === d.day && (
               <tr key={`${d.day}-positions`}>
                 <td colSpan={7} className="bg-[#14161a] px-2 py-2">
-                  <Positions rows={positions.filter((p) => p.day === d.day)} money={money} perStock={perStock} />
+                  <Positions rows={positions.filter((p) => p.day === d.day)} money={money} perStock={perStock} stop={stop} />
                 </td>
               </tr>
             ),
@@ -245,13 +247,14 @@ export default function XsmrPaperPage() {
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [slippage, setSlippage] = useState(0.02);
+  const [stop, setStop] = useState("none");
   const [unit, setUnit] = useState("rs");
   const [capital, setCapital] = useState(1000000);
   const [showInfo, setShowInfo] = useState(false);
 
   const load = useCallback(() => {
     setLoading(true);
-    fetch(`/api/xsmr/paper?slippage=${slippage}`)
+    fetch(`/api/xsmr/paper?slippage=${slippage}&stop=${stop === "1sd"}`)
       .then((r) => r.json())
       .then((payload) => {
         if (payload.status !== "success") {
@@ -263,7 +266,7 @@ export default function XsmrPaperPage() {
       })
       .catch(() => setError("Could not reach the API"))
       .finally(() => setLoading(false));
-  }, [slippage]);
+  }, [slippage, stop]);
 
   useEffect(() => {
     load();
@@ -344,6 +347,13 @@ export default function XsmrPaperPage() {
       </header>
 
       <div className="mb-4 flex flex-wrap items-center gap-3">
+        <div
+          className="flex items-center gap-2"
+          title="Both versions are tracked on the same positions. None is the book (exit at 15:15). 1σ: Buy on gap's stop, one standard deviation of the stock's last 90 daily returns from the open; if a 15m candle up to 15:15 trades through it, out at the stop price. While the day is open, a price already past the stop shows as stopped (the candles are checked after 15:15)."
+        >
+          <span className="text-xs uppercase tracking-[0.14em] text-[#6f6a62]">Stop</span>
+          <Segmented options={[["none", "None (book)"], ["1sd", "1σ"]]} value={stop} onChange={setStop} />
+        </div>
         <div className="flex items-center gap-2" title="Slippage per side, as a percent of price, on top of charges">
           <span className="text-xs uppercase tracking-[0.14em] text-[#6f6a62]">Slippage</span>
           <Segmented options={SLIPPAGE} value={slippage} onChange={setSlippage} />
@@ -388,7 +398,7 @@ export default function XsmrPaperPage() {
             }
           >
             {todayRows.length ? (
-              <Positions rows={todayRows} money={money} perStock={perStock} />
+              <Positions rows={todayRows} money={money} perStock={perStock} stop={stop === "1sd"} />
             ) : (
               <p className="py-6 text-center text-sm text-[#9b968c]">
                 {todayLog
@@ -403,7 +413,7 @@ export default function XsmrPaperPage() {
           </Card>
 
           <Card title="Paper log" right={`net after ${data.cost_pct}% costs a day · click a day for its positions`}>
-            <Log log={data.log} positions={data.positions} fmtBook={fmtBook} money={money} perStock={perStock} />
+            <Log log={data.log} positions={data.positions} fmtBook={fmtBook} money={money} perStock={perStock} stop={stop === "1sd"} />
           </Card>
 
           <PreopenTest slippage={slippage} fmtBook={fmtBook} />

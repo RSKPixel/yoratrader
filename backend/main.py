@@ -705,10 +705,10 @@ def gap_record():
 
 
 @app.get("/api/xsmr/paper")
-def xsmr_paper(slippage: float = Query(0.02, ge=0, le=1)):
+def xsmr_paper(slippage: float = Query(0.02, ge=0, le=1), stop: bool = Query(False)):
     """Cross-sectional mean reversion paper trading: today's book, the daily log, the backtest reference."""
     try:
-        return {"status": "success", **xsmrwatch.paper(slippage / 100)}
+        return {"status": "success", **xsmrwatch.paper(slippage / 100, stop=stop)}
     except Exception as error:
         print("Cross-sectional paper failed:", error)
         return {"status": "error", "message": str(error)}
