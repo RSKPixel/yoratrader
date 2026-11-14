@@ -682,7 +682,7 @@ export default function PortfolioBacktestPage({ model = "xsmr" }) {
   const [showInfo, setShowInfo] = useState(false);
   const [unit, setUnit] = useState("rs");
   const [capital, setCapital] = useState(1000000);
-  const lots = unit === "lots" || isQm; // quantitative momentum: one futures lot per position, in rupees
+  const lots = unit === "lots";
   // Format by what the loaded data is, so a switch never shows % numbers as rupees mid-load.
   const shownUnit = data ? (data.lotsMode ? "lots" : unit === "lots" ? "pct" : unit) : unit;
   const fmt = useMemo(() => makeFmt(shownUnit, capital), [shownUnit, capital]);
@@ -895,13 +895,11 @@ export default function PortfolioBacktestPage({ model = "xsmr" }) {
           <span className="text-xs uppercase tracking-[0.14em] text-[#6f6a62]">Slippage</span>
           <Segmented options={SLIPPAGE} value={slippage} onChange={setSlippage} />
         </div>
-        {!isQm && (
         <div className="flex items-center gap-2" title="Show results as % of capital, or in rupees for the chosen capital">
           <span className="text-xs uppercase tracking-[0.14em] text-[#6f6a62]">Show</span>
-          <Segmented options={isPairs || isLc ? UNITS : UNITS_LOTS} value={unit} onChange={setUnit} />
+          <Segmented options={isPairs || isLc || isQm ? UNITS : UNITS_LOTS} value={unit} onChange={setUnit} />
         </div>
-        )}
-        {unit === "rs" && !isQm && (
+        {unit === "rs" && (
           <div className="flex items-center gap-2" title={isPairs ? "Total capital, split equally across the year's pairs" : isQm || isLc ? "Capital, fully invested long, the same every day" : "Gross exposure: half long, half short, the same every day"}>
             <span className="text-xs uppercase tracking-[0.14em] text-[#6f6a62]">Capital</span>
             <Segmented options={CAPITALS} value={capital} onChange={setCapital} />
@@ -910,7 +908,7 @@ export default function PortfolioBacktestPage({ model = "xsmr" }) {
         {isQm && (
           <div
             className="flex items-center gap-2"
-            title="At most this many stocks, one futures lot each (today's lot sizes); a slot with no pick stays empty. The N taken are the smoothest (lowest FIP) of the top 10% (Momentum only: the strongest). All picks: the book, fully invested across ~10 stocks on the F&O list. Doesn't apply to the All stocks benchmark."
+            title="At most this many stocks, capital ÷ N each at the quarterly rebalance; a slot with no pick stays in cash. The N taken are the smoothest (lowest FIP) of the top 10% (Momentum only: the strongest). All picks: the book, fully invested across ~10 stocks on the F&O list. Doesn't apply to the All stocks benchmark."
           >
             <span className="text-xs uppercase tracking-[0.14em] text-[#6f6a62]">Max open</span>
             <input
@@ -928,7 +926,7 @@ export default function PortfolioBacktestPage({ model = "xsmr" }) {
               {qmVersion === "universe"
                 ? "n/a (benchmark)"
                 : qmOpen
-                ? `${qmOpen} lot${qmOpen === 1 ? "" : "s"} (1 per stock)`
+                ? `${qmOpen} · ${unit === "rs" ? `${formatRs(capital / qmOpen)} each` : `${(100 / qmOpen).toFixed(1)}% each`}`
                 : "All picks (book)"}
             </span>
           </div>
@@ -966,9 +964,8 @@ export default function PortfolioBacktestPage({ model = "xsmr" }) {
         <>
           {shownUnit === "lots" && data.lots && (
             <p className="mb-2 font-mono text-xs text-[#9b968c]">
-              {isQm ? "Each open position is one futures lot" : "One futures lot of every stock the book holds"}, at today's lot sizes (older years use today's lot with that
-              year's price, so they are smaller in rupees). Profit and costs are on the lots' value, including the monthly
-              roll{isQm && qmHedge === "nifty" ? "; the hedge is the Nifty lots nearest the stocks' value" : ""}. ~{data.lots.avg_positions} lots held a day. Value of the lots
+              One futures lot of every stock the book holds, at today's lot sizes (older years use today's lot with that
+              year's price, so they are smaller in rupees). ~{data.lots.avg_positions} lots held a day. Value of the lots
               held (long + short): {data.lots.recent_year} average {formatRs(data.lots.recent_notional)}, peak{" "}
               {formatRs(data.lots.max_notional)}; the margin needed is a fraction of that.
               {isMom && " The 25 overlapping slices collapse to one lot per stock, so this is not the equal-weight book."}
