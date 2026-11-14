@@ -216,6 +216,44 @@ function DayTrades({ trades, loading, model }) {
   );
 }
 
+function MonthModal({ month, settings, onClose, children }) {
+  useEffect(() => {
+    const onKey = (event) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  const title = `${MONTHS[Number(month.slice(5)) - 1]} ${month.slice(0, 4)}`;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={onClose}>
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={`Trades in ${title}`}
+        className="flex max-h-[90vh] w-full max-w-7xl flex-col overflow-hidden rounded-lg border border-[#2c313a] bg-[#12151a] shadow-2xl"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#2c313a] px-5 py-3">
+          <div>
+            <h2 className="text-lg font-semibold tracking-tight">Trades · {title}</h2>
+            <p className="mt-0.5 font-mono text-xs text-[#9b968c]">{settings}</p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            className="rounded border border-[#2c313a] px-2 py-0.5 text-sm text-[#c8c3b8] hover:bg-white/5"
+          >
+            Close
+          </button>
+        </div>
+        <div className="min-h-0 flex-1 overflow-auto p-4">{children}</div>
+      </div>
+    </div>
+  );
+}
+
 function MonthDays({ month, days, loading, fmt, onClose, variant, dataset, model }) {
   const [openDay, setOpenDay] = useState(null);
   const [trades, setTrades] = useState({ rows: [], loading: false });
@@ -230,17 +268,13 @@ function MonthDays({ month, days, loading, fmt, onClose, variant, dataset, model
       .catch(() => {});
     return () => controller.abort();
   }, [openDay, variant, dataset, model]);
-  const [y, m] = month.split("-");
   const total = days.reduce((a, d) => a + d.net_pct, 0);
   return (
-    <div className="mt-3 border-t border-[#2c313a] pt-3">
+    <div>
       <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
         <p className="text-xs uppercase tracking-[0.14em] text-[#9b968c]">
-          {MONTHS[Number(m) - 1]} {y} · {days.length} days · net {fmt.big(total, 2)} · click a day for its trades
+          {days.length} days · net {fmt.big(total, 2)} · click a day for its trades
         </p>
-        <button type="button" onClick={onClose} className="font-mono text-xs text-[#6f6a62] hover:text-[#e7e4dc]">
-          close ✕
-        </button>
       </div>
       {loading ? (
         <p className="font-mono text-xs text-[#6f6a62]">Loading…</p>
@@ -332,17 +366,13 @@ function CompareTable({ rows, variant, onSelect, fmt }) {
 }
 
 function PairMonthTrades({ month, trades, loading, fmt, onClose }) {
-  const [y, m] = month.split("-");
   const total = trades.reduce((a, t) => a + t.book_pct, 0);
   return (
-    <div className="mt-3 border-t border-[#2c313a] pt-3">
+    <div>
       <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
         <p className="text-xs uppercase tracking-[0.14em] text-[#9b968c]">
-          {MONTHS[Number(m) - 1]} {y} · {trades.length} trades closed · net {fmt.big(total, 2)} of the book
+          {trades.length} trades closed · net {fmt.big(total, 2)} of the book
         </p>
-        <button type="button" onClick={onClose} className="font-mono text-xs text-[#6f6a62] hover:text-[#e7e4dc]">
-          close ✕
-        </button>
       </div>
       <p className="mb-1 font-mono text-[0.7rem] text-[#6f6a62]">
         Long the spread = buy y, short x. "On pair" is the return on that pair's capital; "of book" is its share of the
@@ -351,7 +381,7 @@ function PairMonthTrades({ month, trades, loading, fmt, onClose }) {
       {loading ? (
         <p className="font-mono text-xs text-[#6f6a62]">Loading…</p>
       ) : (
-        <div className="max-h-[28rem] overflow-auto">
+        <div className="overflow-auto">
           <table className="w-full min-w-[760px] text-xs">
             <thead className="sticky top-0 bg-[#181b20] text-left uppercase tracking-[0.1em] text-[#6f6a62]">
               <tr>
@@ -567,6 +597,15 @@ export default function PortfolioBacktestPage({ model = "xsmr" }) {
   const capitalLabel = CAPITALS.find(([c]) => c === capital)[1];
   const Info = page.info;
   const unitSign = unit === "rs" ? "₹" : "%";
+  const variantLabel = data?.compare?.find((r) => r.variant === variant)?.label;
+  const monthSettings = [
+    page.title,
+    variantLabel,
+    !isPairs && DATASETS.find(([d]) => d === dataset)[1],
+    `${slippage}% slippage`,
+  ]
+    .filter(Boolean)
+    .join(" · ");
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-auto">
@@ -698,21 +737,6 @@ export default function PortfolioBacktestPage({ model = "xsmr" }) {
               <p className="font-mono text-xs text-[#9b968c]">Click a month to open its trades</p>
             </div>
             <MonthGrid months={data.months} years={data.years} fmt={fmt} selected={month} onSelect={setMonth} />
-            {month &&
-              (isPairs ? (
-                <PairMonthTrades month={month} trades={monthRows.rows} loading={monthRows.loading} fmt={fmt} onClose={() => setMonth(null)} />
-              ) : (
-                <MonthDays
-                  month={month}
-                  days={monthRows.rows}
-                  loading={monthRows.loading}
-                  fmt={fmt}
-                  onClose={() => setMonth(null)}
-                  variant={variant}
-                  dataset={dataset}
-                  model={model}
-                />
-              ))}
           </section>
 
           <section className="mb-4 rounded-md border border-[#2c313a] bg-[#181b20] px-4 py-3">
@@ -740,6 +764,25 @@ export default function PortfolioBacktestPage({ model = "xsmr" }) {
             <CompareTable rows={data.compare} variant={variant} onSelect={selectVariant} fmt={fmt} />
           </section>
         </>
+      )}
+
+      {month && (
+        <MonthModal month={month} settings={monthSettings} onClose={() => setMonth(null)}>
+          {isPairs ? (
+            <PairMonthTrades month={month} trades={monthRows.rows} loading={monthRows.loading} fmt={fmt} onClose={() => setMonth(null)} />
+          ) : (
+            <MonthDays
+              month={month}
+              days={monthRows.rows}
+              loading={monthRows.loading}
+              fmt={fmt}
+              onClose={() => setMonth(null)}
+              variant={variant}
+              dataset={dataset}
+              model={model}
+            />
+          )}
+        </MonthModal>
       )}
 
       {showInfo && (
