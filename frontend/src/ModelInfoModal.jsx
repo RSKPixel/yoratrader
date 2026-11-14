@@ -910,7 +910,7 @@ export function XsmomInfo() {
           <li>
             <B>Take</B>: 10% per side is the book (about 22 a side on the F&amp;O list, 5 on the Nifty 50, so 5 + 5 is the
             same as the book there). Across 25 overlapping books that is ~45 stocks held at once on the F&amp;O list.{" "}
-            <B>5 + 5</B> picks only the 5 strongest and weakest each day: ~17 stocks held at once.
+            <B>5 + 5</B> picks only the 5 strongest and weakest each day: ~17 stocks held at once; <B>1 + 1</B> only the single strongest and weakest.
           </li>
         </List>
       </Section>

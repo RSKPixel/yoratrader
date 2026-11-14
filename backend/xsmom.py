@@ -43,7 +43,7 @@ VARIANTS = {
     "next": {"label": "12-month rank, hold 25 days · trade next close", "lag": 1},
 }
 BOOK = ("book",)
-TAKES = {"all": None, "top5": 5}
+TAKES = {"all": None, "top5": 5, "top1": 1}
 
 
 def variant_id(base, take="all"):

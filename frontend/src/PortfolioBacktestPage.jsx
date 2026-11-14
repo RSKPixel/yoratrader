@@ -25,6 +25,7 @@ const XSMR_TAKES = [
   ["all", "All (book)"],
   ["top5", "5 + 5"],
   ["top3", "3 + 3"],
+  ["top1", "1 + 1"],
 ];
 const PAIR_METHODS = [
   ["bollinger", "Bollinger"],
@@ -46,6 +47,7 @@ const MOM_FILLS = [
 const MOM_TAKES = [
   ["all", "Top / bottom 10% (book)"],
   ["top5", "5 + 5"],
+  ["top1", "1 + 1"],
 ];
 const UNITS = [
   ["pct", "%"],
@@ -678,10 +680,10 @@ export default function PortfolioBacktestPage({ model = "xsmr" }) {
           className="flex items-center gap-2"
           title={
             isMom
-              ? "Top / bottom 10%: the book (about 22 stocks a side on the F&O list, 5 on the Nifty 50). 5 + 5: only the 5 strongest and 5 weakest each day."
+              ? "Top / bottom 10%: the book (about 22 stocks a side on the F&O list, 5 on the Nifty 50). 5 + 5 / 1 + 1: only the strongest and weakest each day."
               : isPairs
               ? "All: every selected pair (the book). Top 10 / 5: only the pairs with the strongest cointegration test, fixed before the year."
-              : "All: every stock with linear weights (the book). 5 + 5 / 3 + 3: only the stocks furthest from the average move per side, equal rupees each."
+              : "All: every stock with linear weights (the book). 5 + 5 / 3 + 3 / 1 + 1: only the stocks furthest from the average move per side, equal rupees each."
           }
         >
           <span className="text-xs uppercase tracking-[0.14em] text-[#6f6a62]">Take</span>

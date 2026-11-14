@@ -34,10 +34,10 @@ VARIANTS = {
 }
 BOOK = ("intraday-0915", "daily")
 # How many stocks the book holds. "all" is the book: linear weights on every priced stock (~190
-# F&O stocks a day, one futures lot each: not tradable on a small account). "top5"/"top3": only
+# F&O stocks a day, one futures lot each: not tradable on a small account). "top5"/"top3"/"top1": only
 # the N stocks per side furthest from the cross-section mean, equal rupees each, so the book is
 # 2N positions. Stored as "<variant>-<take>"; "all" keeps the plain variant id.
-TAKES = {"all": None, "top5": 5, "top3": 3}
+TAKES = {"all": None, "top5": 5, "top3": 3, "top1": 1}
 
 
 def variant_id(base, take="all"):
