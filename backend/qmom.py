@@ -19,6 +19,10 @@ Versions:
 - "monthly": the book's selection, rebalanced at every month end: what the quarterly timing does.
 - "universe": every rankable stock, equal weight, same quarterly rebalance: the benchmark the book
   measures against (the market the stocks come from).
+- "<version>-hedged": the same book plus a short in Nifty futures equal to the long book's value
+  (1:1 in rupees, no beta estimate), so it earns only what the stocks make over the Nifty. One-lot
+  mode: short the whole number of Nifty lots nearest the book's value, re-sized at each rebalance
+  (at least one). Returns stay on the long capital; the hedge's margin is extra.
 
 Weights drift with prices between rebalances (buy and hold); turnover at a rebalance is the trade
 from the drifted weights to the new ones. Returns are on capital (weights sum to 1), not
@@ -50,7 +54,11 @@ VARIANTS = {
     "monthly": {"label": "Momentum + FIP · monthly"},
     "universe": {"label": "All stocks, equal weight · quarterly (benchmark)"},
 }
-BOOK = ("book",)
+BASES = dict(VARIANTS)
+for _base, _meta in list(BASES.items()):
+    VARIANTS[f"{_base}-hedged"] = {"label": f"{_meta['label']} · hedged, short Nifty"}
+BOOK = ("book", "book-hedged")
+HEDGE_INDEX, HEDGE_LOT_KEY = "NIFTY 50", ("NSE", "NIFTY")
 TAKES = {"all": None}
 
 
@@ -62,6 +70,10 @@ def parse_variant(variant):
     if variant not in VARIANTS:
         raise ValueError(f"unknown variant {variant}")
     return variant, "all"
+
+
+def _base(variant):
+    return variant.removesuffix("-hedged")
 
 
 def _signals(c):
@@ -127,11 +139,57 @@ def _book(c, base):
             "picks": picks, "rebal": rebal}
 
 
+def _nifty(index):
+    with connect() as conn, conn.cursor() as cursor:
+        cursor.execute("SELECT day, close FROM bt_daily WHERE symbol = %s AND close > 0 ORDER BY day", (HEDGE_INDEX,))
+        rows = cursor.fetchall()
+    n = pd.Series({pd.Timestamp(d): float(v) for d, v in rows}).reindex(index).ffill()
+    return n, (n / n.shift(1) - 1).fillna(0.0)
+
+
+def _hedged(c, b, out_rows, lot_rows, nifty, nifty_r, hedge_lot):
+    """The book's rows with a 1:1 short Nifty hedge added (see the module note)."""
+    w = b["w"]
+    size = w.sum(axis=1)  # long book's share of capital after each close (1, or 0 when empty)
+    held_size = size.shift(1).fillna(0.0)
+    rows = []
+    for d, g, t, lg, sh, n in out_rows:
+        ts = pd.Timestamp(d)
+        hedge = -float(held_size[ts]) * float(nifty_r[ts])
+        rows.append((d, g + hedge, t + abs(float(size[ts]) - float(held_size[ts])), lg, hedge, n))
+    # One lot mode: Nifty lots nearest the value of the long lots, set at each rebalance close.
+    lot = xsmr.lot_series(c.columns)
+    cols = [s for s in c.columns if pd.notna(lot.get(s))]
+    value = (np.sign(w[cols]) * lot[cols] * c[cols]).sum(axis=1)  # long lots' value after each close
+    target = pd.Series(np.nan, index=c.index)
+    for day in b["rebal"]:
+        if value[day] > 0 and pd.notna(nifty[day]):
+            target[day] = max(1, round(value[day] / (hedge_lot * nifty[day])))
+        else:
+            target[day] = 0
+    target = target.ffill().fillna(0.0).where(value > 0, 0.0)
+    held = target.shift(1).fillna(0.0)
+    lrows = []
+    for d, g, t, lg, sh, notional, pos in lot_rows:
+        ts = pd.Timestamp(d)
+        i = c.index.get_loc(ts)
+        prev = nifty.iloc[i - 1] if i else np.nan
+        pnl = -held[ts] * hedge_lot * (nifty[ts] - prev) if held[ts] and pd.notna(prev) else 0.0
+        traded = abs(target[ts] - held[ts]) * hedge_lot * nifty[ts] if pd.notna(nifty[ts]) else 0.0
+        lrows.append((d, float(g + pnl), float(t + traded), float(lg), float(pnl),
+                      float(notional + (held[ts] * hedge_lot * prev if held[ts] and pd.notna(prev) else 0.0)),
+                      int(pos + int(held[ts] > 0))))
+    return rows, lrows
+
+
 def run(dataset):
     c = xsmom._closes(dataset)
     out, lots_out = {}, {}
     lot = xsmr.lot_series(c.columns)
-    for base in VARIANTS:
+    nifty, nifty_r = _nifty(c.index)
+    from db import stored_lot_sizes
+    hedge_lot = stored_lot_sizes()[HEDGE_LOT_KEY]
+    for base in BASES:
         b = _book(c, base)
         w = b["w"]
         held = w.shift(1).fillna(0.0)  # weights carried into each day's close
@@ -144,6 +202,7 @@ def run(dataset):
         days = c.index[c.index >= first]
         out[base] = [(d.date(), float(gross[d]), float(turnover[d]), float(gross[d]), 0.0, int(stocks[d])) for d in days]
         lots_out[base] = xsmom._lot_rows(c, b, lot, days)
+        out[f"{base}-hedged"], lots_out[f"{base}-hedged"] = _hedged(c, b, out[base], lots_out[base], nifty, nifty_r, hedge_lot)
     return out, lots_out
 
 
@@ -185,7 +244,8 @@ def month_days(variant, dataset, month, slippage=0.0002, lots=False):
 
 def day_trades(variant, dataset, day):
     """Every stock held into one day's close: weight, momentum and FIP at the last rebalance, the day's move."""
-    base, _ = parse_variant(variant)
+    parse_variant(variant)
+    base = _base(variant)
     c = xsmom._closes(dataset)
     c = c[(c.index >= pd.Timestamp(day) - timedelta(days=900)) & (c.index <= pd.Timestamp(day))]
     ts = pd.Timestamp(day)

@@ -54,6 +54,10 @@ const QM_VERSIONS = [
   ["monthly", "Monthly"],
   ["universe", "All stocks (benchmark)"],
 ];
+const QM_HEDGES = [
+  ["none", "None (book)"],
+  ["nifty", "Short Nifty"],
+];
 const MOM_TAKES = [
   ["all", "Top / bottom 10% (book)"],
   ["top5", "5 + 5"],
@@ -571,6 +575,7 @@ export default function PortfolioBacktestPage({ model = "xsmr" }) {
   const isQm = model === "qmom";
   const [momFill, setMomFill] = useState("book");
   const [qmVersion, setQmVersion] = useState("book");
+  const [qmHedge, setQmHedge] = useState("none");
   const [version, setVersion] = useState("intraday");
   const [entry, setEntry] = useState("0915");
   const [stop, setStop] = useState("none");
@@ -590,7 +595,7 @@ export default function PortfolioBacktestPage({ model = "xsmr" }) {
   const shownUnit = data ? (data.lotsMode ? "lots" : unit === "lots" ? "pct" : unit) : unit;
   const fmt = useMemo(() => makeFmt(shownUnit, capital), [shownUnit, capital]);
 
-  const base = isQm ? qmVersion : isMom ? momFill : isPairs ? `${method}${fill === "next" ? "-next" : ""}` : version === "daily" ? "daily" : `intraday-${entry}${entry === "0915" && stop === "1sd" ? "-1sd" : ""}`;
+  const base = isQm ? `${qmVersion}${qmHedge === "nifty" ? "-hedged" : ""}` : isMom ? momFill : isPairs ? `${method}${fill === "next" ? "-next" : ""}` : version === "daily" ? "daily" : `intraday-${entry}${entry === "0915" && stop === "1sd" ? "-1sd" : ""}`;
   const variant = take === "all" ? base : `${base}-${take}`;
   const [month, setMonth] = useState(null);
   const [monthRows, setMonthRows] = useState({ rows: [], loading: false });
@@ -628,7 +633,10 @@ export default function PortfolioBacktestPage({ model = "xsmr" }) {
 
   const selectVariant = (v) => {
     const b = take === "all" ? v : v.slice(0, -(take.length + 1));
-    if (isQm) setQmVersion(b);
+    if (isQm) {
+      setQmVersion(b.replace(/-hedged$/, ""));
+      setQmHedge(b.endsWith("-hedged") ? "nifty" : "none");
+    }
     else if (isMom) setMomFill(b);
     else if (isPairs) {
       setMethod(b.split("-")[0]);
@@ -685,6 +693,7 @@ export default function PortfolioBacktestPage({ model = "xsmr" }) {
             </div>
           </>
         ) : isQm ? (
+          <>
           <div
             className="flex items-center gap-2"
             title="Book: top 10% by 12-to-1-month return, then the smoother half by FIP, rebalanced at the end of Feb/May/Aug/Nov. Momentum only drops the FIP filter; Monthly rebalances every month; All stocks is the equal-weight benchmark."
@@ -692,6 +701,14 @@ export default function PortfolioBacktestPage({ model = "xsmr" }) {
             <span className="text-xs uppercase tracking-[0.14em] text-[#6f6a62]">Version</span>
             <Segmented options={QM_VERSIONS} value={qmVersion} onChange={setQmVersion} />
           </div>
+          <div
+            className="flex items-center gap-2"
+            title="None is the book (long only). Short Nifty adds a Nifty futures short equal to the long book's value (1:1 in rupees), so the result is what the stocks earn over the Nifty. Returns stay on the long capital."
+          >
+            <span className="text-xs uppercase tracking-[0.14em] text-[#6f6a62]">Hedge</span>
+            <Segmented options={QM_HEDGES} value={qmHedge} onChange={setQmHedge} />
+          </div>
+          </>
         ) : isMom ? (
           <div className="flex items-center gap-2" title="The book trades at the close the ranking is computed from; next close is the fill check.">
             <span className="text-xs uppercase tracking-[0.14em] text-[#6f6a62]">Fill</span>

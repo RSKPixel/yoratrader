@@ -1003,6 +1003,23 @@ export function QmomInfo() {
         </List>
       </Section>
 
+      <Section title="Hedge (not in the book)">
+        <List>
+          <li>
+            <B>Short Nifty</B> adds a Nifty futures short equal to the long book's value (1 : 1 in rupees, no beta
+            estimate), so the result is only what the picks earn over the Nifty. Returns stay on the long capital; the
+            short needs its own margin.
+          </li>
+          <li>
+            In one-lot mode it shorts the whole number of Nifty lots nearest the book's value at each rebalance, at least one.
+          </li>
+          <li>
+            The hedge does not stop momentum crashes. In 2008 the picks fell harder than the Nifty, and a hedge sized
+            from their past beta didn't fix that either (tested: still about −44% that year).
+          </li>
+        </List>
+      </Section>
+
       <Section title="Returns and costs">
         <List>
           <li>Results are % of capital, fully invested long, summed day by day, not compounded. Annual = mean daily × 248.</li>
