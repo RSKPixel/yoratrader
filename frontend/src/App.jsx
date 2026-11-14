@@ -31,10 +31,10 @@ const NAV_ITEMS = {
     { id: "kbdtfib", label: "Key Break + Fib" },
   ],
   signals: [{ id: "kbdt-signals", label: "KBDT · Index futures" }],
+  paper: [{ id: "gap-signals", label: "Buy on gap" }],
   backtest: [{ id: "bt-kbdt", label: "Key Breakout Dow Theory" }],
   // Models from Ernest Chan's "Algorithmic Trading: Winning Strategies and Their Rationale".
   chan: [
-    { id: "gap-signals", label: "Buy on gap · Paper trading" },
     { id: "bt-gap", label: "Buy on gap · Backtest" },
     { id: "bt-gapmom", label: "Opening gap momentum · Backtest" },
     { id: "chan-xsmr", label: "Cross-sectional mean reversion · Backtest" },
@@ -610,6 +610,24 @@ export default function App() {
             </p>
             <div className="flex flex-col gap-0.5 pl-1">
               {NAV_ITEMS.signals.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  className={navItemClass(activePage === item.id)}
+                  aria-current={activePage === item.id ? "page" : undefined}
+                  onClick={() => setActivePage(item.id)}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <p className="px-3 pb-1 text-[0.65rem] font-medium uppercase tracking-[0.14em] text-[#6f6a62]">
+              Paper trading
+            </p>
+            <div className="flex flex-col gap-0.5 pl-1">
+              {NAV_ITEMS.paper.map((item) => (
                 <button
                   key={item.id}
                   type="button"
