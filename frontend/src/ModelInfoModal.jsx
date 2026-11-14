@@ -1096,12 +1096,13 @@ export function ConnorsInfo() {
         </List>
       </Section>
 
-      <Section title="Repeat buys and stop (not in the book)">
+      <Section title="Positions and stop (not in the book)">
         <List>
           <li>
-            <B>Repeat buys · Allowed</B> (the default): a stock picked again while held is bought again, as another slice
-            (another lot in one-lot mode). <B>1 open per stock</B>: while a stock is held its new signals are skipped, and
-            the day's place goes to the next most oversold stock, so every trade is one lot from buy to sell.
+            <B>Positions · Many</B> (the book): each day's picks share a fifth of capital, and a stock picked again
+            while held is bought again. <B>One trade at a time</B>: while a stock is held nothing else is bought; when
+            it's sold (on time or at the stop), the next trade is the most oversold qualifying stock from that 15:15 on,
+            with all the capital, or one lot. The take doesn't apply. It's far more concentrated, so expect much bigger swings.
           </li>
           <li>
             <B>Stop 1σ / 2σ</B>: 1 or 2 standard deviations of the stock's last 90 daily returns below the buy price (1σ

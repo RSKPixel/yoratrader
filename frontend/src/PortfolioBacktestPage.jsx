@@ -64,9 +64,9 @@ const LC_HOLDS = [
   ["5d", "5 days (book)"],
   ["2d", "2 days"],
 ];
-const LC_REPEATS = [
-  ["", "Allowed (book)"],
-  ["-one", "1 open per stock"],
+const LC_POSITIONS = [
+  ["", "Many (book)"],
+  ["-single", "One trade at a time"],
 ];
 const LC_STOPS = [
   ["", "None (book)"],
@@ -685,7 +685,7 @@ export default function PortfolioBacktestPage({ model = "xsmr" }) {
   const fmt = useMemo(() => makeFmt(shownUnit, capital), [shownUnit, capital]);
 
   const base = isLc ? `${lcSetup}-${lcHold}${lcRepeat}${lcStop}` : isQm ? `${qmVersion}${qmHedge === "nifty" ? "-hedged" : ""}` : isMom ? momFill : isPairs ? `${method}${fill === "next" ? "-next" : ""}` : version === "daily" ? "daily" : `intraday-${entry}${entry === "0915" && stop === "1sd" ? "-1sd" : ""}`;
-  const variant = take === "all" ? base : `${base}-${take}`;
+  const variant = take === "all" || (isLc && lcRepeat === "-single") ? base : `${base}-${take}`;
   const [month, setMonth] = useState(null);
   const [monthRows, setMonthRows] = useState({ rows: [], loading: false });
 
@@ -721,11 +721,11 @@ export default function PortfolioBacktestPage({ model = "xsmr" }) {
   }, [model, variant, dataset, slippage, lots]);
 
   const selectVariant = (v) => {
-    const b = take === "all" ? v : v.slice(0, -(take.length + 1));
+    const b = take === "all" || !v.endsWith(`-${take}`) ? v : v.slice(0, -(take.length + 1));
     if (isLc) {
       setLcSetup(b.split("-")[0]);
       setLcHold(b.split("-")[1]);
-      setLcRepeat(b.includes("-one") ? "-one" : "");
+      setLcRepeat(b.includes("-single") ? "-single" : "");
       setLcStop(b.endsWith("-1sd") ? "-1sd" : b.endsWith("-2sd") ? "-2sd" : "");
     } else if (isQm) {
       setQmVersion(b.replace(/-hedged$/, ""));
@@ -801,10 +801,10 @@ export default function PortfolioBacktestPage({ model = "xsmr" }) {
             </div>
             <div
               className="flex items-center gap-2"
-              title="Allowed: a stock picked again while held is bought again (another slice; in one-lot mode, another lot). 1 open per stock: a held stock's new signals are skipped and the place goes to the next most oversold stock."
+              title="Many: each day's picks share a fifth of capital, so up to 5 days of picks are open together (the book). One trade at a time: while a stock is held nothing else is bought; when it's sold, the next trade is the most oversold qualifying stock from that 15:15 on, with all the capital (one lot)."
             >
-              <span className="text-xs uppercase tracking-[0.14em] text-[#6f6a62]">Repeat buys</span>
-              <Segmented options={LC_REPEATS} value={lcRepeat} onChange={setLcRepeat} />
+              <span className="text-xs uppercase tracking-[0.14em] text-[#6f6a62]">Positions</span>
+              <Segmented options={LC_POSITIONS} value={lcRepeat} onChange={setLcRepeat} />
             </div>
             <div
               className="flex items-center gap-2"
@@ -862,7 +862,7 @@ export default function PortfolioBacktestPage({ model = "xsmr" }) {
             )}
           </>
         )}
-        {!isQm && (
+        {!isQm && !(isLc && lcRepeat === "-single") && (
         <div
           className="flex items-center gap-2"
           title={

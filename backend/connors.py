@@ -45,19 +45,20 @@ MAX_MOVE = xsmr.MAX_MOVE
 SETUPS = {"rsi2": "2-day RSI below 10 (book)", "low10": "New 10-day low", "down3": "3 down days",
           "every": "Any stock above the 200-day average (no RSI threshold)"}
 HOLDS = {5: "hold 5 days (book)", 2: "hold 2 days"}
-# "-one": one open position per stock. While a stock is held, new signals for it are skipped and the
-# day's place goes to the next most oversold stock, so every trade is one lot from buy to sell.
-# Without it (the default) a stock picked again while held adds a slice (in one-lot mode the
-# overlapping buys merge into one lot held to the last sell date).
+# "-single": one trade at a time for the whole book. While a stock is held nothing else is bought;
+# once it is sold (at 15:15, on time or at the stop), the next trade is the most oversold
+# qualifying stock from that 15:15 on, with all the capital (one lot in one-lot mode). The take
+# doesn't apply. Without it (the book) every day's picks share a fifth of capital and a stock picked
+# again while held is bought again (another slice; another lot in one-lot mode).
 # Stop (not in the book; Connors argues stops hurt mean reversion): "-1sd" / "-2sd" puts it 1 / 2
 # standard deviations of the stock's last 90 daily returns below the buy price (1σ is Buy on gap's
 # stop). Checked on the daily low for the days in between (out at the open if the stock gaps
 # through it) and on the 15m lows up to 15:15 on the sell day; out at the stop price.
 STOPS = {"": None, "-1sd": 1.0, "-2sd": 2.0}
-VARIANTS = {f"{s}-{h}d{o}{st}": {"label": f"{SETUPS[s]} · {HOLDS[h]}{' · 1 open per stock' if o else ''}"
+VARIANTS = {f"{s}-{h}d{o}{st}": {"label": f"{SETUPS[s]} · {HOLDS[h]}{' · one trade at a time' if o else ''}"
                                           f"{f' · {k:g}σ stop' if k else ''}",
-                                 "setup": s, "hold": h, "one": bool(o), "stop": k}
-            for s in SETUPS for h in HOLDS for o in ("", "-one") for st, k in STOPS.items()}
+                                 "setup": s, "hold": h, "single": bool(o), "stop": k}
+            for s in SETUPS for h in HOLDS for o in ("", "-single") for st, k in STOPS.items()}
 BOOK = ("rsi2-5d",)
 TAKES = {"all": None, "top5": 5, "top3": 3}
 
@@ -135,7 +136,7 @@ def _simulate(d, variant, lot=None):
     sizes) and the trades."""
     base, take = parse_variant(variant)
     meta = VARIANTS[base]
-    hold, top, k = meta["hold"], TAKES[take], meta["stop"]
+    hold, top, k = meta["hold"], (1 if meta["single"] else TAKES[take]), meta["stop"]
     idx, cols = d["px"].index, d["px"].columns
     hit = ((d["setups"][meta["setup"]] & d["eligible"]).fillna(False)
            & (d["rankable"] >= MIN_STOCKS).to_numpy()[:, None]).to_numpy()
@@ -145,7 +146,6 @@ def _simulate(d, variant, lot=None):
     n = len(idx)
     gross, turn, held = np.zeros(n), np.zeros(n), np.zeros(n, dtype=int)
     g_rs, t_rs, not_rs, held_lots = np.zeros(n), np.zeros(n), np.zeros(n), np.zeros(n, dtype=int)
-    free_from = np.zeros(len(cols), dtype=int)
     open_trades, trades = [], []
     for i in range(n):
         still = []
@@ -181,15 +181,14 @@ def _simulate(d, variant, lot=None):
                     t_rs[i] += tr["lot"] * now
                 tr.update(sell_i=i, sell=now, reason=reason)
                 trades.append(tr)
-                free_from[s_] = i  # can be bought again from this 15:15
             else:
                 still.append(tr)
         open_trades = still
-        cand = np.flatnonzero(hit[i] & (free_from <= i)) if meta["one"] else np.flatnonzero(hit[i])
+        cand = np.flatnonzero(hit[i]) if not (meta["single"] and open_trades) else np.array([], dtype=int)
         if top and len(cand) > top:
             cand = cand[np.argsort(rsi[i, cand], kind="stable")[:top]]
         if len(cand):
-            w = 1.0 / (hold * len(cand))
+            w = 1.0 if meta["single"] else 1.0 / (hold * len(cand))
             for s_ in cand:
                 buy = float(px[i, s_])
                 stop = buy * (1 - k * sd[i, s_]) if k and pd.notna(sd[i, s_]) else None
@@ -201,8 +200,6 @@ def _simulate(d, variant, lot=None):
                 turn[i] += w
                 t_rs[i] += size * buy
                 open_trades.append(tr)
-                if meta["one"]:
-                    free_from[s_] = n + 10**6
     trades += [dict(tr, sell=None, reason="open") for tr in open_trades]
     rows = [(idx[i].date(), float(gross[i]), float(turn[i]), float(gross[i]), 0.0, int(held[i])) for i in range(n)]
     lot_rows = [(idx[i].date(), float(g_rs[i]), float(t_rs[i]), float(g_rs[i]), 0.0, float(not_rs[i]), int(held_lots[i]))
@@ -214,7 +211,7 @@ def run(dataset):
     d = _data(dataset)
     out, lots_out = {}, {}
     lot = xsmr.lot_series(d["px"].columns)
-    for variant in (variant_id(v, t) for v in VARIANTS for t in TAKES):
+    for variant in (variant_id(v, t) for v in VARIANTS for t in TAKES if not (VARIANTS[v]["single"] and t != "all")):
         rows, lot_rows, _ = _simulate(d, variant, lot)
         first = next((i for i, r in enumerate(rows) if r[2] > 0), len(rows))
         out[variant], lots_out[variant] = rows[first:], lot_rows[first:]
@@ -247,9 +244,11 @@ def results(variant, dataset, slippage=0.0002, lots=False):
 def compare(dataset, slippage=0.0002, take="all", lots=False, variant=None):
     """Every setup and hold, with the repeat-buy rule and stop of `variant` (the page's selection)."""
     rows = []
-    want = VARIANTS[parse_variant(variant)[0]] if variant else {"one": False, "stop": None}
+    want = VARIANTS[parse_variant(variant)[0]] if variant else {"single": False, "stop": None}
+    if want["single"]:
+        take = "all"  # one trade at a time: the take doesn't apply
     for base, meta in VARIANTS.items():
-        if meta["one"] != want["one"] or meta["stop"] != want["stop"]:
+        if meta["single"] != want["single"] or meta["stop"] != want["stop"]:
             continue
         f = xsmr._load(variant_id(base, take), dataset, slippage, model=MODEL, lots=lots)
         if not f.empty:
