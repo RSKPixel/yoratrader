@@ -616,17 +616,17 @@ def _portfolio_check(model, variant, dataset):
 
 @app.get("/api/backtest/portfolio")
 def backtest_portfolio(model: str = Query("xsmr"), variant: str = Query("intraday-0915"), dataset: str = Query("fno"),
-                       slippage: float = Query(0.02, ge=0, le=1)):
+                       slippage: float = Query(0.02, ge=0, le=1), lots: bool = Query(False)):
     """Portfolio-return backtests (cross-sectional mean reversion, pairs): one variant, plus all to compare."""
     module, take = _portfolio_check(model, variant, dataset)
     try:
         if model == "pairs":
             return {"status": "success", **pairs.results(variant, slippage / 100), "compare": pairs.compare(slippage / 100, take)}
         if model == "xsmom":
-            return {"status": "success", **xsmom.results(variant, dataset, slippage / 100),
-                    "compare": xsmom.compare(dataset, slippage / 100, take)}
-        return {"status": "success", **xsmr.results(variant, dataset, slippage / 100),
-                "compare": xsmr.compare(dataset, slippage / 100, take)}
+            return {"status": "success", **xsmom.results(variant, dataset, slippage / 100, lots=lots),
+                    "compare": xsmom.compare(dataset, slippage / 100, take, lots=lots)}
+        return {"status": "success", **xsmr.results(variant, dataset, slippage / 100, lots=lots),
+                "compare": xsmr.compare(dataset, slippage / 100, take, lots=lots)}
     except Exception as error:
         print("Portfolio backtest failed:", error)
         return {"status": "error", "message": str(error)}
@@ -635,15 +635,15 @@ def backtest_portfolio(model: str = Query("xsmr"), variant: str = Query("intrada
 @app.get("/api/backtest/portfolio/month")
 def backtest_portfolio_month(month: str = Query(..., pattern=r"^\d{4}-\d{2}$"), model: str = Query("xsmr"),
                              variant: str = Query("intraday-0915"), dataset: str = Query("fno"),
-                             slippage: float = Query(0.02, ge=0, le=1)):
+                             slippage: float = Query(0.02, ge=0, le=1), lots: bool = Query(False)):
     """What one month cell adds up: the days (cross-sectional) or the trades closed (pairs)."""
     _portfolio_check(model, variant, dataset)
     try:
         if model == "pairs":
             return {"status": "success", "trades": pairs.month_trades(variant, month, slippage / 100)}
         if model == "xsmom":
-            return {"status": "success", "days": xsmom.month_days(variant, dataset, month, slippage / 100)}
-        return {"status": "success", "days": xsmr.month_days(variant, dataset, month, slippage / 100)}
+            return {"status": "success", "days": xsmom.month_days(variant, dataset, month, slippage / 100, lots=lots)}
+        return {"status": "success", "days": xsmr.month_days(variant, dataset, month, slippage / 100, lots=lots)}
     except Exception as error:
         print("Portfolio month failed:", error)
         return {"status": "error", "message": str(error)}

@@ -51,6 +51,8 @@ const UNITS = [
   ["pct", "%"],
   ["rs", "₹"],
 ];
+// Cross-sectional books can also be shown as one futures lot per stock (today's lot sizes).
+const UNITS_LOTS = [...UNITS, ["lots", "1 lot / stock"]];
 // Gross exposure (long + short) the rupee figures are scaled to.
 const CAPITALS = [
   [500000, "₹5L"],
@@ -72,6 +74,15 @@ function compactRs(value) {
 
 // A % of gross exposure shown as % or as rupees at the chosen capital.
 function makeFmt(unit, capital) {
+  // "lots": the API sends rupees in the "_pct" fields (rupees / 100 stored, x100 in the stats), so
+  // values are shown as they are.
+  if (unit === "lots")
+    return {
+      big: (v) => (v == null ? "—" : formatRs(v)),
+      cell: (v) => compactRs(v),
+      bps: (bps) => formatRs(bps / 100),
+      axis: (v) => `₹${(v / 100000).toFixed(1)}L`,
+    };
   const rs = (pct) => (pct * capital) / 100;
   return {
     big: (pct, digits = 1) => (pct == null ? "—" : unit === "rs" ? formatRs(rs(pct)) : fmtPct(pct, digits)),
@@ -187,7 +198,7 @@ function DayTrades({ trades, loading, model }) {
       <table className="w-full text-xs">
         <thead className="sticky top-0 bg-[#181b20] text-left uppercase tracking-[0.1em] text-[#6f6a62]">
           <tr>
-            {["Stock", "Side", "Weight", "Signal", "Entry", "Exit", "Move", "Contribution"].map((h) => (
+            {["Stock", "Side", "Weight", "Signal", "Entry", "Exit", "Move", "Contribution", "Lot", "1 lot ₹"].map((h) => (
               <th key={h} className="px-2 py-1 font-medium">
                 {h}
               </th>
@@ -208,6 +219,8 @@ function DayTrades({ trades, loading, model }) {
                 {t.contribution_bps > 0 ? "+" : ""}
                 {t.contribution_bps.toFixed(2)} bps
               </td>
+              <td className="px-2 py-1 text-[#9b968c]">{t.lot_size ?? "—"}</td>
+              <td className={`px-2 py-1 ${pctClass(t.pnl_rs)}`}>{t.pnl_rs == null ? "—" : formatRs(t.pnl_rs)}</td>
             </tr>
           ))}
         </tbody>
@@ -542,7 +555,10 @@ export default function PortfolioBacktestPage({ model = "xsmr" }) {
   const [showInfo, setShowInfo] = useState(false);
   const [unit, setUnit] = useState("rs");
   const [capital, setCapital] = useState(1000000);
-  const fmt = useMemo(() => makeFmt(unit, capital), [unit, capital]);
+  const lots = unit === "lots";
+  // Format by what the loaded data is, so a switch never shows % numbers as rupees mid-load.
+  const shownUnit = data ? (data.lotsMode ? "lots" : unit === "lots" ? "pct" : unit) : unit;
+  const fmt = useMemo(() => makeFmt(shownUnit, capital), [shownUnit, capital]);
 
   const base = isMom ? momFill : isPairs ? `${method}${fill === "next" ? "-next" : ""}` : version === "daily" ? "daily" : `intraday-${entry}`;
   const variant = take === "all" ? base : `${base}-${take}`;
@@ -553,7 +569,7 @@ export default function PortfolioBacktestPage({ model = "xsmr" }) {
     if (!month) return undefined;
     const controller = new AbortController();
     setMonthRows({ rows: [], loading: true });
-    fetch(`/api/backtest/portfolio/month?model=${model}&month=${month}&variant=${variant}&dataset=${dataset}&slippage=${slippage}`, {
+    fetch(`/api/backtest/portfolio/month?model=${model}&month=${month}&variant=${variant}&dataset=${dataset}&slippage=${slippage}&lots=${lots}`, {
       signal: controller.signal,
     })
       .then((r) => r.json())
@@ -562,11 +578,11 @@ export default function PortfolioBacktestPage({ model = "xsmr" }) {
       )
       .catch(() => {});
     return () => controller.abort();
-  }, [model, month, variant, dataset, slippage]);
+  }, [model, month, variant, dataset, slippage, lots]);
 
   useEffect(() => {
     setLoading(true);
-    fetch(`/api/backtest/portfolio?model=${model}&variant=${variant}&dataset=${dataset}&slippage=${slippage}`)
+    fetch(`/api/backtest/portfolio?model=${model}&variant=${variant}&dataset=${dataset}&slippage=${slippage}&lots=${lots}`)
       .then((r) => r.json())
       .then((payload) => {
         if (payload.status !== "success") {
@@ -574,11 +590,11 @@ export default function PortfolioBacktestPage({ model = "xsmr" }) {
           return;
         }
         setError("");
-        setData(payload);
+        setData({ ...payload, lotsMode: lots });
       })
       .catch(() => setError("Could not reach the API"))
       .finally(() => setLoading(false));
-  }, [model, variant, dataset, slippage]);
+  }, [model, variant, dataset, slippage, lots]);
 
   const selectVariant = (v) => {
     const b = take === "all" ? v : v.slice(0, -(take.length + 1));
@@ -596,7 +612,7 @@ export default function PortfolioBacktestPage({ model = "xsmr" }) {
   const s = data?.summary;
   const capitalLabel = CAPITALS.find(([c]) => c === capital)[1];
   const Info = page.info;
-  const unitSign = unit === "rs" ? "₹" : "%";
+  const unitSign = shownUnit === "pct" ? "%" : "₹";
   const variantLabel = data?.compare?.find((r) => r.variant === variant)?.label;
   const monthSettings = [
     page.title,
@@ -680,7 +696,7 @@ export default function PortfolioBacktestPage({ model = "xsmr" }) {
         </div>
         <div className="flex items-center gap-2" title="Show results as % of capital, or in rupees for the chosen capital">
           <span className="text-xs uppercase tracking-[0.14em] text-[#6f6a62]">Show</span>
-          <Segmented options={UNITS} value={unit} onChange={setUnit} />
+          <Segmented options={isPairs ? UNITS : UNITS_LOTS} value={unit} onChange={setUnit} />
         </div>
         {unit === "rs" && (
           <div className="flex items-center gap-2" title={isPairs ? "Total capital, split equally across the year's pairs" : "Gross exposure: half long, half short, the same every day"}>
@@ -698,7 +714,16 @@ export default function PortfolioBacktestPage({ model = "xsmr" }) {
 
       {s && (
         <>
-          {unit === "rs" && (
+          {shownUnit === "lots" && data.lots && (
+            <p className="mb-2 font-mono text-xs text-[#9b968c]">
+              One futures lot of every stock the book holds, at today's lot sizes (older years use today's lot with that
+              year's price, so they are smaller in rupees). ~{data.lots.avg_positions} lots held a day. Value of the lots
+              held (long + short): {data.lots.recent_year} average {formatRs(data.lots.recent_notional)}, peak{" "}
+              {formatRs(data.lots.max_notional)}; the margin needed is a fraction of that.
+              {isMom && " The 25 overlapping slices collapse to one lot per stock, so this is not the equal-weight book."}
+            </p>
+          )}
+          {shownUnit === "rs" && (
             <p className="mb-2 font-mono text-xs text-[#9b968c]">
               {isPairs
                 ? `${capitalLabel} capital split equally across the year's pairs (${data.take_n ? `${data.take_n}` : "all selected"}), ~${s.avg_stocks} open on an average day.`
@@ -732,7 +757,7 @@ export default function PortfolioBacktestPage({ model = "xsmr" }) {
           <section className="mb-4 rounded-md border border-[#2c313a] bg-[#181b20] px-4 py-3">
             <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
               <p className="text-xs uppercase tracking-[0.14em] text-[#6f6a62]">
-                {unit === "rs" ? `Net ₹ by month (${capitalLabel})` : "Net % by month"}
+                {shownUnit === "lots" ? "Net ₹ by month (1 lot / stock)" : shownUnit === "rs" ? `Net ₹ by month (${capitalLabel})` : "Net % by month"}
               </p>
               <p className="font-mono text-xs text-[#9b968c]">Click a month to open its trades</p>
             </div>
@@ -742,7 +767,7 @@ export default function PortfolioBacktestPage({ model = "xsmr" }) {
           <section className="mb-4 rounded-md border border-[#2c313a] bg-[#181b20] px-4 py-3">
             <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
               <p className="text-xs uppercase tracking-[0.14em] text-[#6f6a62]">
-                {unit === "rs" ? "Cumulative ₹ (fixed size, weekly)" : "Cumulative % (fixed size, weekly)"}
+                {shownUnit === "lots" ? "Cumulative ₹ (1 lot / stock, weekly)" : shownUnit === "rs" ? "Cumulative ₹ (fixed size, weekly)" : "Cumulative % (fixed size, weekly)"}
               </p>
               <p className="font-mono text-xs text-[#9b968c]">
                 <span className="text-[#e2c08a]">—</span> net · <span className="text-[#6f6a62]">—</span> gross (before costs)

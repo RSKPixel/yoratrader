@@ -93,9 +93,26 @@ def _book(c, variant):
     return {"mom": mom, "w": w, "r": r.where(~bad, 0.0).fillna(0.0)}
 
 
+def _lot_rows(c, b, lot, days):
+    """One lot of every stock the book holds (side = sign of its weight), today's lot sizes, in rupees.
+    The 25 overlapping slices collapse to one lot per stock: a stock held by any slice is one lot."""
+    cols = [s for s in c.columns if pd.notna(lot.get(s))]
+    lot = lot[cols]
+    target = np.sign(b["w"][cols]) * lot          # lots after each close
+    held = target.shift(1).fillna(0.0)           # lots carried into each day
+    prev_close = c[cols].shift(1)
+    move = (held * prev_close * b["r"][cols]).fillna(0.0)  # a >20% day earns nothing, as in the % series
+    traded = ((target - held).abs() * c[cols]).fillna(0.0)
+    notional = (held.abs() * prev_close).fillna(0.0)
+    return [(d.date(), float(move.loc[d].sum()), float(traded.loc[d].sum()), float(move.loc[d][held.loc[d] > 0].sum()),
+             float(move.loc[d][held.loc[d] < 0].sum()), float(notional.loc[d].sum()), int((held.loc[d] != 0).sum()))
+            for d in days]
+
+
 def run(dataset):
     c = _closes(dataset)
-    out = {}
+    out, lots_out = {}, {}
+    lot = xsmr.lot_series(c.columns)
     for base in VARIANTS:
         for take in TAKES:
             variant = variant_id(base, take)
@@ -111,7 +128,8 @@ def run(dataset):
             rows = [(d.date(), float(gross[d]), float(turnover[d]), float(longs[d]), float(shorts[d]), int(stocks[d]))
                     for d in c.index[c.index >= first]]
             out[variant] = rows
-    return out
+            lots_out[variant] = _lot_rows(c, b, lot, c.index[c.index >= first])
+    return out, lots_out
 
 
 def run_all(datasets=DATASETS):
@@ -120,7 +138,7 @@ def run_all(datasets=DATASETS):
         conn.commit()
     counts = {}
     for dataset in datasets:
-        result = run(dataset)
+        result, lots = run(dataset)
         with connect() as conn, conn.cursor() as cursor:
             cursor.execute("DELETE FROM bt_portfolio WHERE model = %s AND dataset = %s", (MODEL, dataset))
             for variant, rows in result.items():
@@ -128,26 +146,27 @@ def run_all(datasets=DATASETS):
                                        "long_ret, short_ret, stocks) VALUES %s",
                                [(MODEL, variant, dataset, *r) for r in rows], page_size=5000)
                 counts[(dataset, variant)] = len(rows)
+            xsmr.store_lots(cursor, MODEL, dataset, lots)
             conn.commit()
     return counts
 
 
-def results(variant, dataset, slippage=0.0002):
-    return xsmr.results(variant, dataset, slippage, model=MODEL)
+def results(variant, dataset, slippage=0.0002, lots=False):
+    return xsmr.results(variant, dataset, slippage, model=MODEL, lots=lots)
 
 
-def compare(dataset, slippage=0.0002, take="all"):
+def compare(dataset, slippage=0.0002, take="all", lots=False):
     rows = []
     for base, meta in VARIANTS.items():
         variant = variant_id(base, take)
-        f = xsmr._load(variant, dataset, slippage, model=MODEL)
+        f = xsmr._load(variant, dataset, slippage, model=MODEL, lots=lots)
         if not f.empty:
             rows.append({"variant": variant, "label": meta["label"], "book": base in BOOK, **xsmr._stats(f)})
     return rows
 
 
-def month_days(variant, dataset, month, slippage=0.0002):
-    return xsmr.month_days(variant, dataset, month, slippage, model=MODEL)
+def month_days(variant, dataset, month, slippage=0.0002, lots=False):
+    return xsmr.month_days(variant, dataset, month, slippage, model=MODEL, lots=lots)
 
 
 def day_trades(variant, dataset, day):
@@ -160,7 +179,7 @@ def day_trades(variant, dataset, day):
         return []
     prev = c.index[c.index.get_loc(ts) - 1]
     held = b["w"].loc[prev]
-    rows = []
+    rows, lot = [], xsmr.lot_series(c.columns)
     for symbol, w in held.items():
         if w == 0:
             continue
@@ -170,5 +189,8 @@ def day_trades(variant, dataset, day):
                      "signal_pct": round(100 * float(m), 1) if pd.notna(m) else None,
                      "entry": round(float(c.at[prev, symbol]), 2) if pd.notna(c.at[prev, symbol]) else None,
                      "exit": round(float(c.at[ts, symbol]), 2) if pd.notna(c.at[ts, symbol]) else None,
-                     "move_pct": round(100 * move, 2), "contribution_bps": round(10000 * w * move, 2)})
+                     "move_pct": round(100 * move, 2), "contribution_bps": round(10000 * w * move, 2),
+                     "lot_size": int(lot[symbol]) if pd.notna(lot.get(symbol)) else None,
+                     "pnl_rs": round((1 if w > 0 else -1) * lot[symbol] * move * float(c.at[prev, symbol]))
+                     if pd.notna(lot.get(symbol)) and pd.notna(c.at[prev, symbol]) else None})
     return sorted(rows, key=lambda x: -x["contribution_bps"])

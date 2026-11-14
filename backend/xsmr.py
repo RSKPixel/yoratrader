@@ -23,7 +23,7 @@ import pandas as pd
 from psycopg2.extras import execute_values
 
 import backtest
-from db import connect
+from db import connect, stored_lot_sizes
 
 VARIANTS = {
     "intraday-0915": {"label": "Intraday · enter 09:15 (book)", "entry": "09:15"},
@@ -66,6 +66,20 @@ MAX_MOVE = 0.20
 
 
 def _ensure_table(cursor):
+    # "One lot per stock" mode: the same positions held as one futures lot each (today's lot sizes),
+    # in rupees. Not a rescaling of bt_portfolio: real lots make the weights unequal.
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS bt_portfolio_lots (
+            model TEXT NOT NULL, variant TEXT NOT NULL, dataset TEXT NOT NULL, day DATE NOT NULL,
+            gross_rs DOUBLE PRECISION NOT NULL, turnover_rs DOUBLE PRECISION NOT NULL,
+            long_rs DOUBLE PRECISION, short_rs DOUBLE PRECISION,
+            notional_rs DOUBLE PRECISION,  -- value of the lots held (gross, long + short)
+            positions INTEGER,
+            PRIMARY KEY (model, variant, dataset, day)
+        );
+        """
+    )
     cursor.execute(
         """
         CREATE TABLE IF NOT EXISTS bt_portfolio (
@@ -77,6 +91,33 @@ def _ensure_table(cursor):
         );
         """
     )
+
+
+def lot_series(columns):
+    """Today's futures lot size per symbol (NaN where there is none)."""
+    lots = stored_lot_sizes()
+    return pd.Series({c: lots.get(("NSE", c), np.nan) for c in columns}, dtype=float)
+
+
+def lot_rows(side, entry, exit_, lot, carried, days=None):
+    """One lot per position. side: -1/0/+1 per day and stock, held from entry to exit_ that day.
+    carried=False: in at entry and out at exit_ every day (intraday). carried=True: positions carry
+    over, so only changes trade (at the entry price). Returns rows (day, gross, turnover, long, short,
+    notional, positions) in rupees."""
+    side = side.loc[:, lot.notna()].fillna(0.0)
+    lot = lot[side.columns]
+    qty = side * lot
+    entry, exit_ = entry[side.columns], exit_[side.columns]
+    move = (qty * (exit_ - entry)).where(qty != 0, 0.0).fillna(0.0)
+    notional = (qty.abs() * entry).where(qty != 0, 0.0).fillna(0.0)
+    if carried:
+        traded = ((qty - qty.shift(1).fillna(0.0)).abs() * entry).fillna(0.0)
+    else:
+        traded = 2 * notional
+    days = side.index if days is None else days
+    return [(d.date(), float(move.loc[d].sum()), float(traded.loc[d].sum()), float(move.loc[d][qty.loc[d] > 0].sum()),
+             float(move.loc[d][qty.loc[d] < 0].sum()), float(notional.loc[d].sum()), int((qty.loc[d] != 0).sum()))
+            for d in days]
 
 
 def _prices(dataset, start=None, end=None):
@@ -168,9 +209,13 @@ def _book(p, variant):
 
 def run(dataset):
     p = _prices(dataset)
-    out = {}
+    out, lots_out = {}, {}
+    lot = lot_series(p["open915"].columns)
     for variant in (variant_id(v, t) for v in VARIANTS for t in TAKES):
         b = _book(p, variant)
+        kept = b["n"].index[b["n"] >= MIN_STOCKS]
+        lots_out[variant] = lot_rows(np.sign(b["w"]).loc[kept], b["entry"].loc[kept], b["exit"].loc[kept], lot,
+                                     carried=variant.startswith("daily"))
         rows, prev = [], None
         for day in b["w"].index:
             if b["n"][day] < MIN_STOCKS:
@@ -185,7 +230,7 @@ def run(dataset):
             rows.append((day.date(), float((wd * rd).sum()), traded,
                          float((wd.clip(lower=0) * rd).sum()), float((wd.clip(upper=0) * rd).sum()), int(b["n"][day])))
         out[variant] = rows
-    return out
+    return out, lots_out
 
 
 def day_trades(variant, dataset, day):
@@ -196,15 +241,18 @@ def day_trades(variant, dataset, day):
     ts = pd.Timestamp(day)
     if ts not in b["w"].index or b["n"][ts] < MIN_STOCKS:
         return []
-    rows = []
+    rows, lot = [], lot_series(b["w"].columns)
     for symbol, w in b["w"].loc[ts].items():
         if w == 0:
             continue
         r = float(b["pos"].at[ts, symbol])
+        size = lot.get(symbol)
+        pnl = (1 if w > 0 else -1) * size * (float(b["exit"].at[ts, symbol]) - float(b["entry"].at[ts, symbol])) if pd.notna(size) else None
         rows.append({"symbol": symbol, "side": "long" if w > 0 else "short", "weight_pct": round(100 * abs(w), 3),
                      "signal_pct": round(100 * float(b["sig"].at[ts, symbol]), 2),
                      "entry": round(float(b["entry"].at[ts, symbol]), 2), "exit": round(float(b["exit"].at[ts, symbol]), 2),
-                     "move_pct": round(100 * r, 2), "contribution_bps": round(10000 * w * r, 2)})
+                     "move_pct": round(100 * r, 2), "contribution_bps": round(10000 * w * r, 2),
+                     "lot_size": int(size) if pd.notna(size) else None, "pnl_rs": round(pnl) if pnl is not None else None})
     return sorted(rows, key=lambda x: -x["contribution_bps"])
 
 
@@ -214,7 +262,7 @@ def run_all(datasets=DATASETS):
         conn.commit()
     counts = {}
     for dataset in datasets:
-        result = run(dataset)
+        result, lots = run(dataset)
         with connect() as conn, conn.cursor() as cursor:
             cursor.execute("DELETE FROM bt_portfolio WHERE model = 'xsmr' AND dataset = %s", (dataset,))
             for variant, rows in result.items():
@@ -222,8 +270,17 @@ def run_all(datasets=DATASETS):
                                        "long_ret, short_ret, stocks) VALUES %s",
                                [("xsmr", variant, dataset, *r) for r in rows], page_size=5000)
                 counts[(dataset, variant)] = len(rows)
+            store_lots(cursor, "xsmr", dataset, lots)
             conn.commit()
     return counts
+
+
+def store_lots(cursor, model, dataset, lots):
+    cursor.execute("DELETE FROM bt_portfolio_lots WHERE model = %s AND dataset = %s", (model, dataset))
+    for variant, rows in lots.items():
+        execute_values(cursor, "INSERT INTO bt_portfolio_lots (model, variant, dataset, day, gross_rs, turnover_rs, "
+                               "long_rs, short_rs, notional_rs, positions) VALUES %s",
+                       [(model, variant, dataset, *r) for r in rows], page_size=5000)
 
 
 def cost_per_side(slippage=0.0002, notional=None):
@@ -236,11 +293,19 @@ def cost_per_side(slippage=0.0002, notional=None):
     return fees + (backtest.STT_SELL + backtest.STAMP_BUY) / 2 + slippage
 
 
-def _load(variant, dataset, slippage, model="xsmr"):
+def _load(variant, dataset, slippage, model="xsmr", lots=False):
+    """Daily results. lots=True: the one-lot-per-stock series, in rupees / 100, so every "_pct"
+    figure downstream reads directly as rupees (and "_bps" as paise)."""
     with connect() as conn:
-        f = pd.read_sql("SELECT day, gross_ret, turnover, long_ret, short_ret, stocks FROM bt_portfolio "
-                        "WHERE model = %s AND variant = %s AND dataset = %s ORDER BY day",
-                        conn, params=[model, variant, dataset])
+        if lots:
+            f = pd.read_sql("SELECT day, gross_rs / 100 AS gross_ret, turnover_rs / 100 AS turnover, long_rs / 100 AS long_ret, "
+                            "short_rs / 100 AS short_ret, positions AS stocks, notional_rs FROM bt_portfolio_lots "
+                            "WHERE model = %s AND variant = %s AND dataset = %s ORDER BY day",
+                            conn, params=[model, variant, dataset])
+        else:
+            f = pd.read_sql("SELECT day, gross_ret, turnover, long_ret, short_ret, stocks FROM bt_portfolio "
+                            "WHERE model = %s AND variant = %s AND dataset = %s ORDER BY day",
+                            conn, params=[model, variant, dataset])
     if f.empty:
         return f
     f["cost"] = f["turnover"] * cost_per_side(slippage)
@@ -284,9 +349,9 @@ def summary(variant, dataset, slippage=0.0002):
     return (_stats(f) if not f.empty else None), f
 
 
-def results(variant, dataset, slippage=0.0002, model="xsmr"):
+def results(variant, dataset, slippage=0.0002, model="xsmr", lots=False):
     """Everything the backtest page shows for one variant (of any model stored in bt_portfolio)."""
-    f = _load(variant, dataset, slippage, model)
+    f = _load(variant, dataset, slippage, model, lots)
     if f.empty:
         return {"summary": None, "years": [], "months": [], "equity": []}
     f["year"], f["month"] = f["day"].dt.year, f["day"].dt.strftime("%Y-%m")
@@ -301,23 +366,30 @@ def results(variant, dataset, slippage=0.0002, model="xsmr"):
     weekly = f.set_index("day")[["gross_ret", "net_ret"]].resample("W-FRI").sum().cumsum()
     equity = [{"date": d.date().isoformat(), "gross": round(float(100 * g), 2), "net": round(float(100 * n), 2)}
               for d, g, n in zip(weekly.index, weekly["gross_ret"], weekly["net_ret"])]
-    return {"summary": _stats(f), "years": group("year"), "months": group("month"), "equity": equity,
-            "cost_per_side_bps": round(10000 * cost_per_side(slippage), 2)}
+    out = {"summary": _stats(f), "years": group("year"), "months": group("month"), "equity": equity,
+           "cost_per_side_bps": round(10000 * cost_per_side(slippage), 2)}
+    if lots:
+        held = f.loc[f["stocks"] > 0, "notional_rs"]
+        recent = held[f.loc[held.index, "day"].dt.year == f["day"].iloc[-1].year]
+        out["lots"] = {"avg_notional": round(float(held.mean())), "max_notional": round(float(held.max())),
+                       "recent_notional": round(float(recent.mean())) if len(recent) else None,
+                       "recent_year": int(f["day"].iloc[-1].year), "avg_positions": round(float(f["stocks"].mean()), 1)}
+    return out
 
 
-def compare(dataset, slippage=0.0002, take="all"):
+def compare(dataset, slippage=0.0002, take="all", lots=False):
     rows = []
     for base, meta in VARIANTS.items():
         variant = variant_id(base, take)
-        f = _load(variant, dataset, slippage)
+        f = _load(variant, dataset, slippage, lots=lots)
         if not f.empty:
             rows.append({"variant": variant, "label": meta["label"], "book": base in BOOK, **_stats(f)})
     return rows
 
 
-def month_days(variant, dataset, month, slippage=0.0002, model="xsmr"):
+def month_days(variant, dataset, month, slippage=0.0002, model="xsmr", lots=False):
     """Each trading day of one month (YYYY-MM): what the month cell on the page adds up."""
-    f = _load(variant, dataset, slippage, model)
+    f = _load(variant, dataset, slippage, model, lots)
     if f.empty:
         return []
     f = f[f["day"].dt.strftime("%Y-%m") == month]
