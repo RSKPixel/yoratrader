@@ -45,6 +45,8 @@ const NAV_ITEMS = {
     { id: "chan-pairs", label: "Pairs trading · Backtest" },
     { id: "chan-xsmom", label: "Cross-sectional momentum · Backtest" },
   ],
+  // Gray & Vogel, "Quantitative Momentum" (Wiley, 2016).
+  grayVogel: [{ id: "qm-qmom", label: "Quantitative momentum · Backtest" }],
   system: [{ id: "settings", label: "Settings" }],
 };
 
@@ -683,6 +685,24 @@ export default function App() {
             </div>
           </div>
           <div>
+            <p title="Quantitative Momentum (Wiley, 2016)" className="px-3 pb-1 text-[0.65rem] font-medium uppercase tracking-[0.14em] text-[#6f6a62]">
+              Gray &amp; Vogel
+            </p>
+            <div className="flex flex-col gap-0.5 pl-1">
+              {NAV_ITEMS.grayVogel.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  className={navItemClass(activePage === item.id)}
+                  aria-current={activePage === item.id ? "page" : undefined}
+                  onClick={() => setActivePage(item.id)}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div>
             <p className="px-3 pb-1 text-[0.65rem] font-medium uppercase tracking-[0.14em] text-[#6f6a62]">
               System
             </p>
@@ -713,8 +733,8 @@ export default function App() {
         <GapSignalsPage />
       ) : activePage === "xsmr-paper" ? (
         <XsmrPaperPage />
-      ) : activePage === "chan-xsmr" || activePage === "chan-pairs" || activePage === "chan-xsmom" ? (
-        <PortfolioBacktestPage key={activePage} model={activePage.slice(5)} />
+      ) : activePage === "chan-xsmr" || activePage === "chan-pairs" || activePage === "chan-xsmom" || activePage === "qm-qmom" ? (
+        <PortfolioBacktestPage key={activePage} model={activePage.split("-")[1]} />
       ) : activePage.startsWith("bt-") ? (
         <BacktestPage key={activePage} model={activePage.slice(3)} />
       ) : activePage === "penfold" ? (

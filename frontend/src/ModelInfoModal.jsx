@@ -959,3 +959,79 @@ export function XsmomInfo() {
     </>
   );
 }
+
+export function QmomInfo() {
+  return (
+    <>
+      <Section title="The rules">
+        <p className="mb-2">
+          Quantitative Momentum (Wesley Gray &amp; Jack Vogel, Wiley 2016), long only, with the book's parameters:
+        </p>
+        <List>
+          <li>
+            <B>Universe</B>: the F&amp;O stocks, which are already the large and liquid names. The book uses US stocks
+            above the 40th size percentile.
+          </li>
+          <li>
+            <B>Momentum</B>: the return from 12 months ago to 1 month ago. The last month is skipped because short-term
+            moves tend to reverse. Keep the top 10%.
+          </li>
+          <li>
+            <B>Frog in the pan (FIP)</B>: over the same window, the share of down days minus the share of up days. A lower
+            FIP means a smoother climb, and the book argues that smooth climbs keep going because investors under-react to
+            them. Keep the smoother half of the top 10%: about 10 stocks on the F&amp;O list.
+          </li>
+          <li>
+            <B>Seasonality</B>: rebalance quarterly, at the last close of February, May, August and November (ahead of
+            quarter-end window dressing). Equal weight, held until the next rebalance; weights drift with prices in between.
+          </li>
+        </List>
+      </Section>
+
+      <Section title="Versions">
+        <List>
+          <li>
+            <B>Momentum only</B> drops the FIP filter and holds the whole top 10%. It shows what FIP adds.
+          </li>
+          <li>
+            <B>Monthly</B> uses the book's selection but rebalances every month end. It shows what the quarterly timing does.
+          </li>
+          <li>
+            <B>All stocks</B> holds every rankable stock at equal weight, rebalanced quarterly. It's the benchmark: the
+            strategy is only worth running for what it earns above this.
+          </li>
+        </List>
+      </Section>
+
+      <Section title="Returns and costs">
+        <List>
+          <li>Results are % of capital, fully invested long, summed day by day, not compounded. Annual = mean daily × 248.</li>
+          <li>
+            Being long only, it carries the full market risk: 2008 and 2020 show the drawdowns. A drawdown over 100% is
+            possible here only because returns are summed at a fixed size, not compounded.
+          </li>
+          <li>
+            Costs on every rupee traded: NSE futures charges plus the chosen slippage. The monthly futures roll is not
+            charged. Holding futures also costs the carry built into their price, roughly the interest rate, which daily
+            spot closes don't include.
+          </li>
+          <li>Click a month for its days, and a day for every stock held and its momentum and FIP at the last rebalance.</li>
+        </List>
+      </Section>
+
+      <Section title="Data">
+        <List>
+          <li>Daily closes from 2000; the first rebalance is February 2004.</li>
+          <li>
+            Data hygiene as in Cross-sectional momentum: a stock is ranked only with 253 straight closes and no daily move
+            over 20% in the window, and a day's move over 20% earns nothing.
+          </li>
+          <li>
+            <B>Survivorship</B>: today's F&amp;O list is used for every year. That flatters both the strategy and the
+            benchmark, and momentum most, since stocks that rose enough to join the list are in it from the start.
+          </li>
+        </List>
+      </Section>
+    </>
+  );
+}

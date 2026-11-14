@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createChart, LineSeries } from "lightweight-charts";
-import ModelInfoModal, { InfoButton, PairsInfo, XsmomInfo, XsmrInfo } from "./ModelInfoModal";
+import ModelInfoModal, { InfoButton, PairsInfo, QmomInfo, XsmomInfo, XsmrInfo } from "./ModelInfoModal";
 import { formatRs, Segmented, SLIPPAGE, Stat } from "./backtestShared";
 
 // Portfolio-return backtests from Chan's book: cross-sectional mean reversion (ch. 4) and pairs
@@ -47,6 +47,12 @@ const PAIR_TAKES = [
 const MOM_FILLS = [
   ["book", "Signal close (book)"],
   ["next", "Next close"],
+];
+const QM_VERSIONS = [
+  ["book", "Momentum + FIP (book)"],
+  ["generic", "Momentum only"],
+  ["monthly", "Monthly"],
+  ["universe", "All stocks (benchmark)"],
 ];
 const MOM_TAKES = [
   ["all", "Top / bottom 10% (book)"],
@@ -197,8 +203,10 @@ function DayTrades({ trades, loading, model }) {
   return (
     <div className="max-h-96 overflow-auto px-3 py-2">
       <p className="mb-1 font-mono text-[0.7rem] text-[#9b968c]">
-        {trades.length} stocks · {longs} long · {trades.length - longs} short · weight = share of gross exposure ·
-        {model === "xsmom"
+        {trades.length} stocks · {longs} long · {trades.length - longs} short · weight = share of {model === "qmom" ? "capital" : "gross exposure"} ·
+        {model === "qmom"
+          ? `signal = 12-to-1-month return at the ${trades[0]?.ranked} rebalance · FIP: lower = smoother · entry/exit = previous close/this close`
+          : model === "xsmom"
           ? "signal = 12-month return when ranked · entry/exit = previous close/this close"
           : "signal = the move the model fades"}{" "}
         {hasStop && ` · ${stopped} stopped out (exit at the stop)`} · sorted by contribution
@@ -206,7 +214,7 @@ function DayTrades({ trades, loading, model }) {
       <table className="w-full text-xs">
         <thead className="sticky top-0 bg-[#181b20] text-left uppercase tracking-[0.1em] text-[#6f6a62]">
           <tr>
-            {["Stock", "Side", "Weight", "Signal", "Entry", ...(hasStop ? ["Stop"] : []), "Exit", "Move", "Contribution", "Lot", "1 lot ₹"].map((h) => (
+            {["Stock", "Side", "Weight", "Signal", ...(model === "qmom" ? ["FIP"] : []), "Entry", ...(hasStop ? ["Stop"] : []), "Exit", "Move", "Contribution", "Lot", "1 lot ₹"].map((h) => (
               <th key={h} className="px-2 py-1 font-medium">
                 {h}
               </th>
@@ -219,7 +227,8 @@ function DayTrades({ trades, loading, model }) {
               <td className="px-2 py-1 text-[#e7e4dc]">{t.symbol}</td>
               <td className={`px-2 py-1 ${t.side === "long" ? "text-[#8fbf9f]" : "text-[#f0b4b4]"}`}>{t.side}</td>
               <td className="px-2 py-1 text-[#9b968c]">{t.weight_pct.toFixed(2)}%</td>
-              <td className={`px-2 py-1 ${pctClass(t.signal_pct)}`}>{fmtPct(t.signal_pct, model === "xsmom" ? 1 : 2)}</td>
+              <td className={`px-2 py-1 ${pctClass(t.signal_pct)}`}>{fmtPct(t.signal_pct, model === "xsmom" || model === "qmom" ? 1 : 2)}</td>
+              {model === "qmom" && <td className="px-2 py-1 text-[#9b968c]">{t.fip ?? "—"}</td>}
               <td className="px-2 py-1 text-[#c8c3b8]">{t.entry}</td>
               {hasStop && <td className="px-2 py-1 text-[#f0b4b4]">{t.stop ?? "—"}</td>}
               <td className={`px-2 py-1 ${t.stopped ? "text-[#f0b4b4]" : "text-[#c8c3b8]"}`}>
@@ -541,6 +550,12 @@ const PAGES = {
       "Market-neutral: every day, buy the stocks with the best 12-month return and short the worst, each day's picks held 25 trading days (25 overlapping books). Returns are % of gross exposure, summed at a fixed size.",
     info: XsmomInfo,
   },
+  qmom: {
+    title: "Quantitative momentum",
+    blurb:
+      "Long only (Gray & Vogel): every quarter, buy the F&O stocks with the best 12-to-1-month return whose climb was smoothest, equal weight, held three months. Returns are % of capital, summed at a fixed size.",
+    info: QmomInfo,
+  },
   pairs: {
     title: "Pairs trading",
     blurb:
@@ -553,7 +568,9 @@ export default function PortfolioBacktestPage({ model = "xsmr" }) {
   const page = PAGES[model];
   const isPairs = model === "pairs";
   const isMom = model === "xsmom";
+  const isQm = model === "qmom";
   const [momFill, setMomFill] = useState("book");
+  const [qmVersion, setQmVersion] = useState("book");
   const [version, setVersion] = useState("intraday");
   const [entry, setEntry] = useState("0915");
   const [stop, setStop] = useState("none");
@@ -573,7 +590,7 @@ export default function PortfolioBacktestPage({ model = "xsmr" }) {
   const shownUnit = data ? (data.lotsMode ? "lots" : unit === "lots" ? "pct" : unit) : unit;
   const fmt = useMemo(() => makeFmt(shownUnit, capital), [shownUnit, capital]);
 
-  const base = isMom ? momFill : isPairs ? `${method}${fill === "next" ? "-next" : ""}` : version === "daily" ? "daily" : `intraday-${entry}${entry === "0915" && stop === "1sd" ? "-1sd" : ""}`;
+  const base = isQm ? qmVersion : isMom ? momFill : isPairs ? `${method}${fill === "next" ? "-next" : ""}` : version === "daily" ? "daily" : `intraday-${entry}${entry === "0915" && stop === "1sd" ? "-1sd" : ""}`;
   const variant = take === "all" ? base : `${base}-${take}`;
   const [month, setMonth] = useState(null);
   const [monthRows, setMonthRows] = useState({ rows: [], loading: false });
@@ -611,7 +628,8 @@ export default function PortfolioBacktestPage({ model = "xsmr" }) {
 
   const selectVariant = (v) => {
     const b = take === "all" ? v : v.slice(0, -(take.length + 1));
-    if (isMom) setMomFill(b);
+    if (isQm) setQmVersion(b);
+    else if (isMom) setMomFill(b);
     else if (isPairs) {
       setMethod(b.split("-")[0]);
       setFill(b.endsWith("-next") ? "next" : "close");
@@ -666,6 +684,14 @@ export default function PortfolioBacktestPage({ model = "xsmr" }) {
               <Segmented options={PAIR_FILLS} value={fill} onChange={setFill} />
             </div>
           </>
+        ) : isQm ? (
+          <div
+            className="flex items-center gap-2"
+            title="Book: top 10% by 12-to-1-month return, then the smoother half by FIP, rebalanced at the end of Feb/May/Aug/Nov. Momentum only drops the FIP filter; Monthly rebalances every month; All stocks is the equal-weight benchmark."
+          >
+            <span className="text-xs uppercase tracking-[0.14em] text-[#6f6a62]">Version</span>
+            <Segmented options={QM_VERSIONS} value={qmVersion} onChange={setQmVersion} />
+          </div>
         ) : isMom ? (
           <div className="flex items-center gap-2" title="The book trades at the close the ranking is computed from; next close is the fill check.">
             <span className="text-xs uppercase tracking-[0.14em] text-[#6f6a62]">Fill</span>
@@ -697,6 +723,7 @@ export default function PortfolioBacktestPage({ model = "xsmr" }) {
             )}
           </>
         )}
+        {!isQm && (
         <div
           className="flex items-center gap-2"
           title={
@@ -710,6 +737,7 @@ export default function PortfolioBacktestPage({ model = "xsmr" }) {
           <span className="text-xs uppercase tracking-[0.14em] text-[#6f6a62]">Take</span>
           <Segmented options={isMom ? MOM_TAKES : isPairs ? PAIR_TAKES : XSMR_TAKES} value={take} onChange={setTake} />
         </div>
+        )}
       </div>
       <div className="mb-4 flex flex-wrap items-center gap-3">
         {!isPairs && <Segmented options={DATASETS} value={dataset} onChange={setDataset} />}
@@ -722,7 +750,7 @@ export default function PortfolioBacktestPage({ model = "xsmr" }) {
           <Segmented options={isPairs ? UNITS : UNITS_LOTS} value={unit} onChange={setUnit} />
         </div>
         {unit === "rs" && (
-          <div className="flex items-center gap-2" title={isPairs ? "Total capital, split equally across the year's pairs" : "Gross exposure: half long, half short, the same every day"}>
+          <div className="flex items-center gap-2" title={isPairs ? "Total capital, split equally across the year's pairs" : isQm ? "Capital, fully invested long, the same every day" : "Gross exposure: half long, half short, the same every day"}>
             <span className="text-xs uppercase tracking-[0.14em] text-[#6f6a62]">Capital</span>
             <Segmented options={CAPITALS} value={capital} onChange={setCapital} />
           </div>
@@ -750,6 +778,8 @@ export default function PortfolioBacktestPage({ model = "xsmr" }) {
             <p className="mb-2 font-mono text-xs text-[#9b968c]">
               {isPairs
                 ? `${capitalLabel} capital split equally across the year's pairs (${data.take_n ? `${data.take_n}` : "all selected"}), ~${s.avg_stocks} open on an average day.`
+                : isQm
+                ? `${capitalLabel} invested long every day, spread over ~${s.avg_stocks} stocks.`
                 : `${capitalLabel} gross exposure every day: half long, half short, spread over ~${s.avg_stocks} stocks.`}{" "}
               Rupees are the % results scaled to that size, not compounded.
             </p>
@@ -804,7 +834,7 @@ export default function PortfolioBacktestPage({ model = "xsmr" }) {
           <section className="mb-4 rounded-md border border-[#2c313a] bg-[#181b20] px-4 py-3">
             <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
               <p className="text-xs uppercase tracking-[0.14em] text-[#6f6a62]">
-                All versions · {isPairs ? PAIR_TAKES.find(([t]) => t === take)[1] : `${DATASETS.find(([d]) => d === dataset)[1]} · ${(isMom ? MOM_TAKES : XSMR_TAKES).find(([t]) => t === take)[1]}`} ·{" "}
+                All versions · {isPairs ? PAIR_TAKES.find(([t]) => t === take)[1] : isQm ? DATASETS.find(([d]) => d === dataset)[1] : `${DATASETS.find(([d]) => d === dataset)[1]} · ${(isMom ? MOM_TAKES : XSMR_TAKES).find(([t]) => t === take)[1]}`} ·{" "}
                 {slippage}% slippage
               </p>
               <p className="font-mono text-xs text-[#9b968c]">Click a row to open it</p>
