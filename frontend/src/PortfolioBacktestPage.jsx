@@ -980,9 +980,9 @@ export default function PortfolioBacktestPage({ model = "xsmr" }) {
                 : isLc
                 ? `${capitalLabel} split across the last 5 days' picks, a fifth each day (~${s.avg_stocks} positions open on an average day).`
                 : isQm && qmMax
-                ? `${capitalLabel} split into ${qmOpen} position${qmOpen === 1 ? "" : "s"} of ${formatRs(capital / qmOpen)} each at the quarterly rebalance; a slot with no pick stays in cash (~${s.avg_stocks} held on an average day).`
+                ? `${capitalLabel} split equally into ${qmOpen} position${qmOpen === 1 ? "" : "s"} of ${formatRs(capital / qmOpen)}: each stock's quantity = ${formatRs(capital / qmOpen)} ÷ its price at the quarterly rebalance (lot sizes ignored); a slot with no pick stays in cash (~${s.avg_stocks} held on an average day). Capital is the value held, not margin: in futures the margin is roughly a fifth of it.`
                 : isQm
-                ? `${capitalLabel} invested long every day, spread over ~${s.avg_stocks} stocks.`
+                ? `${capitalLabel} split equally across the ~${s.avg_stocks} stocks held: each one's quantity = its share ÷ its price (lot sizes ignored). Capital is the value held, not margin: in futures the margin is roughly a fifth of it.`
                 : `${capitalLabel} gross exposure every day: half long, half short, spread over ~${s.avg_stocks} stocks.`}{" "}
               Rupees are the % results scaled to that size, not compounded.
             </p>
