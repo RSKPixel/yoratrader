@@ -626,7 +626,7 @@ def backtest_portfolio(model: str = Query("xsmr"), variant: str = Query("intrada
         if model == "pairs":
             return {"status": "success", **pairs.results(variant, slippage / 100), "compare": pairs.compare(slippage / 100, take)}
         if model in ("xsmom", "qmom", "connors"):
-            extra = {"variant": variant} if model == "connors" else {}
+            extra = {"variant": variant} if model in ("connors", "qmom") else {}
             return {"status": "success", **module.results(variant, dataset, slippage / 100, lots=lots),
                     "compare": module.compare(dataset, slippage / 100, take, lots=lots, **extra)}
         return {"status": "success", **xsmr.results(variant, dataset, slippage / 100, lots=lots),

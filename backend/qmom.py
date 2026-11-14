@@ -32,6 +32,8 @@ straight closes and no daily move over 20% in the window to be ranked; a day's m
 nothing. Survivorship bias: today's F&O list is used for every year.
 """
 
+import threading
+import time
 from datetime import timedelta
 
 import numpy as np
@@ -58,6 +60,14 @@ BASES = dict(VARIANTS)
 for _base, _meta in list(BASES.items()):
     VARIANTS[f"{_base}-hedged"] = {"label": f"{_meta['label']} · hedged, short Nifty"}
 BOOK = ("book", "book-hedged")
+# "-max<N>" (computed on request, not stored): at most N stocks, each capital / N at the rebalance;
+# a slot with no pick stays in cash. The N taken are the book's order: the smoothest (lowest FIP) of
+# the top 10% for "book"/"monthly", the strongest momentum for "generic". The benchmark has no max.
+MAX_OPEN = tuple(range(1, 11))
+for _v, _meta in list(VARIANTS.items()):
+    if not _v.startswith("universe"):
+        for _m in MAX_OPEN:
+            VARIANTS[f"{_v}-max{_m}"] = {"label": f"{_meta['label']} · max {_m}", "max_open": _m}
 HEDGE_INDEX, HEDGE_LOT_KEY = "NIFTY 50", ("NSE", "NIFTY")
 TAKES = {"all": None}
 
@@ -72,8 +82,17 @@ def parse_variant(variant):
     return variant, "all"
 
 
+def _split(variant):
+    """'book-hedged-max5' -> ('book', True, 5)."""
+    v, cap = variant, None
+    if "-max" in v:
+        v, m = v.rsplit("-max", 1)
+        cap = int(m)
+    return v.removesuffix("-hedged"), v.endswith("-hedged"), cap
+
+
 def _base(variant):
-    return variant.removesuffix("-hedged")
+    return _split(variant)[0]
 
 
 def _signals(c):
@@ -112,31 +131,34 @@ def _picks(mom_row, fip_row, base):
     return list(fip_row[top.index].sort_values(kind="stable").index[:keep])
 
 
-def _book(c, base):
-    """Weights held after each close (drifting between rebalances) and the picks per rebalance."""
+def _book(c, base, cap=None):
+    """Weights held after each close (drifting between rebalances) and the picks per rebalance.
+    cap: at most that many stocks, capital / cap each; unfilled slots are cash (which doesn't drift)."""
     mom, fip, r = _signals(c)
     rebal = _rebalance_days(c.index, base == "monthly")
     cols = list(c.columns)
     w = np.zeros((len(c), len(cols)))
-    target = np.zeros((len(c), len(cols)))  # weights right after the rebalance trade (0 when none)
-    picks, cur = {}, np.zeros(len(cols))
+    turn = np.zeros(len(c))
+    picks, cur, cash = {}, np.zeros(len(cols)), 0.0
     rv = r.to_numpy()
     for i, day in enumerate(c.index):
         if i:  # drift with today's returns
             grown = cur * (1 + rv[i])
-            total = grown.sum()
-            cur = grown / total if total > 0 else grown
+            total = grown.sum() + cash
+            cur, cash = (grown / total, cash / total) if total > 0 else (grown, cash)
         if day in rebal:
             names = _picks(mom.loc[day], fip.loc[day], base)
+            if cap and base != "universe":
+                names = names[:cap]
             new = np.zeros(len(cols))
             if names:
-                new[[cols.index(s) for s in names]] = 1.0 / len(names)
+                new[[cols.index(s) for s in names]] = 1.0 / (cap if cap and base != "universe" else len(names))
             picks[day] = names
-            target[i] = new
-            cur = new
+            turn[i] = np.abs(new - cur).sum()
+            cur, cash = new, 1.0 - new.sum()
         w[i] = cur
     return {"w": pd.DataFrame(w, index=c.index, columns=cols), "r": r, "mom": mom, "fip": fip,
-            "picks": picks, "rebal": rebal}
+            "picks": picks, "rebal": rebal, "turn": pd.Series(turn, index=c.index)}
 
 
 def _nifty(index):
@@ -225,33 +247,91 @@ def run_all(datasets=DATASETS):
     return counts
 
 
+_cache, _lock = {}, threading.Lock()
+CACHE_SECONDS = 1800
+
+
+def _closes_cached(dataset):
+    with _lock:
+        hit = _cache.get(("closes", dataset))
+        if hit and time.time() - hit[0] < CACHE_SECONDS:
+            return hit[1]
+    c = xsmom._closes(dataset)
+    with _lock:
+        _cache[("closes", dataset)] = (time.time(), c)
+    return c
+
+
+def _max_frame(variant, dataset):
+    """Daily frame (gross, turnover, long, short, stocks) for a "-max<N>" variant, computed now."""
+    key = ("frame", dataset, variant)
+    with _lock:
+        hit = _cache.get(key)
+        if hit and time.time() - hit[0] < CACHE_SECONDS:
+            return hit[1].copy()
+    base, hedged, cap = _split(variant)
+    c = _closes_cached(dataset)
+    b = _book(c, base, cap)
+    held = b["w"].shift(1).fillna(0.0)
+    gross = (held * b["r"]).sum(axis=1)
+    f = pd.DataFrame({"day": c.index, "gross_ret": gross.to_numpy(), "turnover": b["turn"].to_numpy(),
+                      "long_ret": gross.to_numpy(), "short_ret": 0.0, "stocks": (held > 0).sum(axis=1).to_numpy()})
+    if hedged:  # short Nifty equal to the invested share, re-sized as the book's value changes
+        _, nifty_r = _nifty(c.index)
+        size = b["w"].sum(axis=1)
+        hedge = -size.shift(1).fillna(0.0) * nifty_r
+        f["gross_ret"] += hedge.to_numpy()
+        f["short_ret"] = hedge.to_numpy()
+        f["turnover"] += (size - size.shift(1).fillna(0.0)).abs().to_numpy()
+    first = b["w"].index[(b["w"].sum(axis=1) > 0).to_numpy()].min()
+    f = f[f["day"] >= first].reset_index(drop=True)
+    with _lock:
+        _cache[key] = (time.time(), f)
+    return f.copy()
+
+
+def _frame(variant, dataset, slippage):
+    if _split(variant)[2]:
+        return xsmr.with_costs(_max_frame(variant, dataset), slippage)
+    return xsmr._load(variant, dataset, slippage, model=MODEL)
+
+
 def results(variant, dataset, slippage=0.0002, lots=False):
+    if _split(variant)[2]:
+        return xsmr.results_from(_frame(variant, dataset, slippage), slippage)
     return xsmr.results(variant, dataset, slippage, model=MODEL, lots=lots)
 
 
-def compare(dataset, slippage=0.0002, take="all", lots=False):
+def compare(dataset, slippage=0.0002, take="all", lots=False, variant=None):
+    """Every version and hedge, at the max open of `variant` (the benchmark has none)."""
+    cap = _split(variant)[2] if variant else None
     rows = []
-    for base, meta in VARIANTS.items():
-        f = xsmr._load(base, dataset, slippage, model=MODEL, lots=lots)
+    for v, meta in VARIANTS.items():
+        b, hedged, m = _split(v)
+        if m != (None if b == "universe" else cap):
+            continue
+        f = _frame(v, dataset, slippage)
         if not f.empty:
-            rows.append({"variant": base, "label": meta["label"], "book": base in BOOK, **xsmr._stats(f)})
+            rows.append({"variant": v, "label": meta["label"], "book": _split(v)[0] == "book" and m == cap, **xsmr._stats(f)})
     return rows
 
 
 def month_days(variant, dataset, month, slippage=0.0002, lots=False):
+    if _split(variant)[2]:
+        return xsmr.month_days_from(_frame(variant, dataset, slippage), month)
     return xsmr.month_days(variant, dataset, month, slippage, model=MODEL, lots=lots)
 
 
 def day_trades(variant, dataset, day):
     """Every stock held into one day's close: weight, momentum and FIP at the last rebalance, the day's move."""
     parse_variant(variant)
-    base = _base(variant)
-    c = xsmom._closes(dataset)
+    base, _, cap = _split(variant)
+    c = _closes_cached(dataset)
     c = c[(c.index >= pd.Timestamp(day) - timedelta(days=900)) & (c.index <= pd.Timestamp(day))]
     ts = pd.Timestamp(day)
     if ts not in c.index or len(c.index) < 2:
         return []
-    b = _book(c, base)
+    b = _book(c, base, cap)
     prev = c.index[c.index.get_loc(ts) - 1]
     held = b["w"].loc[prev]
     past = [d for d in b["picks"] if d <= prev]

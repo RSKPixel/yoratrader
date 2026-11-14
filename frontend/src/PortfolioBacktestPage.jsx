@@ -666,6 +666,8 @@ export default function PortfolioBacktestPage({ model = "xsmr" }) {
   const [momFill, setMomFill] = useState("book");
   const [qmVersion, setQmVersion] = useState("book");
   const [qmHedge, setQmHedge] = useState("none");
+  const [qmOpen, setQmOpen] = useState(5); // max stocks held; 0 = all the book's picks
+  const qmMax = isQm && qmOpen && qmVersion !== "universe" ? `-max${qmOpen}` : "";
   const [version, setVersion] = useState("intraday");
   const [entry, setEntry] = useState("0915");
   const [stop, setStop] = useState("none");
@@ -686,7 +688,7 @@ export default function PortfolioBacktestPage({ model = "xsmr" }) {
   const fmt = useMemo(() => makeFmt(shownUnit, capital), [shownUnit, capital]);
 
   const lcMax = isLc && lcOpen ? `-max${lcOpen}` : "";
-  const base = isLc ? `${lcSetup}-${lcHold}${lcMax}${lcStop}${lcTiming}` : isQm ? `${qmVersion}${qmHedge === "nifty" ? "-hedged" : ""}` : isMom ? momFill : isPairs ? `${method}${fill === "next" ? "-next" : ""}` : version === "daily" ? "daily" : `intraday-${entry}${entry === "0915" && stop === "1sd" ? "-1sd" : ""}`;
+  const base = isLc ? `${lcSetup}-${lcHold}${lcMax}${lcStop}${lcTiming}` : isQm ? `${qmVersion}${qmHedge === "nifty" ? "-hedged" : ""}${qmMax}` : isMom ? momFill : isPairs ? `${method}${fill === "next" ? "-next" : ""}` : version === "daily" ? "daily" : `intraday-${entry}${entry === "0915" && stop === "1sd" ? "-1sd" : ""}`;
   const variant = take === "all" || lcMax ? base : `${base}-${take}`;
   const [month, setMonth] = useState(null);
   const [monthRows, setMonthRows] = useState({ rows: [], loading: false });
@@ -731,8 +733,10 @@ export default function PortfolioBacktestPage({ model = "xsmr" }) {
       setLcStop(b.includes("-1sd") ? "-1sd" : b.includes("-2sd") ? "-2sd" : "");
       setLcTiming(b.endsWith("-close") ? "-close" : "");
     } else if (isQm) {
-      setQmVersion(b.replace(/-hedged$/, ""));
-      setQmHedge(b.endsWith("-hedged") ? "nifty" : "none");
+      const plain = b.replace(/-max\d+$/, "");
+      setQmVersion(plain.replace(/-hedged$/, ""));
+      setQmHedge(plain.endsWith("-hedged") ? "nifty" : "none");
+      if (b.match(/-max(\d+)$/)) setQmOpen(Number(b.match(/-max(\d+)$/)[1]));
     }
     else if (isMom) setMomFill(b);
     else if (isPairs) {
@@ -891,12 +895,38 @@ export default function PortfolioBacktestPage({ model = "xsmr" }) {
         </div>
         <div className="flex items-center gap-2" title="Show results as % of capital, or in rupees for the chosen capital">
           <span className="text-xs uppercase tracking-[0.14em] text-[#6f6a62]">Show</span>
-          <Segmented options={isPairs || isLc ? UNITS : UNITS_LOTS} value={unit} onChange={setUnit} />
+          <Segmented options={isPairs || isLc || isQm ? UNITS : UNITS_LOTS} value={unit} onChange={setUnit} />
         </div>
         {unit === "rs" && (
           <div className="flex items-center gap-2" title={isPairs ? "Total capital, split equally across the year's pairs" : isQm || isLc ? "Capital, fully invested long, the same every day" : "Gross exposure: half long, half short, the same every day"}>
             <span className="text-xs uppercase tracking-[0.14em] text-[#6f6a62]">Capital</span>
             <Segmented options={CAPITALS} value={capital} onChange={setCapital} />
+          </div>
+        )}
+        {isQm && (
+          <div
+            className="flex items-center gap-2"
+            title="At most this many stocks, capital ÷ N each at the quarterly rebalance; a slot with no pick stays in cash. The N taken are the smoothest (lowest FIP) of the top 10% (Momentum only: the strongest). All picks: the book, fully invested across ~10 stocks on the F&O list. Doesn't apply to the All stocks benchmark."
+          >
+            <span className="text-xs uppercase tracking-[0.14em] text-[#6f6a62]">Max open</span>
+            <input
+              type="range"
+              min={0}
+              max={10}
+              step={1}
+              value={qmOpen}
+              onChange={(e) => setQmOpen(Number(e.target.value))}
+              className="w-32 accent-[#e2c08a]"
+              aria-label="Max open positions"
+              disabled={qmVersion === "universe"}
+            />
+            <span className="w-28 font-mono text-xs text-[#e7e4dc]">
+              {qmVersion === "universe"
+                ? "n/a (benchmark)"
+                : qmOpen
+                ? `${qmOpen} · ${unit === "rs" ? `${formatRs(capital / qmOpen)} each` : `${(100 / qmOpen).toFixed(1)}% each`}`
+                : "All picks (book)"}
+            </span>
           </div>
         )}
         {isLc && (
@@ -947,6 +977,8 @@ export default function PortfolioBacktestPage({ model = "xsmr" }) {
                 ? `${capitalLabel} split into ${lcMax.slice(4)} position${lcMax === "-max1" ? "" : "s"} of ${formatRs(capital / Number(lcMax.slice(4)))} each; a free slot waits in cash for the next signal (~${s.avg_stocks} open on an average day).`
                 : isLc
                 ? `${capitalLabel} split across the last 5 days' picks, a fifth each day (~${s.avg_stocks} positions open on an average day).`
+                : isQm && qmMax
+                ? `${capitalLabel} split into ${qmOpen} position${qmOpen === 1 ? "" : "s"} of ${formatRs(capital / qmOpen)} each at the quarterly rebalance; a slot with no pick stays in cash (~${s.avg_stocks} held on an average day).`
                 : isQm
                 ? `${capitalLabel} invested long every day, spread over ~${s.avg_stocks} stocks.`
                 : `${capitalLabel} gross exposure every day: half long, half short, spread over ~${s.avg_stocks} stocks.`}{" "}
