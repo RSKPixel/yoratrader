@@ -1146,7 +1146,7 @@ export function ConnorsInfo() {
             year (a 5-day hold), so slippage matters. The futures roll is not charged.
           </li>
           <li>
-            15-minute candles start in February 2015 (daily closes in 2003 for the Close version). Every book is computed on request; the first view after a restart takes ~15 s to load the prices. A stock qualifies only with 200 straight closes and no daily move over
+            15-minute candles start in February 2015 (daily closes in 2003 for the Close version). Every book is computed on request; the first view after a restart takes ~15 s to load the prices. A stock qualifies with 90% of the last 200 closes (Kite's daily history has a hole from 24 May to 22 June 2004, when most stocks are missing; days like that aren't counted) and no move over
             20% in the window; a day's move over 20% earns nothing.
           </li>
           <li>

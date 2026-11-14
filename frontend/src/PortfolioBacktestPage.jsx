@@ -660,7 +660,7 @@ export default function PortfolioBacktestPage({ model = "xsmr" }) {
   const isLc = model === "connors";
   const [lcSetup, setLcSetup] = useState("rsi2");
   const [lcHold, setLcHold] = useState("5d");
-  const [lcOpen, setLcOpen] = useState(0); // max open positions; 0 = many (the book)
+  const [lcOpen, setLcOpen] = useState(3); // max open positions; 0 = many (the book)
   const [lcTiming, setLcTiming] = useState("-close"); // the long history by default
   const [lcStop, setLcStop] = useState("");
   const [momFill, setMomFill] = useState("book");

@@ -41,6 +41,7 @@ from db import connect
 MODEL = "connors"
 DATASETS = ("fno", "stocks")
 SMA_DAYS, RSI_MAX, LOW_DAYS, DOWN_DAYS = 200, 10.0, 10, 3
+MIN_HISTORY = 0.9  # share of the last 200 closes a stock needs, not counting days most stocks are missing
 MIN_STOCKS = xsmr.MIN_STOCKS
 MAX_MOVE = xsmr.MAX_MOVE
 SETUPS = {"rsi2": "2-day RSI below 10 (book)", "low10": "New 10-day low", "down3": "3 down days",
@@ -105,8 +106,15 @@ def _data(dataset, start=None, end=None, timing="15:15"):
         count = px.notna().sum(axis=1)
         px = px[count >= 0.8 * count.rolling(21, center=True, min_periods=1).median()]
     r = c / c.shift(1) - 1
-    bad = r.abs() > MAX_MOVE
-    ok = c.rolling(SMA_DAYS).count().eq(SMA_DAYS) & ~bad.rolling(SMA_DAYS).max().fillna(1).astype(bool)
+    # Kite's daily history has holes (24 May - 22 Jun 2004: most stocks missing), so a stock needs 90%
+    # of the last 200 closes, not all of them, and the split check looks across a hole.
+    cf = c.ffill()
+    jump = (cf / cf.shift(1) - 1).abs() > MAX_MOVE
+    bad = (r.abs() > MAX_MOVE) | (jump & c.notna())
+    priced = c.notna().sum(axis=1)
+    hole = priced < 0.5 * priced.rolling(121, center=True, min_periods=20).median()  # days most stocks are missing
+    need = MIN_HISTORY * (SMA_DAYS - hole.rolling(SMA_DAYS, min_periods=1).sum())
+    ok = c.rolling(SMA_DAYS).count().ge(need, axis=0) & ~bad.rolling(SMA_DAYS).max().fillna(1).astype(bool)
     d = c.diff()
     au = d.clip(lower=0).ewm(alpha=0.5, adjust=False).mean()
     ad = (-d).clip(lower=0).ewm(alpha=0.5, adjust=False).mean()
@@ -117,7 +125,7 @@ def _data(dataset, start=None, end=None, timing="15:15"):
     prev = y(c)
     move = px / prev - 1
     qualified = y(ok).fillna(False).astype(bool) & (move.abs() <= MAX_MOVE)
-    sma = (y(c.rolling(SMA_DAYS - 1).sum()) + px) / SMA_DAYS
+    sma = (y(c.rolling(SMA_DAYS - 1, min_periods=1).sum()) + px) / (y(c.rolling(SMA_DAYS - 1, min_periods=1).count()) + 1)
     up = 0.5 * y(au) + 0.5 * (px - prev).clip(lower=0)
     dn = 0.5 * y(ad) + 0.5 * (prev - px).clip(lower=0)
     rsi = 100 - 100 / (1 + up / dn)
