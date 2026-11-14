@@ -1,28 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createChart, LineSeries } from "lightweight-charts";
-import ModelInfoModal, { ConnorsInfo, InfoButton, PairsInfo, QmomInfo, VboInfo, XsmomInfo, XsmrInfo } from "./ModelInfoModal";
+import ModelInfoModal, { ConnorsInfo, InfoButton, PairsInfo, QmomInfo, XsmomInfo, XsmrInfo } from "./ModelInfoModal";
 import { formatRs, Segmented, SLIPPAGE, Stat } from "./backtestShared";
 
 // Portfolio-return backtests from Chan's book: cross-sectional mean reversion (ch. 4) and pairs
 // trading (ch. 2-4). Both are market-neutral books, so results are daily % returns on capital,
 // summed at a fixed size, not R per trade.
 
-const VB_DATASETS = [
-  ["indices", "F&O indices"],
-  ["fno", "All F&O stocks"],
-];
-const VB_KS = [
-  ["k1", "k = 1.0 × range"],
-  ["k0.5", "k = 0.5 × range"],
-];
-const VB_SIDES = [
-  ["long", "Long"],
-  ["short", "Short (check)"],
-];
-const VB_EXITS = [
-  ["swing", "First profitable open (book)"],
-  ["intraday", "15:15 same day"],
-];
 const DATASETS = [
   ["fno", "All F&O stocks"],
   ["stocks", "Nifty 50 stocks"],
@@ -291,53 +275,10 @@ function HoldTrades({ trades }) {
   );
 }
 
-function BreakoutTrades({ trades }) {
-  return (
-    <div className="max-h-96 overflow-auto px-3 py-2">
-      <p className="mb-1 font-mono text-[0.7rem] text-[#9b968c]">
-        {trades.length} positions open on this day · entered when price reached the open {trades[0]?.side === "short" ? "−" : "+"} k ×
-        yesterday's range (time = the 15m candle) · exited at the first 09:15 open in profit, or the 5th day's open · trade =
-        entry to exit, for the side held
-      </p>
-      <table className="w-full text-xs">
-        <thead className="sticky top-0 bg-[#181b20] text-left uppercase tracking-[0.1em] text-[#6f6a62]">
-          <tr>
-            {["Symbol", "Side", "Entry date", "Time", "Entry", "Exit date", "Exit", "Reason", "Trade", "Day", "Weight", "Lot", "Trade, 1 lot ₹"].map((h) => (
-              <th key={h} className="px-2 py-1 font-medium">
-                {h}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-[#23272e] whitespace-nowrap font-mono">
-          {trades.map((t) => (
-            <tr key={`${t.symbol}-${t.bought}`}>
-              <td className="px-2 py-1 text-[#e7e4dc]">{t.symbol}</td>
-              <td className={`px-2 py-1 ${t.side === "long" ? "text-[#8fbf9f]" : "text-[#f0b4b4]"}`}>{t.side}</td>
-              <td className="px-2 py-1 text-[#c8c3b8]">{t.bought}</td>
-              <td className="px-2 py-1 text-[#9b968c]">{t.buy_time}</td>
-              <td className="px-2 py-1 text-[#c8c3b8]">{t.buy}</td>
-              <td className="px-2 py-1 text-[#c8c3b8]">{t.sold ?? "open"}</td>
-              <td className="px-2 py-1 text-[#c8c3b8]">{t.sell ?? "—"}</td>
-              <td className={`px-2 py-1 ${t.reason === "profitable open" ? "text-[#9b968c]" : "text-[#f0b4b4]"}`}>{t.reason}</td>
-              <td className={`px-2 py-1 ${pctClass(t.trade_pct)}`}>{t.trade_pct == null ? "—" : fmtPct(t.trade_pct, 2)}</td>
-              <td className="px-2 py-1 text-[#9b968c]">{t.day_of_hold}</td>
-              <td className="px-2 py-1 text-[#9b968c]">{t.weight_pct.toFixed(1)}%</td>
-              <td className="px-2 py-1 text-[#9b968c]">{t.lot_size ?? "—"}</td>
-              <td className={`px-2 py-1 ${pctClass(t.trade_rs)}`}>{t.trade_rs == null ? "—" : formatRs(t.trade_rs)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
 function DayTrades({ trades, loading, model }) {
   if (loading) return <p className="px-3 py-2 font-mono text-xs text-[#6f6a62]">Loading trades…</p>;
   if (!trades.length) return <p className="px-3 py-2 font-mono text-xs text-[#6f6a62]">No trades stored for this day.</p>;
   if (model === "connors") return <HoldTrades trades={trades} />;
-  if (model === "vbo") return <BreakoutTrades trades={trades} />;
   const longs = trades.filter((t) => t.side === "long").length;
   const hasStop = trades.some((t) => t.stop != null);
   const stopped = trades.filter((t) => t.stopped).length;
@@ -703,12 +644,6 @@ const PAGES = {
       "Long only (Connors & Sen): at 15:15, buy F&O stocks above their 200-day average that are short-term oversold, hold 5 days. Each day's picks get 1/5 of capital. Returns are % of capital, summed at a fixed size.",
     info: ConnorsInfo,
   },
-  vbo: {
-    title: "Volatility breakout",
-    blurb:
-      "Larry Williams, long (the short side is a check): buy when the price rises above today's open by k × yesterday's range, sell at the first profitable 09:15 open (at most 5 days). At most N positions open, capital ÷ N each. Returns are % of capital, summed at a fixed size.",
-    info: VboInfo,
-  },
   pairs: {
     title: "Pairs trading",
     blurb:
@@ -723,11 +658,6 @@ export default function PortfolioBacktestPage({ model = "xsmr" }) {
   const isMom = model === "xsmom";
   const isQm = model === "qmom";
   const isLc = model === "connors";
-  const isVb = model === "vbo";
-  const [vbK, setVbK] = useState("k1");
-  const [vbExit, setVbExit] = useState("swing");
-  const [vbOpen, setVbOpen] = useState(5);
-  const [vbSide, setVbSide] = useState("long");
   const [lcSetup, setLcSetup] = useState("rsi2");
   const [lcHold, setLcHold] = useState("5d");
   const [lcOpen, setLcOpen] = useState(3); // max open positions; 0 = many (the book)
@@ -739,8 +669,7 @@ export default function PortfolioBacktestPage({ model = "xsmr" }) {
   const [version, setVersion] = useState("intraday");
   const [entry, setEntry] = useState("0915");
   const [stop, setStop] = useState("none");
-  const [dataset, setDataset] = useState(model === "vbo" ? "indices" : "fno");
-  const datasets = isVb ? VB_DATASETS : DATASETS;
+  const [dataset, setDataset] = useState("fno");
   const [take, setTake] = useState(model === "connors" ? "top3" : "all");
   const [method, setMethod] = useState("bollinger");
   const [fill, setFill] = useState("close");
@@ -757,8 +686,8 @@ export default function PortfolioBacktestPage({ model = "xsmr" }) {
   const fmt = useMemo(() => makeFmt(shownUnit, capital), [shownUnit, capital]);
 
   const lcMax = isLc && lcOpen ? `-max${lcOpen}` : "";
-  const base = isVb ? `${vbK}-${vbExit}${vbSide === "short" ? "-short" : ""}-max${vbOpen}` : isLc ? `${lcSetup}-${lcHold}${lcMax}${lcStop}${lcTiming}` : isQm ? `${qmVersion}${qmHedge === "nifty" ? "-hedged" : ""}` : isMom ? momFill : isPairs ? `${method}${fill === "next" ? "-next" : ""}` : version === "daily" ? "daily" : `intraday-${entry}${entry === "0915" && stop === "1sd" ? "-1sd" : ""}`;
-  const variant = take === "all" || lcMax || isVb ? base : `${base}-${take}`;
+  const base = isLc ? `${lcSetup}-${lcHold}${lcMax}${lcStop}${lcTiming}` : isQm ? `${qmVersion}${qmHedge === "nifty" ? "-hedged" : ""}` : isMom ? momFill : isPairs ? `${method}${fill === "next" ? "-next" : ""}` : version === "daily" ? "daily" : `intraday-${entry}${entry === "0915" && stop === "1sd" ? "-1sd" : ""}`;
+  const variant = take === "all" || lcMax ? base : `${base}-${take}`;
   const [month, setMonth] = useState(null);
   const [monthRows, setMonthRows] = useState({ rows: [], loading: false });
 
@@ -795,13 +724,7 @@ export default function PortfolioBacktestPage({ model = "xsmr" }) {
 
   const selectVariant = (v) => {
     const b = take === "all" || !v.endsWith(`-${take}`) ? v : v.slice(0, -(take.length + 1));
-    if (isVb) {
-      const parts = b.split("-");
-      setVbK(parts[0]);
-      setVbExit(parts[1]);
-      setVbSide(parts.includes("short") ? "short" : "long");
-      setVbOpen(Number(parts[parts.length - 1].slice(3)));
-    } else if (isLc) {
+    if (isLc) {
       setLcSetup(b.split("-")[0]);
       setLcHold(b.split("-")[1]);
       setLcOpen(Number(b.match(/-max(\d+)/)?.[1] ?? 0));
@@ -831,7 +754,7 @@ export default function PortfolioBacktestPage({ model = "xsmr" }) {
   const monthSettings = [
     page.title,
     variantLabel,
-    !isPairs && datasets.find(([d]) => d === dataset)?.[1],
+    !isPairs && DATASETS.find(([d]) => d === dataset)[1],
     `${slippage}% slippage`,
   ]
     .filter(Boolean)
@@ -864,30 +787,6 @@ export default function PortfolioBacktestPage({ model = "xsmr" }) {
             <div className="flex items-center gap-2" title="The book trades at the close the signal is computed from; next close is the fill check.">
               <span className="text-xs uppercase tracking-[0.14em] text-[#6f6a62]">Fill</span>
               <Segmented options={PAIR_FILLS} value={fill} onChange={setFill} />
-            </div>
-          </>
-        ) : isVb ? (
-          <>
-            <div
-              className="flex items-center gap-2"
-              title="Long is what's used here. Williams presents both sides; Short (sell below the open − k × range, bought back at the first open below the sale price, at most 5 days) is shown as a check: it loses on the indices and the stocks."
-            >
-              <span className="text-xs uppercase tracking-[0.14em] text-[#6f6a62]">Side</span>
-              <Segmented options={VB_SIDES} value={vbSide} onChange={setVbSide} />
-            </div>
-            <div
-              className="flex items-center gap-2"
-              title="The buy stop: today's 09:15 open + k × yesterday's high-low range. Williams uses about half the range to the whole range; both are shown rather than one picked."
-            >
-              <span className="text-xs uppercase tracking-[0.14em] text-[#6f6a62]">Breakout</span>
-              <Segmented options={VB_KS} value={vbK} onChange={setVbK} />
-            </div>
-            <div
-              className="flex items-center gap-2"
-              title="Williams' exit: sell at the first 09:15 open above the buy price, at most 5 trading days later. 15:15 same day is the intraday check (it loses)."
-            >
-              <span className="text-xs uppercase tracking-[0.14em] text-[#6f6a62]">Exit</span>
-              <Segmented options={VB_EXITS} value={vbExit} onChange={setVbExit} />
             </div>
           </>
         ) : isLc ? (
@@ -966,7 +865,7 @@ export default function PortfolioBacktestPage({ model = "xsmr" }) {
             )}
           </>
         )}
-        {!isQm && !lcMax && !isVb && (
+        {!isQm && !lcMax && (
         <div
           className="flex items-center gap-2"
           title={
@@ -985,40 +884,19 @@ export default function PortfolioBacktestPage({ model = "xsmr" }) {
         )}
       </div>
       <div className="mb-4 flex flex-wrap items-center gap-3">
-        {!isPairs && <Segmented options={datasets} value={dataset} onChange={setDataset} />}
+        {!isPairs && <Segmented options={DATASETS} value={dataset} onChange={setDataset} />}
         <div className="flex items-center gap-2" title="Slippage per side, as a percent of price, on top of charges">
           <span className="text-xs uppercase tracking-[0.14em] text-[#6f6a62]">Slippage</span>
           <Segmented options={SLIPPAGE} value={slippage} onChange={setSlippage} />
         </div>
         <div className="flex items-center gap-2" title="Show results as % of capital, or in rupees for the chosen capital">
           <span className="text-xs uppercase tracking-[0.14em] text-[#6f6a62]">Show</span>
-          <Segmented options={isPairs || isLc || isVb ? UNITS : UNITS_LOTS} value={unit} onChange={setUnit} />
+          <Segmented options={isPairs || isLc ? UNITS : UNITS_LOTS} value={unit} onChange={setUnit} />
         </div>
         {unit === "rs" && (
-          <div className="flex items-center gap-2" title={isPairs ? "Total capital, split equally across the year's pairs" : isQm || isLc || isVb ? "Capital, split into the max-open slots (long only)" : "Gross exposure: half long, half short, the same every day"}>
+          <div className="flex items-center gap-2" title={isPairs ? "Total capital, split equally across the year's pairs" : isQm || isLc ? "Capital, fully invested long, the same every day" : "Gross exposure: half long, half short, the same every day"}>
             <span className="text-xs uppercase tracking-[0.14em] text-[#6f6a62]">Capital</span>
             <Segmented options={CAPITALS} value={capital} onChange={setCapital} />
-          </div>
-        )}
-        {isVb && (
-          <div
-            className="flex items-center gap-2"
-            title="At most this many positions open at once, each capital ÷ N; one per index or stock at a time. When more break out than slots are free, the earliest breakouts fill first. On the indices, 5 lets every index trade."
-          >
-            <span className="text-xs uppercase tracking-[0.14em] text-[#6f6a62]">Max open</span>
-            <input
-              type="range"
-              min={1}
-              max={10}
-              step={1}
-              value={vbOpen}
-              onChange={(e) => setVbOpen(Number(e.target.value))}
-              className="w-32 accent-[#e2c08a]"
-              aria-label="Max open positions"
-            />
-            <span className="w-28 font-mono text-xs text-[#e7e4dc]">
-              {vbOpen} · {unit === "rs" ? `${formatRs(capital / vbOpen)} each` : `${(100 / vbOpen).toFixed(1)}% each`}
-            </span>
           </div>
         )}
         {isLc && (
@@ -1065,8 +943,6 @@ export default function PortfolioBacktestPage({ model = "xsmr" }) {
             <p className="mb-2 font-mono text-xs text-[#9b968c]">
               {isPairs
                 ? `${capitalLabel} capital split equally across the year's pairs (${data.take_n ? `${data.take_n}` : "all selected"}), ~${s.avg_stocks} open on an average day.`
-                : isVb
-                ? `${capitalLabel} split into ${vbOpen} position${vbOpen === 1 ? "" : "s"} of ${formatRs(capital / vbOpen)} each; a free slot waits in cash for the next breakout (~${s.avg_stocks} open on an average day).`
                 : isLc && lcMax
                 ? `${capitalLabel} split into ${lcMax.slice(4)} position${lcMax === "-max1" ? "" : "s"} of ${formatRs(capital / Number(lcMax.slice(4)))} each; a free slot waits in cash for the next signal (~${s.avg_stocks} open on an average day).`
                 : isLc
@@ -1081,7 +957,7 @@ export default function PortfolioBacktestPage({ model = "xsmr" }) {
             <Stat
               label="Trades"
               value={s.trades.toLocaleString("en-IN")}
-              title={isPairs ? `Pair trades closed · ${s.days} days` : isVb ? `Trades closed (buy to sell) · ${s.days} days · held ${s.avg_held_days} days on average · ${s.forced_pct}% not sold at a profitable open · win rate, cost and net per trade are each trade's share of the book` : isLc && s.trades !== s.days ? `Trades closed (buy to sell) · ${s.days} days${s.stopped_pct ? ` · ${s.stopped_pct}% stopped` : ""} · win rate, cost and net per trade are each trade's share of the book` : `One trade = one day's book (${s.days} days, ~${s.avg_stocks} stocks a day)`}
+              title={isPairs ? `Pair trades closed · ${s.days} days` : isLc && s.trades !== s.days ? `Trades closed (buy to sell) · ${s.days} days${s.stopped_pct ? ` · ${s.stopped_pct}% stopped` : ""} · win rate, cost and net per trade are each trade's share of the book` : `One trade = one day's book (${s.days} days, ~${s.avg_stocks} stocks a day)`}
             />
             <Stat label="Win rate" value={`${s.win_rate}%`} title={`After costs. Before costs: ${s.win_rate_gross}%`} />
             <Stat label={`Gross ${unitSign}`} value={fmt.big(s.gross_total_pct)} className={pctClass(s.gross_total_pct)} title={`Before costs. ${s.gross.ann_return_pct}% a year`} />
@@ -1127,7 +1003,7 @@ export default function PortfolioBacktestPage({ model = "xsmr" }) {
           <section className="mb-4 rounded-md border border-[#2c313a] bg-[#181b20] px-4 py-3">
             <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
               <p className="text-xs uppercase tracking-[0.14em] text-[#6f6a62]">
-                All versions · {isPairs ? PAIR_TAKES.find(([t]) => t === take)[1] : isQm || isVb ? datasets.find(([d]) => d === dataset)?.[1] : `${datasets.find(([d]) => d === dataset)?.[1]} · ${(isLc ? LC_TAKES : isMom ? MOM_TAKES : XSMR_TAKES).find(([t]) => t === take)[1]}`} ·{" "}
+                All versions · {isPairs ? PAIR_TAKES.find(([t]) => t === take)[1] : isQm ? DATASETS.find(([d]) => d === dataset)[1] : `${DATASETS.find(([d]) => d === dataset)[1]} · ${(isLc ? LC_TAKES : isMom ? MOM_TAKES : XSMR_TAKES).find(([t]) => t === take)[1]}`} ·{" "}
                 {slippage}% slippage
               </p>
               <p className="font-mono text-xs text-[#9b968c]">Click a row to open it</p>

@@ -6,7 +6,6 @@ import GapSignalsPage from "./GapSignalsPage";
 import PortfolioBacktestPage from "./PortfolioBacktestPage";
 import XsmrPaperPage from "./XsmrPaperPage";
 import ConnorsPaperPage from "./ConnorsPaperPage";
-import VboPaperPage from "./VboPaperPage";
 import KbdtSignalsPage from "./KbdtSignalsPage";
 import IntradayModelPage from "./IntradayModelPage";
 import { FibInfo, KbdtFibInfo, OrbInfo } from "./ModelInfoModal";
@@ -39,7 +38,6 @@ const NAV_ITEMS = {
     { id: "gap-signals", label: "Buy on gap (Intraday)" },
     { id: "xsmr-paper", label: "Cross-sectional mean reversion (Intraday)" },
     { id: "connors-paper", label: "Short-term mean reversion (Positional)" },
-    { id: "vbo-paper", label: "Volatility breakout · Indices (Swing)" },
   ],
   backtest: [{ id: "bt-kbdt", label: "Key Breakout Dow Theory (Positional)" }],
   // Models from Ernest Chan's "Algorithmic Trading: Winning Strategies and Their Rationale".
@@ -54,8 +52,6 @@ const NAV_ITEMS = {
   grayVogel: [{ id: "qm-qmom", label: "Quantitative momentum · Backtest (Positional)" }],
   // Connors & Sen, "How Markets Really Work" (2nd ed., Bloomberg Press / Wiley, 2012).
   connors: [{ id: "lc-connors", label: "Short-term mean reversion · Backtest (Positional)" }],
-  // Larry Williams, "Long-Term Secrets to Short-Term Trading" (2nd ed., Wiley, 2011).
-  williams: [{ id: "lw-vbo", label: "Volatility breakout · Backtest (Swing)" }],
   system: [{ id: "settings", label: "Settings" }],
 };
 
@@ -730,24 +726,6 @@ export default function App() {
             </div>
           </div>
           <div>
-            <p title="Long-Term Secrets to Short-Term Trading (2nd ed., 2011)" className="px-3 pb-1 text-[0.65rem] font-medium uppercase tracking-[0.14em] text-[#6f6a62]">
-              Larry Williams
-            </p>
-            <div className="flex flex-col gap-0.5 pl-1">
-              {NAV_ITEMS.williams.map((item) => (
-                <button
-                  key={item.id}
-                  type="button"
-                  className={navItemClass(activePage === item.id)}
-                  aria-current={activePage === item.id ? "page" : undefined}
-                  onClick={() => setActivePage(item.id)}
-                >
-                  {item.label}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div>
             <p className="px-3 pb-1 text-[0.65rem] font-medium uppercase tracking-[0.14em] text-[#6f6a62]">
               System
             </p>
@@ -780,9 +758,7 @@ export default function App() {
         <XsmrPaperPage />
       ) : activePage === "connors-paper" ? (
         <ConnorsPaperPage />
-      ) : activePage === "vbo-paper" ? (
-        <VboPaperPage />
-      ) : activePage === "chan-xsmr" || activePage === "chan-pairs" || activePage === "chan-xsmom" || activePage === "qm-qmom" || activePage === "lc-connors" || activePage === "lw-vbo" ? (
+      ) : activePage === "chan-xsmr" || activePage === "chan-pairs" || activePage === "chan-xsmom" || activePage === "qm-qmom" || activePage === "lc-connors" ? (
         <PortfolioBacktestPage key={activePage} model={activePage.split("-")[1]} />
       ) : activePage.startsWith("bt-") ? (
         <BacktestPage key={activePage} model={activePage.slice(3)} />
