@@ -1,3 +1,4 @@
+from datetime import date as _date
 import asyncio
 import json
 import os
@@ -604,6 +605,32 @@ def backtest_portfolio(variant: str = Query("intraday-0915"), dataset: str = Que
                 "compare": xsmr.compare(dataset, slippage / 100)}
     except Exception as error:
         print("Portfolio backtest failed:", error)
+        return {"status": "error", "message": str(error)}
+
+
+@app.get("/api/backtest/portfolio/month")
+def backtest_portfolio_month(month: str = Query(..., pattern=r"^\d{4}-\d{2}$"), variant: str = Query("intraday-0915"),
+                             dataset: str = Query("fno"), slippage: float = Query(0.02, ge=0, le=1)):
+    """The days behind one month cell of the cross-sectional mean reversion page."""
+    if variant not in xsmr.VARIANTS or dataset not in xsmr.DATASETS:
+        raise HTTPException(status_code=400, detail="unknown variant or dataset")
+    try:
+        return {"status": "success", "days": xsmr.month_days(variant, dataset, month, slippage / 100)}
+    except Exception as error:
+        print("Portfolio month failed:", error)
+        return {"status": "error", "message": str(error)}
+
+
+@app.get("/api/backtest/portfolio/day")
+def backtest_portfolio_day(day: str = Query(..., pattern=r"^\d{4}-\d{2}-\d{2}$"), variant: str = Query("intraday-0915"),
+                           dataset: str = Query("fno")):
+    """Every stock position of the cross-sectional mean reversion book on one day."""
+    if variant not in xsmr.VARIANTS or dataset not in xsmr.DATASETS:
+        raise HTTPException(status_code=400, detail="unknown variant or dataset")
+    try:
+        return {"status": "success", "trades": xsmr.day_trades(variant, dataset, _date.fromisoformat(day))}
+    except Exception as error:
+        print("Portfolio day failed:", error)
         return {"status": "error", "message": str(error)}
 
 

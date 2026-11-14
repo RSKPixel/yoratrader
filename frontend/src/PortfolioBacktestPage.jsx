@@ -85,7 +85,7 @@ function EquityChart({ equity, fmt }) {
   return <div ref={container} className="h-72 w-full" />;
 }
 
-function MonthGrid({ months, years, fmt }) {
+function MonthGrid({ months, years, fmt, selected, onSelect }) {
   const byMonth = useMemo(() => Object.fromEntries(months.map((m) => [m.month, m])), [months]);
   const scale = useMemo(() => Math.max(0.5, ...months.map((m) => Math.abs(m.net_pct))), [months]);
   const yearScale = useMemo(() => Math.max(1, ...years.map((y) => Math.abs(y.net_pct))), [years]);
@@ -113,13 +113,17 @@ function MonthGrid({ months, years, fmt }) {
                 return (
                   <td key={i} className="p-0">
                     {m ? (
-                      <span
-                        title={`${m.days} days · ${m.win_days_pct}% winning days · net ${fmt.big(m.net_pct, 2)} · gross ${fmt.big(m.gross_pct, 2)}`}
+                      <button
+                        type="button"
+                        onClick={() => onSelect(m.month === selected ? null : m.month)}
+                        title={`${m.days} days · ${m.win_days_pct}% winning days · net ${fmt.big(m.net_pct, 2)} · gross ${fmt.big(m.gross_pct, 2)} · click for the days`}
                         style={cellStyle(m.net_pct, scale)}
-                        className="block rounded px-1 py-1.5 text-center text-[#e7e4dc]"
+                        className={`block w-full cursor-pointer rounded px-1 py-1.5 text-center text-[#e7e4dc] hover:ring-1 hover:ring-[#e2c08a]/60 ${
+                          m.month === selected ? "ring-2 ring-[#e2c08a]" : ""
+                        }`}
                       >
                         {fmt.cell(m.net_pct)}
-                      </span>
+                      </button>
                     ) : (
                       <span className="block px-1 py-1.5 text-center text-[#3a3f48]">·</span>
                     )}
@@ -134,6 +138,122 @@ function MonthGrid({ months, years, fmt }) {
           ))}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+function DayTrades({ trades, loading }) {
+  if (loading) return <p className="px-3 py-2 font-mono text-xs text-[#6f6a62]">Loading trades…</p>;
+  if (!trades.length) return <p className="px-3 py-2 font-mono text-xs text-[#6f6a62]">No trades stored for this day.</p>;
+  const longs = trades.filter((t) => t.side === "long").length;
+  return (
+    <div className="max-h-96 overflow-auto px-3 py-2">
+      <p className="mb-1 font-mono text-[0.7rem] text-[#9b968c]">
+        {trades.length} stocks · {longs} long · {trades.length - longs} short · weight = share of gross exposure ·
+        signal = the move the model fades · sorted by contribution
+      </p>
+      <table className="w-full text-xs">
+        <thead className="sticky top-0 bg-[#181b20] text-left uppercase tracking-[0.1em] text-[#6f6a62]">
+          <tr>
+            {["Stock", "Side", "Weight", "Signal", "Entry", "Exit", "Move", "Contribution"].map((h) => (
+              <th key={h} className="px-2 py-1 font-medium">
+                {h}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-[#23272e] whitespace-nowrap font-mono">
+          {trades.map((t) => (
+            <tr key={t.symbol}>
+              <td className="px-2 py-1 text-[#e7e4dc]">{t.symbol}</td>
+              <td className={`px-2 py-1 ${t.side === "long" ? "text-[#8fbf9f]" : "text-[#f0b4b4]"}`}>{t.side}</td>
+              <td className="px-2 py-1 text-[#9b968c]">{t.weight_pct.toFixed(2)}%</td>
+              <td className={`px-2 py-1 ${pctClass(t.signal_pct)}`}>{fmtPct(t.signal_pct, 2)}</td>
+              <td className="px-2 py-1 text-[#c8c3b8]">{t.entry}</td>
+              <td className="px-2 py-1 text-[#c8c3b8]">{t.exit}</td>
+              <td className={`px-2 py-1 ${pctClass(t.move_pct)}`}>{fmtPct(t.move_pct, 2)}</td>
+              <td className={`px-2 py-1 ${pctClass(t.contribution_bps)}`}>
+                {t.contribution_bps > 0 ? "+" : ""}
+                {t.contribution_bps.toFixed(2)} bps
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function MonthDays({ month, days, loading, fmt, onClose, variant, dataset }) {
+  const [openDay, setOpenDay] = useState(null);
+  const [trades, setTrades] = useState({ rows: [], loading: false });
+  useEffect(() => setOpenDay(null), [month, variant, dataset]);
+  useEffect(() => {
+    if (!openDay) return undefined;
+    const controller = new AbortController();
+    setTrades({ rows: [], loading: true });
+    fetch(`/api/backtest/portfolio/day?day=${openDay}&variant=${variant}&dataset=${dataset}`, { signal: controller.signal })
+      .then((r) => r.json())
+      .then((payload) => setTrades({ rows: payload.status === "success" ? payload.trades : [], loading: false }))
+      .catch(() => {});
+    return () => controller.abort();
+  }, [openDay, variant, dataset]);
+  const [y, m] = month.split("-");
+  const total = days.reduce((a, d) => a + d.net_pct, 0);
+  return (
+    <div className="mt-3 border-t border-[#2c313a] pt-3">
+      <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+        <p className="text-xs uppercase tracking-[0.14em] text-[#9b968c]">
+          {MONTHS[Number(m) - 1]} {y} · {days.length} days · net {fmt.big(total, 2)} · click a day for its trades
+        </p>
+        <button type="button" onClick={onClose} className="font-mono text-xs text-[#6f6a62] hover:text-[#e7e4dc]">
+          close ✕
+        </button>
+      </div>
+      {loading ? (
+        <p className="font-mono text-xs text-[#6f6a62]">Loading…</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[640px] text-sm">
+            <thead className="text-left text-xs uppercase tracking-[0.1em] text-[#6f6a62]">
+              <tr>
+                {["Day", "Long side", "Short side", "Gross", "Cost", "Net", "Stocks"].map((h) => (
+                  <th key={h} className="px-3 py-1.5 font-medium">
+                    {h}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-[#2c313a] whitespace-nowrap font-mono text-xs">
+              {days.map((d) => [
+                <tr
+                  key={d.day}
+                  onClick={() => setOpenDay(openDay === d.day ? null : d.day)}
+                  className={`cursor-pointer ${openDay === d.day ? "bg-[#e2c08a]/10" : "hover:bg-white/[0.03]"}`}
+                >
+                  <td className="px-3 py-1.5 text-[#e7e4dc]">
+                    <span className="mr-1 text-[#6f6a62]">{openDay === d.day ? "▾" : "▸"}</span>
+                    {d.day}
+                  </td>
+                  <td className={`px-3 py-1.5 ${pctClass(d.long_pct)}`}>{fmt.big(d.long_pct, 2)}</td>
+                  <td className={`px-3 py-1.5 ${pctClass(d.short_pct)}`}>{fmt.big(d.short_pct, 2)}</td>
+                  <td className={`px-3 py-1.5 ${pctClass(d.gross_pct)}`}>{fmt.big(d.gross_pct, 2)}</td>
+                  <td className="px-3 py-1.5 text-[#9b968c]">{fmt.big(-d.cost_pct, 2)}</td>
+                  <td className={`px-3 py-1.5 ${pctClass(d.net_pct)}`}>{fmt.big(d.net_pct, 2)}</td>
+                  <td className="px-3 py-1.5 text-[#9b968c]">{d.stocks}</td>
+                </tr>,
+                openDay === d.day && (
+                  <tr key={`${d.day}-trades`}>
+                    <td colSpan={7} className="bg-[#14161a] p-0">
+                      <DayTrades trades={trades.rows} loading={trades.loading} />
+                    </td>
+                  </tr>
+                ),
+              ])}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }
@@ -193,6 +313,21 @@ export default function PortfolioBacktestPage() {
   const fmt = useMemo(() => makeFmt(unit, capital), [unit, capital]);
 
   const variant = version === "daily" ? "daily" : `intraday-${entry}`;
+  const [month, setMonth] = useState(null);
+  const [monthDays, setMonthDays] = useState({ days: [], loading: false });
+
+  useEffect(() => {
+    if (!month) return undefined;
+    const controller = new AbortController();
+    setMonthDays({ days: [], loading: true });
+    fetch(`/api/backtest/portfolio/month?month=${month}&variant=${variant}&dataset=${dataset}&slippage=${slippage}`, {
+      signal: controller.signal,
+    })
+      .then((r) => r.json())
+      .then((payload) => setMonthDays({ days: payload.status === "success" ? payload.days : [], loading: false }))
+      .catch(() => {});
+    return () => controller.abort();
+  }, [month, variant, dataset, slippage]);
 
   useEffect(() => {
     setLoading(true);
@@ -303,9 +438,20 @@ export default function PortfolioBacktestPage() {
               <p className="text-xs uppercase tracking-[0.14em] text-[#6f6a62]">
                 {unit === "rs" ? `Net ₹ by month (${CAPITALS.find(([c]) => c === capital)[1]} gross exposure)` : "Net % by month (of gross exposure)"}
               </p>
-              <p className="font-mono text-xs text-[#9b968c]">Hover a month for its gross and winning days</p>
+              <p className="font-mono text-xs text-[#9b968c]">Click a month for its days</p>
             </div>
-            <MonthGrid months={data.months} years={data.years} fmt={fmt} />
+            <MonthGrid months={data.months} years={data.years} fmt={fmt} selected={month} onSelect={setMonth} />
+            {month && (
+              <MonthDays
+                month={month}
+                days={monthDays.days}
+                loading={monthDays.loading}
+                fmt={fmt}
+                onClose={() => setMonth(null)}
+                variant={variant}
+                dataset={dataset}
+              />
+            )}
           </section>
 
           <section className="mb-4 rounded-md border border-[#2c313a] bg-[#181b20] px-4 py-3">

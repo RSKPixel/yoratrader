@@ -57,7 +57,7 @@ def _ensure_table(cursor):
     )
 
 
-def _prices(dataset):
+def _prices(dataset, start=None, end=None):
     """Per symbol and day: the 09:15 open and the 15:15 price (close of the 15:00 candle) from the
     15m candles, and the official close from the daily candles. Days where the 09:15 open is more
     than 1% from the daily open are dropped (stale prints, as in buy-on-gap), and so are 15:15
@@ -70,6 +70,8 @@ def _prices(dataset):
               SELECT symbol, (datetime AT TIME ZONE 'Asia/Kolkata')::date AS day,
                      (datetime AT TIME ZONE 'Asia/Kolkata')::time AS t, open, close
               FROM bt_15m WHERE symbol IN (SELECT symbol FROM s)
+                AND datetime >= COALESCE(%(start)s::date, DATE '1900-01-01')
+                AND datetime < COALESCE(%(end)s::date, DATE '2999-01-01') + 1
             )
             SELECT b.symbol, b.day,
                    max(b.open) FILTER (WHERE b.t = '09:15') AS open915,
@@ -81,7 +83,7 @@ def _prices(dataset):
             FROM b JOIN bt_daily d ON d.symbol = b.symbol AND d.day = b.day
             GROUP BY b.symbol, b.day
             """,
-            conn, params={"ds": dataset},
+            conn, params={"ds": dataset, "start": start, "end": end},
         )
     bad = (frame["open915"] / frame["day_open"] - 1).abs() > backtest.GAP_OPEN_TOLERANCE
     frame.loc[bad, "open915"] = np.nan
@@ -95,7 +97,9 @@ def _prices(dataset):
     # 09:16 price: the open of the 09:16 minute candle (minute index 1 in bt_1m), where downloaded.
     with connect() as conn:
         m = pd.read_sql("SELECT symbol, day, open[array_position(minute, 1::smallint)] AS open916 FROM bt_1m "
-                        "WHERE symbol IN (SELECT symbol FROM bt_symbols WHERE dataset = %(ds)s)", conn, params={"ds": dataset})
+                        "WHERE symbol IN (SELECT symbol FROM bt_symbols WHERE dataset = %(ds)s) "
+                        "AND day BETWEEN COALESCE(%(start)s::date, DATE '1900-01-01') AND COALESCE(%(end)s::date, DATE '2999-01-01')",
+                        conn, params={"ds": dataset, "start": start, "end": end})
     frame = frame.merge(m, on=["symbol", "day"], how="left")
     frame.loc[(frame["open916"] > frame["day_high"] * (1 + RANGE_TOLERANCE))
               | (frame["open916"] < frame["day_low"] * (1 - RANGE_TOLERANCE)) | (frame["open916"] <= 0), "open916"] = np.nan
@@ -110,46 +114,67 @@ def _weights(signal):
     return -dev.div(dev.abs().sum(axis=1), axis=0)
 
 
+ENTRY_COLS = {"intraday-0915": "open915", "intraday-0916": "open916", "intraday-0930": "open930",
+              "intraday-0945": "open945"}
+
+
+def _book(p, variant):
+    """Signal, weights, entry and exit prices per day and stock for one variant.
+    Intraday: signal previous official close -> 09:15 open; position entry -> 15:15 the same day.
+    Daily: signal 15:15(t-1) -> 15:15(t); position 15:15(t) -> 15:15(t+1), rebalanced daily."""
+    if variant == "daily":
+        px = p["px1515"]
+        sig = px / px.shift(1) - 1
+        entry, exit_ = px, px.shift(-1)
+    else:
+        sig = p["open915"] / p["day_close"].shift(1) - 1
+        entry, exit_ = p[ENTRY_COLS[variant]], p["px1515"]
+    pos = exit_ / entry - 1
+    ok = sig.notna() & pos.notna() & (sig.abs() <= MAX_MOVE) & (pos.abs() <= MAX_MOVE)
+    w = _weights(sig.where(ok)).fillna(0.0)
+    return {"sig": sig, "w": w, "pos": pos, "entry": entry, "exit": exit_, "n": ok.sum(axis=1)}
+
+
 def run(dataset):
     p = _prices(dataset)
-    open915, px, close = p["open915"], p["px1515"], p["day_close"]
     out = {}
-
-    # Intraday: signal previous official close -> 09:15 open; position entry -> 15:15.
-    sig = open915 / close.shift(1) - 1
-    for variant, entry_col in (("intraday-0915", "open915"), ("intraday-0916", "open916"), ("intraday-0930", "open930"),
-                               ("intraday-0945", "open945")):
-        pos = px / p[entry_col] - 1
-        ok = sig.notna() & pos.notna() & (sig.abs() <= MAX_MOVE) & (pos.abs() <= MAX_MOVE)
-        w = _weights(sig.where(ok)).fillna(0.0)
-        n = ok.sum(axis=1)
-        rows = []
-        for day in w.index:
-            if n[day] < MIN_STOCKS:
+    for variant in VARIANTS:
+        b = _book(p, variant)
+        rows, prev = [], None
+        for day in b["w"].index:
+            if b["n"][day] < MIN_STOCKS:
+                prev = None
                 continue
-            wd, rd = w.loc[day], pos.loc[day].fillna(0.0)
-            rows.append((day.date(), float((wd * rd).sum()), float(2 * wd.abs().sum()),
-                         float((wd.clip(lower=0) * rd).sum()), float((wd.clip(upper=0) * rd).sum()), int(n[day])))
+            wd, rd = b["w"].loc[day], b["pos"].loc[day].fillna(0.0)
+            if variant == "daily":  # rebalance from yesterday's book
+                traded = float(wd.abs().sum() if prev is None else (wd - prev).abs().sum())
+                prev = wd
+            else:  # the whole book in at the open, out at 15:15
+                traded = float(2 * wd.abs().sum())
+            rows.append((day.date(), float((wd * rd).sum()), traded,
+                         float((wd.clip(lower=0) * rd).sum()), float((wd.clip(upper=0) * rd).sum()), int(b["n"][day])))
         out[variant] = rows
-
-    # Daily: signal 15:15(t-1) -> 15:15(t); position 15:15(t) -> 15:15(t+1); rebalance daily.
-    ret = px / px.shift(1) - 1
-    fwd = ret.shift(-1)
-    ok = ret.notna() & fwd.notna() & (ret.abs() <= MAX_MOVE) & (fwd.abs() <= MAX_MOVE)
-    w = _weights(ret.where(ok)).fillna(0.0)
-    n = ok.sum(axis=1)
-    rows, prev = [], None
-    for day in w.index:
-        if n[day] < MIN_STOCKS:
-            prev = None
-            continue
-        wd, rd = w.loc[day], fwd.loc[day].fillna(0.0)
-        traded = float(wd.abs().sum() if prev is None else (wd - prev).abs().sum())
-        rows.append((day.date(), float((wd * rd).sum()), traded,
-                     float((wd.clip(lower=0) * rd).sum()), float((wd.clip(upper=0) * rd).sum()), int(n[day])))
-        prev = wd
-    out["daily"] = rows
     return out
+
+
+def day_trades(variant, dataset, day):
+    """Every stock position the model held on one day (day: datetime.date)."""
+    from datetime import timedelta
+    p = _prices(dataset, day - timedelta(days=10), day + timedelta(days=10))
+    b = _book(p, variant)
+    ts = pd.Timestamp(day)
+    if ts not in b["w"].index or b["n"][ts] < MIN_STOCKS:
+        return []
+    rows = []
+    for symbol, w in b["w"].loc[ts].items():
+        if w == 0:
+            continue
+        r = float(b["pos"].at[ts, symbol])
+        rows.append({"symbol": symbol, "side": "long" if w > 0 else "short", "weight_pct": round(100 * abs(w), 3),
+                     "signal_pct": round(100 * float(b["sig"].at[ts, symbol]), 2),
+                     "entry": round(float(b["entry"].at[ts, symbol]), 2), "exit": round(float(b["exit"].at[ts, symbol]), 2),
+                     "move_pct": round(100 * r, 2), "contribution_bps": round(10000 * w * r, 2)})
+    return sorted(rows, key=lambda x: -x["contribution_bps"])
 
 
 def run_all(datasets=DATASETS):
@@ -180,11 +205,11 @@ def cost_per_side(slippage=0.0002, notional=None):
     return fees + (backtest.STT_SELL + backtest.STAMP_BUY) / 2 + slippage
 
 
-def _load(variant, dataset, slippage):
+def _load(variant, dataset, slippage, model="xsmr"):
     with connect() as conn:
         f = pd.read_sql("SELECT day, gross_ret, turnover, long_ret, short_ret, stocks FROM bt_portfolio "
-                        "WHERE model = 'xsmr' AND variant = %s AND dataset = %s ORDER BY day",
-                        conn, params=[variant, dataset])
+                        "WHERE model = %s AND variant = %s AND dataset = %s ORDER BY day",
+                        conn, params=[model, variant, dataset])
     if f.empty:
         return f
     f["cost"] = f["turnover"] * cost_per_side(slippage)
@@ -221,9 +246,9 @@ def summary(variant, dataset, slippage=0.0002):
     return (_stats(f) if not f.empty else None), f
 
 
-def results(variant, dataset, slippage=0.0002):
-    """Everything the backtest page shows for one variant."""
-    f = _load(variant, dataset, slippage)
+def results(variant, dataset, slippage=0.0002, model="xsmr"):
+    """Everything the backtest page shows for one variant (of any model stored in bt_portfolio)."""
+    f = _load(variant, dataset, slippage, model)
     if f.empty:
         return {"summary": None, "years": [], "months": [], "equity": []}
     f["year"], f["month"] = f["day"].dt.year, f["day"].dt.strftime("%Y-%m")
@@ -248,3 +273,15 @@ def compare(dataset, slippage=0.0002):
         if not f.empty:
             rows.append({"variant": variant, "label": meta["label"], "book": variant in BOOK, **_stats(f)})
     return rows
+
+
+def month_days(variant, dataset, month, slippage=0.0002, model="xsmr"):
+    """Each trading day of one month (YYYY-MM): what the month cell on the page adds up."""
+    f = _load(variant, dataset, slippage, model)
+    if f.empty:
+        return []
+    f = f[f["day"].dt.strftime("%Y-%m") == month]
+    return [{"day": r.day.date().isoformat(), "gross_pct": round(100 * r.gross_ret, 3), "cost_pct": round(100 * r.cost, 3),
+             "net_pct": round(100 * r.net_ret, 3), "long_pct": round(100 * r.long_ret, 3) if pd.notna(r.long_ret) else None,
+             "short_pct": round(100 * r.short_ret, 3) if pd.notna(r.short_ret) else None, "turnover": round(r.turnover, 2),
+             "stocks": int(r.stocks)} for r in f.itertuples()]
