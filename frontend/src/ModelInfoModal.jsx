@@ -1028,9 +1028,20 @@ export function QmomInfo() {
             possible here only because returns are summed at a fixed size, not compounded.
           </li>
           <li>
-            Costs on every rupee traded: NSE futures charges plus the chosen slippage. The monthly futures roll is not
-            charged. Holding futures also costs the carry built into their price, roughly the interest rate, which daily
-            spot closes don't include.
+            Costs on every rupee traded: NSE futures charges (STT 0.05% on sells, exchange, SEBI, stamp, GST, ₹20 an
+            order) plus the chosen slippage — about 5 bps a side at 0.02%. That includes the <B>monthly futures roll</B>:
+            at each month end everything held is sold and bought again in next month's contract (the Nifty hedge too),
+            about 24× capital a year, ~1.2% a year in costs (~2.4% hedged).
+          </li>
+          <li>
+            <B>Not charged: the cost of carry.</B> Futures trade above the stock by about the interest rate less dividends
+            (~5–6% a year), which a long position pays. That's fair only if the capital not used as margin (~80%) earns
+            interest, e.g. in a liquid fund; otherwise take ~5–6% a year off. Hedged, the short Nifty earns carry, so the
+            two roughly cancel.
+          </li>
+          <li>
+            <B>Lot sizes</B>: one stock future is ₹5–15 lakh, so Max open N needs roughly N × ₹10 lakh of exposure (about
+            a fifth of that as margin); results assume any position size.
           </li>
           <li>Click a month for its days, and a day for every stock held and its momentum and FIP at the last rebalance.</li>
         </List>

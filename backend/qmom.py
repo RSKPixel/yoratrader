@@ -26,8 +26,12 @@ Versions:
 
 Weights drift with prices between rebalances (buy and hold); turnover at a rebalance is the trade
 from the drifted weights to the new ones. Returns are on capital (weights sum to 1), not
-compounded. Costs: NSE futures charges + slippage on every rupee traded (xsmr.cost_per_side); the
-monthly futures roll is not charged. Data hygiene as in cross-sectional momentum (xsmom): 253
+compounded. Costs: NSE futures charges + slippage on every rupee traded (xsmr.cost_per_side),
+including the monthly futures roll: at each month end everything held is sold and bought again in
+next month's contract (in a rebalance month, the positions kept); the Nifty hedge rolls the same way.
+Not charged: the cost of carry (futures trade above the stock by about the interest rate less
+dividends, ~5-6% a year), which is fair only if the idle capital (all but the ~20% margin) earns
+interest; in the hedged version the short Nifty earns carry, so the two roughly cancel. Data hygiene as in cross-sectional momentum (xsmom): 253
 straight closes and no daily move over 20% in the window to be ranked; a day's move over 20% earns
 nothing. Survivorship bias: today's F&O list is used for every year.
 """
@@ -136,6 +140,7 @@ def _book(c, base, cap=None):
     cap: at most that many stocks, capital / cap each; unfilled slots are cash (which doesn't drift)."""
     mom, fip, r = _signals(c)
     rebal = _rebalance_days(c.index, base == "monthly")
+    month_ends = set(pd.Series(c.index, index=c.index).groupby([c.index.year, c.index.month]).max().values[:-1])
     cols = list(c.columns)
     w = np.zeros((len(c), len(cols)))
     turn = np.zeros(len(c))
@@ -155,7 +160,11 @@ def _book(c, base, cap=None):
                 new[[cols.index(s) for s in names]] = 1.0 / (cap if cap and base != "universe" else len(names))
             picks[day] = names
             turn[i] = np.abs(new - cur).sum()
+            if day in month_ends:  # the positions kept are rolled to next month's contract
+                turn[i] += 2 * np.minimum(new, cur).sum()
             cur, cash = new, 1.0 - new.sum()
+        elif day in month_ends:  # futures roll: sell this month's contract, buy next month's
+            turn[i] += 2 * cur.sum()
         w[i] = cur
     return {"w": pd.DataFrame(w, index=c.index, columns=cols), "r": r, "mom": mom, "fip": fip,
             "picks": picks, "rebal": rebal, "turn": pd.Series(turn, index=c.index)}
@@ -169,16 +178,25 @@ def _nifty(index):
     return n, (n / n.shift(1) - 1).fillna(0.0)
 
 
+def _hedge_roll(index, size):
+    """The Nifty future's own monthly roll: twice the hedge's size at each month end."""
+    ends = pd.Series(index, index=index).groupby([index.year, index.month]).max().values[:-1]
+    roll = pd.Series(0.0, index=index)
+    roll[ends] = 2 * size[ends]
+    return roll
+
+
 def _hedged(c, b, out_rows, lot_rows, nifty, nifty_r, hedge_lot):
     """The book's rows with a 1:1 short Nifty hedge added (see the module note)."""
     w = b["w"]
     size = w.sum(axis=1)  # long book's share of capital after each close (1, or 0 when empty)
     held_size = size.shift(1).fillna(0.0)
+    roll = _hedge_roll(c.index, size)
     rows = []
     for d, g, t, lg, sh, n in out_rows:
         ts = pd.Timestamp(d)
         hedge = -float(held_size[ts]) * float(nifty_r[ts])
-        rows.append((d, g + hedge, t + abs(float(size[ts]) - float(held_size[ts])), lg, hedge, n))
+        rows.append((d, g + hedge, t + abs(float(size[ts]) - float(held_size[ts])) + float(roll[ts]), lg, hedge, n))
     # One lot mode: Nifty lots nearest the value of the long lots, set at each rebalance close.
     lot = xsmr.lot_series(c.columns)
     cols = [s for s in c.columns if pd.notna(lot.get(s))]
@@ -215,10 +233,8 @@ def run(dataset):
         b = _book(c, base)
         w = b["w"]
         held = w.shift(1).fillna(0.0)  # weights carried into each day's close
-        drifted = held * (1 + b["r"])
-        drifted = drifted.div(drifted.sum(axis=1).where(lambda s: s > 0, 1.0), axis=0)
         gross = (held * b["r"]).sum(axis=1)
-        turnover = (w - drifted).abs().sum(axis=1)
+        turnover = b["turn"]  # rebalance trades + the monthly futures roll
         stocks = (held > 0).sum(axis=1)
         first = w.index[(w.sum(axis=1) > 0.5).to_numpy()].min()
         days = c.index[c.index >= first]
@@ -282,7 +298,7 @@ def _max_frame(variant, dataset):
         hedge = -size.shift(1).fillna(0.0) * nifty_r
         f["gross_ret"] += hedge.to_numpy()
         f["short_ret"] = hedge.to_numpy()
-        f["turnover"] += (size - size.shift(1).fillna(0.0)).abs().to_numpy()
+        f["turnover"] += (size - size.shift(1).fillna(0.0)).abs().to_numpy() + _hedge_roll(c.index, size).to_numpy()
     first = b["w"].index[(b["w"].sum(axis=1) > 0).to_numpy()].min()
     f = f[f["day"] >= first].reset_index(drop=True)
     with _lock:
