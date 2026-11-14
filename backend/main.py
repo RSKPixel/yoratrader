@@ -27,6 +27,7 @@ import orb
 import ws_hub
 import pairs
 import xsmr
+import xsmrwatch
 
 jobs = {}
 
@@ -688,6 +689,28 @@ def gap_record():
         return {"status": "success", **result}
     except Exception as error:
         print("Gap record failed:", error)
+        return {"status": "error", "message": str(error)}
+
+
+@app.get("/api/xsmr/paper")
+def xsmr_paper(slippage: float = Query(0.02, ge=0, le=1)):
+    """Cross-sectional mean reversion paper trading: today's book, the daily log, the backtest reference."""
+    try:
+        return {"status": "success", **xsmrwatch.paper(slippage / 100)}
+    except Exception as error:
+        print("Cross-sectional paper failed:", error)
+        return {"status": "error", "message": str(error)}
+
+
+@app.post("/api/xsmr/record")
+def xsmr_record():
+    """Record today's book now (the scheduler does this at 09:15:01 in production), then close any due."""
+    try:
+        result = xsmrwatch.record_open()
+        result["closed"] = xsmrwatch.finalize()
+        return {"status": "success", **result}
+    except Exception as error:
+        print("Cross-sectional record failed:", error)
         return {"status": "error", "message": str(error)}
 
 

@@ -4,6 +4,7 @@ import BacktestPage from "./BacktestPage";
 import KbdtPage from "./KbdtPage";
 import GapSignalsPage from "./GapSignalsPage";
 import PortfolioBacktestPage from "./PortfolioBacktestPage";
+import XsmrPaperPage from "./XsmrPaperPage";
 import KbdtSignalsPage from "./KbdtSignalsPage";
 import IntradayModelPage from "./IntradayModelPage";
 import { FibInfo, KbdtFibInfo, OrbInfo } from "./ModelInfoModal";
@@ -31,7 +32,10 @@ const NAV_ITEMS = {
     { id: "kbdtfib", label: "Key Break + Fib" },
   ],
   signals: [{ id: "kbdt-signals", label: "KBDT · Index futures" }],
-  paper: [{ id: "gap-signals", label: "Buy on gap" }],
+  paper: [
+    { id: "gap-signals", label: "Buy on gap" },
+    { id: "xsmr-paper", label: "Cross-sectional mean reversion" },
+  ],
   backtest: [{ id: "bt-kbdt", label: "Key Breakout Dow Theory" }],
   // Models from Ernest Chan's "Algorithmic Trading: Winning Strategies and Their Rationale".
   chan: [
@@ -706,6 +710,8 @@ export default function App() {
         <KbdtSignalsPage />
       ) : activePage === "gap-signals" ? (
         <GapSignalsPage />
+      ) : activePage === "xsmr-paper" ? (
+        <XsmrPaperPage />
       ) : activePage === "chan-xsmr" || activePage === "chan-pairs" ? (
         <PortfolioBacktestPage key={activePage} model={activePage.slice(5)} />
       ) : activePage.startsWith("bt-") ? (
