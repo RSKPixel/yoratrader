@@ -690,7 +690,8 @@ export function GapMomentumInfo() {
       <Section title="Why test it">
         <p>
           Chan's argument: gaps <B>continue</B> in index futures (stop orders and momentum traders pile in) but{" "}
-          <B>reverse</B> in single stocks (buy-on-gap). On NSE data the stock half holds; this page tests the index half.
+          <B>reverse</B> in single stocks (buy-on-gap). This page tests the index half, and the same rule on the F&amp;O
+          stocks as a check on the stock half.
         </p>
       </Section>
       <Section title="Data">
@@ -698,6 +699,10 @@ export function GapMomentumInfo() {
           <li>
             <B>F&amp;O indices</B> (NIFTY, BANK, FIN SERVICE, MID SELECT, NEXT 50), spot data standing in for futures,
             15m candles from 2015 (MID SELECT from 2022).
+          </li>
+          <li>
+            <B>F&amp;O stocks</B>: today's 218 stocks with futures, 15m candles from 2015. No ranking, as on the indices:
+            every stock that gaps by 0.1σ is traded (about 20 a day).
           </li>
           <li>
             Not extended to the daily history: before 2011 Kite's index opens are often just the previous close, so the
@@ -713,6 +718,11 @@ export function GapMomentumInfo() {
           It does not work on Indian indices: the book version loses before costs (about −0.06R per trade gross,
           −0.16R net over 3,400+ trades, no profitable year). Index gaps here tend to fade rather than run. Fading them
           instead would be a new idea fitted to this result, so it is not offered here.
+        </p>
+        <p className="mt-2">
+          On the F&amp;O stocks it loses more clearly: about −0.13R per trade gross, −0.19R net over 58,000 trades, every
+          year negative. That is the stock half of Chan's argument showing up: stock gaps reverse, which is what
+          buy-on-gap trades.
         </p>
       </Section>
     </>

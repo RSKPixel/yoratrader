@@ -105,14 +105,15 @@ GAP_BOOK = "1sd-top10-long-none-1d"  # Chan's version
 # Opening gap momentum (Chan ch. 7, Example 7.1): the mirror image on index futures. Buy at the
 # open when the index opens above the previous high by more than 0.1σ, short when it opens below
 # the previous low by more than 0.1σ; out at 15:15. No average filter, no ranking (each index on
-# its own). Book: both sides, no stop. Indices only, 15m period (before 2011 Kite's index opens
+# its own). Book: both sides, no stop. Indices (the book), and the F&O stocks as a check on the stock half
+# of Chan's argument (gaps reverse in stocks). 15m period (before 2011 Kite's index opens
 # are often just the previous close, so the gap isn't measurable).
 VARIANTS["gapmom"] = {
     f"0.1sd-all-{sides}-{stop}-1d": {"threshold": 0.1, "top": None, "sides": sides, "stop": stop, "hold": 1}
     for sides in ("both", "long") for stop in ("none", "1sd")
 }
 GAPMOM_BOOK = "0.1sd-all-both-none-1d"
-GAPMOM_DATASETS = ("indices",)
+GAPMOM_DATASETS = ("indices", "fno")
 GAP_MODELS = ("gap", "gapmom")
 DEFAULT_MODEL, DEFAULT_VARIANT = "kbdt", "5d"
 MODEL_NAMES = {"kbdt": "Key Breakout Dow Theory", "gap": "Buy on gap", "gapmom": "Opening gap momentum"}

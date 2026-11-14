@@ -9,7 +9,7 @@ const ALL_DATASETS = [
   ["fno", "All F&O stocks"],
 ];
 // KBDT isn't run on the full F&O stock list (its day-by-day replay is too slow for ~180 symbols).
-const MODEL_DATASETS = { kbdt: ["indices", "stocks"], gap: ["indices", "stocks", "fno"], gapmom: ["indices"] };
+const MODEL_DATASETS = { kbdt: ["indices", "stocks"], gap: ["indices", "stocks", "fno"], gapmom: ["indices", "fno"] };
 
 const MODEL_NAMES = { kbdt: "Key Breakout Dow Theory", gap: "Buy on gap", gapmom: "Opening gap momentum" };
 
