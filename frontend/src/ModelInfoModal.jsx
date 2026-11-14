@@ -1096,13 +1096,14 @@ export function ConnorsInfo() {
         </List>
       </Section>
 
-      <Section title="Positions and stop (not in the book)">
+      <Section title="Max open and stop (not in the book)">
         <List>
           <li>
-            <B>Positions · Many</B> (the book): each day's picks share a fifth of capital, and a stock picked again
-            while held is bought again. <B>One trade at a time</B>: while a stock is held nothing else is bought; when
-            it's sold (on time or at the stop), the next trade is the most oversold qualifying stock from that 15:15 on,
-            with all the capital, or one lot. The take doesn't apply. It's far more concentrated, so expect much bigger swings.
+            <B>Max open · Many</B> (the book): each day's picks share a fifth of capital, and a stock picked again
+            while held is bought again. <B>1 / 2 / 3 / 5</B>: at most that many trades open at once, for a margin
+            budget (each open futures lot needs its own margin). Each trade gets 1/N of capital, or one lot. A new trade
+            starts only when a slot frees up: the most oversold qualifying stock not already held, from that 15:15 on.
+            The take doesn't apply. Fewer slots means bigger swings.
           </li>
           <li>
             <B>Stop 1σ / 2σ</B>: 1 or 2 standard deviations of the stock's last 90 daily returns below the buy price (1σ

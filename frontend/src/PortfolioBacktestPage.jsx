@@ -66,7 +66,10 @@ const LC_HOLDS = [
 ];
 const LC_POSITIONS = [
   ["", "Many (book)"],
-  ["-single", "One trade at a time"],
+  ["-max1", "1"],
+  ["-max2", "2"],
+  ["-max3", "3"],
+  ["-max5", "5"],
 ];
 const LC_STOPS = [
   ["", "None (book)"],
@@ -685,7 +688,7 @@ export default function PortfolioBacktestPage({ model = "xsmr" }) {
   const fmt = useMemo(() => makeFmt(shownUnit, capital), [shownUnit, capital]);
 
   const base = isLc ? `${lcSetup}-${lcHold}${lcRepeat}${lcStop}` : isQm ? `${qmVersion}${qmHedge === "nifty" ? "-hedged" : ""}` : isMom ? momFill : isPairs ? `${method}${fill === "next" ? "-next" : ""}` : version === "daily" ? "daily" : `intraday-${entry}${entry === "0915" && stop === "1sd" ? "-1sd" : ""}`;
-  const variant = take === "all" || (isLc && lcRepeat === "-single") ? base : `${base}-${take}`;
+  const variant = take === "all" || (isLc && lcRepeat) ? base : `${base}-${take}`;
   const [month, setMonth] = useState(null);
   const [monthRows, setMonthRows] = useState({ rows: [], loading: false });
 
@@ -725,7 +728,7 @@ export default function PortfolioBacktestPage({ model = "xsmr" }) {
     if (isLc) {
       setLcSetup(b.split("-")[0]);
       setLcHold(b.split("-")[1]);
-      setLcRepeat(b.includes("-single") ? "-single" : "");
+      setLcRepeat(b.match(/-max\d+/)?.[0] ?? "");
       setLcStop(b.endsWith("-1sd") ? "-1sd" : b.endsWith("-2sd") ? "-2sd" : "");
     } else if (isQm) {
       setQmVersion(b.replace(/-hedged$/, ""));
@@ -801,9 +804,9 @@ export default function PortfolioBacktestPage({ model = "xsmr" }) {
             </div>
             <div
               className="flex items-center gap-2"
-              title="Many: each day's picks share a fifth of capital, so up to 5 days of picks are open together (the book). One trade at a time: while a stock is held nothing else is bought; when it's sold, the next trade is the most oversold qualifying stock from that 15:15 on, with all the capital (one lot)."
+              title="Many: each day's picks share a fifth of capital, so up to 5 days of picks are open together (the book). 1 / 2 / 3 / 5: at most that many trades open at once, each 1/N of capital (one lot each); a new trade only when a slot frees up, the most oversold qualifying stock not already held. Size it to your margin: each open futures lot needs its own."
             >
-              <span className="text-xs uppercase tracking-[0.14em] text-[#6f6a62]">Positions</span>
+              <span className="text-xs uppercase tracking-[0.14em] text-[#6f6a62]">Max open</span>
               <Segmented options={LC_POSITIONS} value={lcRepeat} onChange={setLcRepeat} />
             </div>
             <div
@@ -862,7 +865,7 @@ export default function PortfolioBacktestPage({ model = "xsmr" }) {
             )}
           </>
         )}
-        {!isQm && !(isLc && lcRepeat === "-single") && (
+        {!isQm && !(isLc && lcRepeat) && (
         <div
           className="flex items-center gap-2"
           title={
