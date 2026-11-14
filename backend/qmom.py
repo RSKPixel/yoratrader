@@ -78,15 +78,15 @@ def _base(variant):
 
 def _signals(c):
     """Momentum (t-252 -> t-21), FIP over the same window, and the clean daily returns."""
-    r = c / c.shift(1) - 1
-    bad = r.abs() > MAX_MOVE
-    full = c.notna().rolling(LOOKBACK + 1).sum().eq(LOOKBACK + 1)
+    r, bad, history = xsmom.gap_aware(c)
     clean = ~bad.rolling(LOOKBACK).max().fillna(1).astype(bool)
-    ok = full & clean
-    mom = (c.shift(SKIP) / c.shift(LOOKBACK) - 1).where(ok)
+    ok = history(LOOKBACK + 1) & clean
+    cf = c.ffill()
+    mom = (cf.shift(SKIP) / cf.shift(LOOKBACK) - 1).where(ok)
     window = LOOKBACK - SKIP
-    up = (r > 0).astype(float).shift(SKIP).rolling(window).sum() / window
-    down = (r < 0).astype(float).shift(SKIP).rolling(window).sum() / window
+    seen = r.notna().astype(float).shift(SKIP).rolling(window).sum()  # days with a price in the window
+    up = (r > 0).astype(float).shift(SKIP).rolling(window).sum() / seen
+    down = (r < 0).astype(float).shift(SKIP).rolling(window).sum() / seen
     fip = (np.sign(mom) * (down - up)).where(ok)
     return mom, fip, r.where(~bad, 0.0).fillna(0.0)
 

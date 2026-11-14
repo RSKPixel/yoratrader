@@ -72,14 +72,34 @@ def _closes(dataset):
     return c[count >= 0.8 * count.rolling(21, center=True, min_periods=1).median()]
 
 
+MIN_HISTORY = 0.9  # share of a window's closes a stock needs, not counting days most stocks are missing
+
+
+def gap_aware(c):
+    """Kite's daily history has holes (24 May - 22 Jun 2004: most stocks missing). Returns
+    (returns, bad moves, history check): returns measured from the last price before a hole (so a
+    position held through it earns the move when prices return); a bad move is over 20% day to day
+    or across a hole (a split or bad print); history(days) needs 90% of the window's closes, not
+    counting days most stocks are missing."""
+    cf = c.ffill()
+    r = (cf / cf.shift(1) - 1).where(c.notna())
+    bad = r.abs() > MAX_MOVE
+    priced = c.notna().sum(axis=1)
+    hole = priced < 0.5 * priced.rolling(121, center=True, min_periods=20).median()
+
+    def history(days):
+        need = MIN_HISTORY * (days - hole.rolling(days, min_periods=1).sum())
+        return c.rolling(days, min_periods=1).count().ge(need, axis=0) & c.notna()
+    return r, bad, history
+
+
 def _book(c, variant):
     """Daily momentum, the target weights held after each close, and the daily returns."""
     base, take = parse_variant(variant)
-    r = c / c.shift(1) - 1
-    bad = r.abs() > MAX_MOVE
-    full = c.notna().rolling(LOOKBACK + 1).sum().eq(LOOKBACK + 1)
+    r, bad, history = gap_aware(c)
+    full = history(LOOKBACK + 1)
     clean = ~bad.rolling(LOOKBACK).max().fillna(1).astype(bool)
-    mom = (c / c.shift(LOOKBACK) - 1).where(full & clean)
+    mom = (c / c.ffill().shift(LOOKBACK) - 1).where(full & clean)
     n = mom.notna().sum(axis=1)
     rank = mom.rank(axis=1)
     per_side = (n * FRACTION).round().clip(lower=1)
@@ -100,7 +120,7 @@ def _lot_rows(c, b, lot, days):
     lot = lot[cols]
     target = np.sign(b["w"][cols]) * lot          # lots after each close
     held = target.shift(1).fillna(0.0)           # lots carried into each day
-    prev_close = c[cols].shift(1)
+    prev_close = c[cols].ffill().shift(1)  # across a data hole, the last price before it
     move = (held * prev_close * b["r"][cols]).fillna(0.0)  # a >20% day earns nothing, as in the % series
     traded = ((target - held).abs() * c[cols]).fillna(0.0)
     notional = (held.abs() * prev_close).fillna(0.0)
