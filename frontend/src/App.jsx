@@ -6,6 +6,7 @@ import GapSignalsPage from "./GapSignalsPage";
 import PortfolioBacktestPage from "./PortfolioBacktestPage";
 import XsmrPaperPage from "./XsmrPaperPage";
 import ConnorsPaperPage from "./ConnorsPaperPage";
+import VboPaperPage from "./VboPaperPage";
 import KbdtSignalsPage from "./KbdtSignalsPage";
 import IntradayModelPage from "./IntradayModelPage";
 import { FibInfo, KbdtFibInfo, OrbInfo } from "./ModelInfoModal";
@@ -38,6 +39,7 @@ const NAV_ITEMS = {
     { id: "gap-signals", label: "Buy on gap (Intraday)" },
     { id: "xsmr-paper", label: "Cross-sectional mean reversion (Intraday)" },
     { id: "connors-paper", label: "Short-term mean reversion (Positional)" },
+    { id: "vbo-paper", label: "Volatility breakout · Indices (Swing)" },
   ],
   backtest: [{ id: "bt-kbdt", label: "Key Breakout Dow Theory (Positional)" }],
   // Models from Ernest Chan's "Algorithmic Trading: Winning Strategies and Their Rationale".
@@ -778,6 +780,8 @@ export default function App() {
         <XsmrPaperPage />
       ) : activePage === "connors-paper" ? (
         <ConnorsPaperPage />
+      ) : activePage === "vbo-paper" ? (
+        <VboPaperPage />
       ) : activePage === "chan-xsmr" || activePage === "chan-pairs" || activePage === "chan-xsmom" || activePage === "qm-qmom" || activePage === "lc-connors" || activePage === "lw-vbo" ? (
         <PortfolioBacktestPage key={activePage} model={activePage.split("-")[1]} />
       ) : activePage.startsWith("bt-") ? (

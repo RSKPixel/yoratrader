@@ -436,6 +436,14 @@ def _tick():
         result = xsmrwatch.record_preopen_open()
         if result.get("recorded"):
             print("Pre-open test: futures open", result)
+        import vbowatch  # volatility breakout paper trading (imported here: it imports gapwatch)
+
+        try:  # its own errors must not stop the other models' recording
+            result = vbowatch.record_open()
+            if result.get("recorded"):
+                print("Volatility breakout paper: opens", result)
+        except Exception as error:
+            print("Volatility breakout paper: open failed:", error)
     import connorswatch  # short-term mean reversion paper trading (imported here: it imports gapwatch)
 
     if connorswatch.RECORD_AT <= t < connorswatch.RECORD_UNTIL:
@@ -452,6 +460,14 @@ def _tick():
         closed = xsmrwatch.finalize_preopen()
         if closed:
             print(f"Pre-open test: closed {closed} futures")
+        import vbowatch
+
+        try:
+            bought = vbowatch.finalize()
+            if bought:
+                print(f"Volatility breakout paper: {bought} breakouts")
+        except Exception as error:
+            print("Volatility breakout paper: finalize failed:", error)
     if t >= REFRESH_AT and _state["refreshed_on"] != now.date():
         result = refresh_daily()
         _state["refreshed_on"] = now.date()

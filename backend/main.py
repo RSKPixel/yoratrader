@@ -31,6 +31,7 @@ import xsmom
 import qmom
 import connors
 import vbo
+import vbowatch
 import xsmrwatch
 import connorswatch
 
@@ -712,6 +713,16 @@ def xsmr_paper(slippage: float = Query(0.02, ge=0, le=1), stop: bool = Query(Fal
         return {"status": "success", **xsmrwatch.paper(slippage / 100, stop=stop)}
     except Exception as error:
         print("Cross-sectional paper failed:", error)
+        return {"status": "error", "message": str(error)}
+
+
+@app.get("/api/vbo/paper")
+def vbo_paper(slippage: float = Query(0.02, ge=0, le=1)):
+    """Volatility breakout paper trading on the F&O indices (index and futures versions)."""
+    try:
+        return {"status": "success", **vbowatch.paper(slippage / 100)}
+    except Exception as error:
+        print("Volatility breakout paper failed:", error)
         return {"status": "error", "message": str(error)}
 
 

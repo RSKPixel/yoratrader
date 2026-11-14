@@ -17,7 +17,7 @@ Computed on request from the 15m candles (2015 on) and cached. Returns: % of cap
 15:15 each day, summed at a fixed size. Costs: NSE futures charges + slippage on the buy and the
 sale (xsmr.cost_per_side); the futures roll is not charged. Data hygiene as in Buy on gap: the
 first 15m open within 1% of the daily open, the 15:15 price within the day's range, no move over
-20%. Muhurat sessions are not days. Caveat: the "first profitable open" exit flatters every long
+20%. Muhurat sessions are not days (a session is a day most symbols open at 09:15). Caveat: the "first profitable open" exit flatters every long
 entry (stocks have drifted up overnight); against a baseline that buys every 09:15 open with the
 same exit, the breakout adds about 0.15% a trade on stocks and 0.2% on the indices.
 """
@@ -74,15 +74,20 @@ def _load(dataset):
         daily = pd.read_sql("SELECT symbol, day, open, high, low, close FROM bt_daily WHERE close > 0 AND symbol IN "
                             "(SELECT symbol FROM bt_symbols WHERE dataset = %s)", conn, params=[dataset])
     daily["day"] = pd.to_datetime(daily["day"])
+    bars["day"] = pd.to_datetime(bars["day"])
+    # A session is a day most symbols open at 09:15. Muhurat trading (an evening hour, on a weekend or a
+    # holiday) has every symbol trading, so a count of symbols doesn't catch it; its range would be
+    # taken as "yesterday's" the next morning.
+    opened = bars[bars["slot"] == 0].groupby("day")["symbol"].nunique()
     count = daily.groupby("day").size()
-    keep = count[count >= 0.8 * count.rolling(21, center=True, min_periods=1).median()].index
+    keep = count[(count >= 0.8 * count.rolling(21, center=True, min_periods=1).median())
+                 & (opened.reindex(count.index).fillna(0) >= 0.5 * count)].index
     daily = daily[daily["day"].isin(keep)].sort_values(["symbol", "day"])
     g = daily.groupby("symbol")
     daily["range"] = g["high"].shift(1) - g["low"].shift(1)
     daily["prev_close"] = g["close"].shift(1)
     dv = {c: daily.pivot(index="day", columns="symbol", values=c) for c in ("open", "high", "low", "range", "prev_close")}
 
-    bars["day"] = pd.to_datetime(bars["day"])
     bars = bars[(bars["slot"] >= 0) & (bars["slot"] < BARS) & bars["day"].isin(keep)]
     days = sorted(set(bars["day"]) & set(dv["open"].index))
     syms = sorted(set(bars["symbol"]) & set(dv["open"].columns))
