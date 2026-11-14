@@ -124,6 +124,121 @@ function Log({ log, positions, fmtBook, money, perStock }) {
   );
 }
 
+// Pre-open test (futures): could the book be entered at the 09:15 open by ordering inside the
+// futures' pre-open auction, picking the stocks from the 09:06 indicative prices?
+function PreopenTest({ slippage, fmtBook }) {
+  const [data, setData] = useState(null);
+  const [take, setTake] = useState("3");
+  const [open, setOpen] = useState(null);
+  useEffect(() => {
+    fetch(`/api/xsmr/preopen?slippage=${slippage}`)
+      .then((r) => r.json())
+      .then((p) => setData(p.status === "success" ? p : null))
+      .catch(() => setData(null));
+  }, [slippage]);
+  if (!data) return null;
+  const cell = (t) =>
+    t ? (
+      <>
+        <span className={cls(t.net_pct)}>{fmtBook(t.net_pct)}</span>
+        <span className="ml-2 text-[#6f6a62]">
+          {t.matched}/{t.picks} match
+        </span>
+      </>
+    ) : (
+      "—"
+    );
+  return (
+    <Card
+      title="Pre-open test · futures"
+      right={
+        <span className="flex items-center gap-2">
+          <Segmented options={[["3", "3 + 3"], ["5", "5 + 5"]]} value={take} onChange={setTake} />
+        </span>
+      }
+    >
+      <p className="mb-2 max-w-4xl text-xs text-[#9b968c]">
+        Since 8 Dec 2025 current-month futures open with a call auction (orders 09:00–09:08); a market order placed in it
+        fills at the futures open. The test: pick the stocks from the futures&apos; indicative prices at 09:06 (the last safe
+        moment to order) and enter at the futures open, out at 15:15. "Match" = picks also in the book picked from the
+        actual futures open. Nothing is ordered. Snapshots at 09:06 and 09:07 need Kite logged in by 09:05.
+      </p>
+      {!data.days.length ? (
+        <p className="py-6 text-center text-sm text-[#9b968c]">No pre-open snapshots yet. The first is taken at 09:06 on the next trading day.</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[760px] text-sm">
+            <thead className="text-left text-xs uppercase tracking-[0.1em] text-[#6f6a62]">
+              <tr>
+                {["Day", "Fresh prices 09:06", "Picked at 09:06", "Picked at 09:07", "Picked from futures open"].map((h) => (
+                  <th key={h} className="px-3 py-2 font-medium">
+                    {h}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-[#2c313a] whitespace-nowrap font-mono text-xs">
+              {data.days.map((d) => [
+                <tr
+                  key={d.day}
+                  onClick={() => setOpen(open === d.day ? null : d.day)}
+                  className={`cursor-pointer ${open === d.day ? "bg-[#e2c08a]/10" : "hover:bg-white/[0.03]"}`}
+                >
+                  <td className="px-3 py-2 text-[#e7e4dc]">
+                    <span className="mr-1 text-[#6f6a62]">{open === d.day ? "▾" : "▸"}</span>
+                    {d.day}
+                  </td>
+                  <td className="px-3 py-2 text-[#9b968c]" title="Futures whose 09:06 price differs from yesterday's close (a live indicative price)">
+                    {d.fresh["0906"] ?? 0}/{d.quoted["0906"] ?? 0}
+                  </td>
+                  <td className="px-3 py-2">{cell(d.takes[take]?.["0906"])}</td>
+                  <td className="px-3 py-2">{cell(d.takes[take]?.["0907"])}</td>
+                  <td className="px-3 py-2">{cell(d.takes[take]?.open)}</td>
+                </tr>,
+                open === d.day && (
+                  <tr key={`${d.day}-stocks`}>
+                    <td colSpan={5} className="bg-[#14161a] px-2 py-2">
+                      <table className="w-full text-xs">
+                        <thead className="text-left uppercase tracking-[0.1em] text-[#6f6a62]">
+                          <tr>
+                            {["Future", "Gap @ 09:06", "Gap @ 09:07", "Gap @ open", "Prev close", "Fut open", "15:15", "Move"].map((h) => (
+                              <th key={h} className="px-2 py-1 font-medium">
+                                {h}
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-[#23272e] font-mono">
+                          {d.stocks.map((t) => (
+                            <tr key={t.symbol}>
+                              <td className="px-2 py-1 text-[#e7e4dc]">{t.fut}</td>
+                              <td className={`px-2 py-1 ${cls(t.sig_0906)}`}>{fmtPct(t.sig_0906)}</td>
+                              <td className={`px-2 py-1 ${cls(t.sig_0907)}`}>{fmtPct(t.sig_0907)}</td>
+                              <td className={`px-2 py-1 ${cls(t.sig_open)}`}>{fmtPct(t.sig_open)}</td>
+                              <td className="px-2 py-1 text-[#c8c3b8]">{px(t.prev_close)}</td>
+                              <td className="px-2 py-1 text-[#c8c3b8]">{px(t.open)}</td>
+                              <td className="px-2 py-1 text-[#c8c3b8]">{px(t.exit)}</td>
+                              <td className={`px-2 py-1 ${cls(t.move_pct)}`}>{fmtPct(t.move_pct)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </td>
+                  </tr>
+                ),
+              ])}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <p className="mt-2 font-mono text-[0.7rem] text-[#6f6a62]">
+        Net = equal rupees per future, entry at the futures open, exit at 15:15, after {data.cost_pct}% costs a day. Click a day for
+        every future any version picked (up to 5 + 5).
+      </p>
+    </Card>
+  );
+}
+
 export default function XsmrPaperPage() {
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
@@ -290,6 +405,8 @@ export default function XsmrPaperPage() {
           <Card title="Paper log" right={`net after ${data.cost_pct}% costs a day · click a day for its positions`}>
             <Log log={data.log} positions={data.positions} fmtBook={fmtBook} money={money} perStock={perStock} />
           </Card>
+
+          <PreopenTest slippage={slippage} fmtBook={fmtBook} />
         </>
       )}
 

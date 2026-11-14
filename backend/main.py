@@ -710,6 +710,16 @@ def xsmr_paper(slippage: float = Query(0.02, ge=0, le=1)):
         return {"status": "error", "message": str(error)}
 
 
+@app.get("/api/xsmr/preopen")
+def xsmr_preopen(slippage: float = Query(0.02, ge=0, le=1)):
+    """Pre-open test: picks from the futures' 09:06 / 09:07 auction prices against the futures open."""
+    try:
+        return {"status": "success", **xsmrwatch.preopen(slippage / 100)}
+    except Exception as error:
+        print("Pre-open test failed:", error)
+        return {"status": "error", "message": str(error)}
+
+
 @app.post("/api/xsmr/record")
 def xsmr_record():
     """Record today's book now (the scheduler does this at 09:15:01 in production), then close any due."""

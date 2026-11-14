@@ -422,6 +422,10 @@ def _tick():
         _state["zones"] = (now.date(), [z for z in levels(now.date()) if z["buy_below"] or z["sell_above"]])
     import xsmrwatch  # cross-sectional paper trading shares this scheduler (imported here: it imports gapwatch)
 
+    if clock(9, 6) <= t < clock(9, 8):  # inside the futures pre-open auction
+        result = xsmrwatch.record_preopen()
+        if result.get("recorded"):
+            print("Pre-open test: snapshot", result)
     if OPEN_AT <= t < clock(15, 30):
         result = record_open()
         if result.get("recorded"):
@@ -429,6 +433,9 @@ def _tick():
         result = xsmrwatch.record_open()
         if result.get("recorded"):
             print("Cross-sectional paper: recorded", result)
+        result = xsmrwatch.record_preopen_open()
+        if result.get("recorded"):
+            print("Pre-open test: futures open", result)
     if t >= EXIT_AT:
         closed = finalize()
         if closed:
@@ -436,6 +443,9 @@ def _tick():
         closed = xsmrwatch.finalize()
         if closed:
             print(f"Cross-sectional paper: closed {closed} positions")
+        closed = xsmrwatch.finalize_preopen()
+        if closed:
+            print(f"Pre-open test: closed {closed} futures")
     if t >= REFRESH_AT and _state["refreshed_on"] != now.date():
         result = refresh_daily()
         _state["refreshed_on"] = now.date()
