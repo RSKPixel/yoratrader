@@ -29,6 +29,7 @@ import pairs
 import xsmr
 import xsmom
 import qmom
+import connors
 import xsmrwatch
 
 jobs = {}
@@ -598,7 +599,7 @@ def kbdt_ltp():
         return {"status": "error", "message": str(error)}
 
 
-PORTFOLIO_MODELS = {"xsmr": xsmr, "pairs": pairs, "xsmom": xsmom, "qmom": qmom}
+PORTFOLIO_MODELS = {"xsmr": xsmr, "pairs": pairs, "xsmom": xsmom, "qmom": qmom, "connors": connors}
 
 
 def _portfolio_check(model, variant, dataset):
@@ -610,7 +611,7 @@ def _portfolio_check(model, variant, dataset):
         _, take = module.parse_variant(variant)
     except ValueError:
         raise HTTPException(status_code=400, detail="unknown variant")
-    if model in ("xsmr", "xsmom", "qmom") and dataset not in module.DATASETS:
+    if model != "pairs" and dataset not in module.DATASETS:
         raise HTTPException(status_code=400, detail="unknown dataset")
     return module, take
 
@@ -623,7 +624,7 @@ def backtest_portfolio(model: str = Query("xsmr"), variant: str = Query("intrada
     try:
         if model == "pairs":
             return {"status": "success", **pairs.results(variant, slippage / 100), "compare": pairs.compare(slippage / 100, take)}
-        if model in ("xsmom", "qmom"):
+        if model in ("xsmom", "qmom", "connors"):
             return {"status": "success", **module.results(variant, dataset, slippage / 100, lots=lots),
                     "compare": module.compare(dataset, slippage / 100, take, lots=lots)}
         return {"status": "success", **xsmr.results(variant, dataset, slippage / 100, lots=lots),
@@ -642,7 +643,7 @@ def backtest_portfolio_month(month: str = Query(..., pattern=r"^\d{4}-\d{2}$"), 
     try:
         if model == "pairs":
             return {"status": "success", "trades": pairs.month_trades(variant, month, slippage / 100)}
-        if model in ("xsmom", "qmom"):
+        if model in ("xsmom", "qmom", "connors"):
             return {"status": "success", "days": module.month_days(variant, dataset, month, slippage / 100, lots=lots)}
         return {"status": "success", "days": xsmr.month_days(variant, dataset, month, slippage / 100, lots=lots)}
     except Exception as error:
@@ -654,7 +655,7 @@ def backtest_portfolio_month(month: str = Query(..., pattern=r"^\d{4}-\d{2}$"), 
 def backtest_portfolio_day(day: str = Query(..., pattern=r"^\d{4}-\d{2}-\d{2}$"), variant: str = Query("intraday-0915"),
                            dataset: str = Query("fno"), model: str = Query("xsmr")):
     """Every stock position of a cross-sectional book (mean reversion or momentum) on one day."""
-    if model not in ("xsmr", "xsmom", "qmom"):
+    if model not in ("xsmr", "xsmom", "qmom", "connors"):
         raise HTTPException(status_code=400, detail="unknown model")
     module, _ = _portfolio_check(model, variant, dataset)
     try:

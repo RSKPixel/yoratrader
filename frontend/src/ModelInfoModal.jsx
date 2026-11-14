@@ -1052,3 +1052,83 @@ export function QmomInfo() {
     </>
   );
 }
+
+export function ConnorsInfo() {
+  return (
+    <>
+      <Section title="The rules">
+        <p className="mb-2">
+          Short-term mean reversion (Larry Connors &amp; Conor Sen, How Markets Really Work, 2nd ed. 2012), long only:
+        </p>
+        <List>
+          <li>
+            <B>Trend filter</B>: the stock is above its 200-day average. The book's finding is that short-term weakness
+            gets bought in uptrends.
+          </li>
+          <li>
+            <B>Setup</B> (the book's): the <B>2-day RSI below 10</B>; or a new 10-day closing low; or 3 down closes in a row.
+          </li>
+          <li>
+            <B>Timing</B>: everything at 15:15. The signal uses official closes to yesterday plus today's 15:15 price,
+            and the entry is that 15:15 price. The official close (a 30-minute average) can't be traded, and waiting for
+            the next open gives up the overnight move, where much of the edge sits.
+          </li>
+          <li>
+            <B>Exit</B>: the 15:15 price 5 trading days later (the book's week); 2 days as a check.
+          </li>
+        </List>
+      </Section>
+
+      <Section title="Book and take">
+        <List>
+          <li>
+            Each day's picks get 1/5 of capital, split equally, so the book is the last five days' picks together. A day
+            with no picks leaves its slice in cash. A stock picked again while held adds a slice.
+          </li>
+          <li>
+            <B>All signals</B> is the book: about 10 a day on the F&amp;O list, ~30 stocks held. <B>Lowest 5 / 3 RSI</B>{" "}
+            takes only the day's most oversold: about 12 / 8 held.
+          </li>
+          <li>
+            <B>No threshold</B> is the control. With All it holds every stock above its 200-day average (the baseline);
+            with a take it buys the day's lowest RSIs whatever their level. Compare with it to see what the setup itself adds.
+          </li>
+        </List>
+      </Section>
+
+      <Section title="What the tests show">
+        <List>
+          <li>
+            Per trade, oversold stocks beat the average stock in an uptrend by about 0.2% over 5 days. But much of that
+            comes from market-wide sell-offs, when dozens of stocks signal at once, and a daily book doesn't weight those
+            days more. So the uncapped book earns about the same as the baseline.
+          </li>
+          <li>
+            What helps is <B>picking the day's most oversold</B> (Lowest 3 RSI), with or without the below-10 threshold.
+          </li>
+          <li>
+            The book's short side (overbought stocks below the 200-day average) lost in every test, so it isn't included.
+          </li>
+        </List>
+      </Section>
+
+      <Section title="Returns, costs and data">
+        <List>
+          <li>Results are % of capital, invested long, summed day by day, not compounded. Annual = mean daily × 248.</li>
+          <li>
+            Costs on every rupee traded: NSE futures charges plus the chosen slippage. Turnover is about 90× capital a
+            year (a 5-day hold), so slippage matters. The futures roll is not charged.
+          </li>
+          <li>
+            15-minute candles start in February 2015. A stock qualifies only with 200 straight closes and no daily move over
+            20% in the window; a day's move over 20% earns nothing.
+          </li>
+          <li>
+            <B>Survivorship</B>: today's F&amp;O list is used for every year, which flatters every long position. Judge the
+            setups against the no-threshold control, not against zero.
+          </li>
+        </List>
+      </Section>
+    </>
+  );
+}

@@ -47,6 +47,8 @@ const NAV_ITEMS = {
   ],
   // Gray & Vogel, "Quantitative Momentum" (Wiley, 2016).
   grayVogel: [{ id: "qm-qmom", label: "Quantitative momentum · Backtest" }],
+  // Connors & Sen, "How Markets Really Work" (2nd ed., Bloomberg Press / Wiley, 2012).
+  connors: [{ id: "lc-connors", label: "Short-term mean reversion · Backtest" }],
   system: [{ id: "settings", label: "Settings" }],
 };
 
@@ -703,6 +705,24 @@ export default function App() {
             </div>
           </div>
           <div>
+            <p title="How Markets Really Work (2nd ed., 2012)" className="px-3 pb-1 text-[0.65rem] font-medium uppercase tracking-[0.14em] text-[#6f6a62]">
+              Larry Connors
+            </p>
+            <div className="flex flex-col gap-0.5 pl-1">
+              {NAV_ITEMS.connors.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  className={navItemClass(activePage === item.id)}
+                  aria-current={activePage === item.id ? "page" : undefined}
+                  onClick={() => setActivePage(item.id)}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div>
             <p className="px-3 pb-1 text-[0.65rem] font-medium uppercase tracking-[0.14em] text-[#6f6a62]">
               System
             </p>
@@ -733,7 +753,7 @@ export default function App() {
         <GapSignalsPage />
       ) : activePage === "xsmr-paper" ? (
         <XsmrPaperPage />
-      ) : activePage === "chan-xsmr" || activePage === "chan-pairs" || activePage === "chan-xsmom" || activePage === "qm-qmom" ? (
+      ) : activePage === "chan-xsmr" || activePage === "chan-pairs" || activePage === "chan-xsmom" || activePage === "qm-qmom" || activePage === "lc-connors" ? (
         <PortfolioBacktestPage key={activePage} model={activePage.split("-")[1]} />
       ) : activePage.startsWith("bt-") ? (
         <BacktestPage key={activePage} model={activePage.slice(3)} />

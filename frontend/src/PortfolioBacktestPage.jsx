@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createChart, LineSeries } from "lightweight-charts";
-import ModelInfoModal, { InfoButton, PairsInfo, QmomInfo, XsmomInfo, XsmrInfo } from "./ModelInfoModal";
+import ModelInfoModal, { ConnorsInfo, InfoButton, PairsInfo, QmomInfo, XsmomInfo, XsmrInfo } from "./ModelInfoModal";
 import { formatRs, Segmented, SLIPPAGE, Stat } from "./backtestShared";
 
 // Portfolio-return backtests from Chan's book: cross-sectional mean reversion (ch. 4) and pairs
@@ -53,6 +53,21 @@ const QM_VERSIONS = [
   ["generic", "Momentum only"],
   ["monthly", "Monthly"],
   ["universe", "All stocks (benchmark)"],
+];
+const LC_SETUPS = [
+  ["rsi2", "RSI(2) < 10 (book)"],
+  ["low10", "10-day low"],
+  ["down3", "3 down days"],
+  ["every", "No threshold"],
+];
+const LC_HOLDS = [
+  ["5d", "5 days (book)"],
+  ["2d", "2 days"],
+];
+const LC_TAKES = [
+  ["all", "All signals"],
+  ["top5", "Lowest 5 RSI"],
+  ["top3", "Lowest 3 RSI"],
 ];
 const QM_HEDGES = [
   ["none", "None (book)"],
@@ -208,7 +223,9 @@ function DayTrades({ trades, loading, model }) {
     <div className="max-h-96 overflow-auto px-3 py-2">
       <p className="mb-1 font-mono text-[0.7rem] text-[#9b968c]">
         {trades.length} stocks · {longs} long · {trades.length - longs} short · weight = share of {model === "qmom" ? "capital" : "gross exposure"} ·
-        {model === "qmom"
+        {model === "connors"
+          ? "RSI = 2-day RSI on the day bought · entry/exit = previous/this 15:15"
+          : model === "qmom"
           ? `signal = 12-to-1-month return at the ${trades[0]?.ranked} rebalance · FIP: lower = smoother · entry/exit = previous close/this close`
           : model === "xsmom"
           ? "signal = 12-month return when ranked · entry/exit = previous close/this close"
@@ -218,7 +235,7 @@ function DayTrades({ trades, loading, model }) {
       <table className="w-full text-xs">
         <thead className="sticky top-0 bg-[#181b20] text-left uppercase tracking-[0.1em] text-[#6f6a62]">
           <tr>
-            {["Stock", "Side", "Weight", "Signal", ...(model === "qmom" ? ["FIP"] : []), "Entry", ...(hasStop ? ["Stop"] : []), "Exit", "Move", "Contribution", "Lot", "1 lot ₹"].map((h) => (
+            {["Stock", "Side", "Weight", model === "connors" ? "RSI" : "Signal", ...(model === "qmom" ? ["FIP"] : []), ...(model === "connors" ? ["Bought"] : []), "Entry", ...(hasStop ? ["Stop"] : []), "Exit", "Move", "Contribution", "Lot", "1 lot ₹"].map((h) => (
               <th key={h} className="px-2 py-1 font-medium">
                 {h}
               </th>
@@ -231,7 +248,12 @@ function DayTrades({ trades, loading, model }) {
               <td className="px-2 py-1 text-[#e7e4dc]">{t.symbol}</td>
               <td className={`px-2 py-1 ${t.side === "long" ? "text-[#8fbf9f]" : "text-[#f0b4b4]"}`}>{t.side}</td>
               <td className="px-2 py-1 text-[#9b968c]">{t.weight_pct.toFixed(2)}%</td>
-              <td className={`px-2 py-1 ${pctClass(t.signal_pct)}`}>{fmtPct(t.signal_pct, model === "xsmom" || model === "qmom" ? 1 : 2)}</td>
+              {model === "connors" ? (
+                <td className="px-2 py-1 text-[#c8c3b8]">{t.signal_pct ?? "—"}</td>
+              ) : (
+                <td className={`px-2 py-1 ${pctClass(t.signal_pct)}`}>{fmtPct(t.signal_pct, model === "xsmom" || model === "qmom" ? 1 : 2)}</td>
+              )}
+              {model === "connors" && <td className="px-2 py-1 text-[#9b968c]">{t.bought || "—"}</td>}
               {model === "qmom" && <td className="px-2 py-1 text-[#9b968c]">{t.fip ?? "—"}</td>}
               <td className="px-2 py-1 text-[#c8c3b8]">{t.entry}</td>
               {hasStop && <td className="px-2 py-1 text-[#f0b4b4]">{t.stop ?? "—"}</td>}
@@ -560,6 +582,12 @@ const PAGES = {
       "Long only (Gray & Vogel): every quarter, buy the F&O stocks with the best 12-to-1-month return whose climb was smoothest, equal weight, held three months. Returns are % of capital, summed at a fixed size.",
     info: QmomInfo,
   },
+  connors: {
+    title: "Short-term mean reversion",
+    blurb:
+      "Long only (Connors & Sen): at 15:15, buy F&O stocks above their 200-day average that are short-term oversold, hold 5 days. Each day's picks get 1/5 of capital. Returns are % of capital, summed at a fixed size.",
+    info: ConnorsInfo,
+  },
   pairs: {
     title: "Pairs trading",
     blurb:
@@ -573,6 +601,9 @@ export default function PortfolioBacktestPage({ model = "xsmr" }) {
   const isPairs = model === "pairs";
   const isMom = model === "xsmom";
   const isQm = model === "qmom";
+  const isLc = model === "connors";
+  const [lcSetup, setLcSetup] = useState("rsi2");
+  const [lcHold, setLcHold] = useState("5d");
   const [momFill, setMomFill] = useState("book");
   const [qmVersion, setQmVersion] = useState("book");
   const [qmHedge, setQmHedge] = useState("none");
@@ -580,7 +611,7 @@ export default function PortfolioBacktestPage({ model = "xsmr" }) {
   const [entry, setEntry] = useState("0915");
   const [stop, setStop] = useState("none");
   const [dataset, setDataset] = useState("fno");
-  const [take, setTake] = useState("all");
+  const [take, setTake] = useState(model === "connors" ? "top3" : "all");
   const [method, setMethod] = useState("bollinger");
   const [fill, setFill] = useState("close");
   const [slippage, setSlippage] = useState(0.02);
@@ -595,7 +626,7 @@ export default function PortfolioBacktestPage({ model = "xsmr" }) {
   const shownUnit = data ? (data.lotsMode ? "lots" : unit === "lots" ? "pct" : unit) : unit;
   const fmt = useMemo(() => makeFmt(shownUnit, capital), [shownUnit, capital]);
 
-  const base = isQm ? `${qmVersion}${qmHedge === "nifty" ? "-hedged" : ""}` : isMom ? momFill : isPairs ? `${method}${fill === "next" ? "-next" : ""}` : version === "daily" ? "daily" : `intraday-${entry}${entry === "0915" && stop === "1sd" ? "-1sd" : ""}`;
+  const base = isLc ? `${lcSetup}-${lcHold}` : isQm ? `${qmVersion}${qmHedge === "nifty" ? "-hedged" : ""}` : isMom ? momFill : isPairs ? `${method}${fill === "next" ? "-next" : ""}` : version === "daily" ? "daily" : `intraday-${entry}${entry === "0915" && stop === "1sd" ? "-1sd" : ""}`;
   const variant = take === "all" ? base : `${base}-${take}`;
   const [month, setMonth] = useState(null);
   const [monthRows, setMonthRows] = useState({ rows: [], loading: false });
@@ -633,7 +664,10 @@ export default function PortfolioBacktestPage({ model = "xsmr" }) {
 
   const selectVariant = (v) => {
     const b = take === "all" ? v : v.slice(0, -(take.length + 1));
-    if (isQm) {
+    if (isLc) {
+      setLcSetup(b.split("-")[0]);
+      setLcHold(b.split("-")[1]);
+    } else if (isQm) {
       setQmVersion(b.replace(/-hedged$/, ""));
       setQmHedge(b.endsWith("-hedged") ? "nifty" : "none");
     }
@@ -692,6 +726,20 @@ export default function PortfolioBacktestPage({ model = "xsmr" }) {
               <Segmented options={PAIR_FILLS} value={fill} onChange={setFill} />
             </div>
           </>
+        ) : isLc ? (
+          <>
+            <div
+              className="flex items-center gap-2"
+              title="The setup, in a stock above its 200-day average, computed at 15:15 from closes to yesterday plus today's 15:15 price. No threshold: with a take, the day's lowest RSIs whatever their level; with All, every stock above its 200-day average (the baseline)."
+            >
+              <span className="text-xs uppercase tracking-[0.14em] text-[#6f6a62]">Setup</span>
+              <Segmented options={LC_SETUPS} value={lcSetup} onChange={setLcSetup} />
+            </div>
+            <div className="flex items-center gap-2" title="Bought at 15:15, sold at 15:15 this many trading days later. 5 days is the book's week.">
+              <span className="text-xs uppercase tracking-[0.14em] text-[#6f6a62]">Hold</span>
+              <Segmented options={LC_HOLDS} value={lcHold} onChange={setLcHold} />
+            </div>
+          </>
         ) : isQm ? (
           <>
           <div
@@ -744,7 +792,9 @@ export default function PortfolioBacktestPage({ model = "xsmr" }) {
         <div
           className="flex items-center gap-2"
           title={
-            isMom
+            isLc
+              ? "All signals: every stock that qualifies (the book). Lowest 5 / 3 RSI: only the day's most oversold, each day's picks sharing a fifth of capital."
+              : isMom
               ? "Top / bottom 10%: the book (about 22 stocks a side on the F&O list, 5 on the Nifty 50). 5 + 5 / 1 + 1: only the strongest and weakest each day."
               : isPairs
               ? "All: every selected pair (the book). Top 10 / 5: only the pairs with the strongest cointegration test, fixed before the year."
@@ -752,7 +802,7 @@ export default function PortfolioBacktestPage({ model = "xsmr" }) {
           }
         >
           <span className="text-xs uppercase tracking-[0.14em] text-[#6f6a62]">Take</span>
-          <Segmented options={isMom ? MOM_TAKES : isPairs ? PAIR_TAKES : XSMR_TAKES} value={take} onChange={setTake} />
+          <Segmented options={isLc ? LC_TAKES : isMom ? MOM_TAKES : isPairs ? PAIR_TAKES : XSMR_TAKES} value={take} onChange={setTake} />
         </div>
         )}
       </div>
@@ -767,7 +817,7 @@ export default function PortfolioBacktestPage({ model = "xsmr" }) {
           <Segmented options={isPairs ? UNITS : UNITS_LOTS} value={unit} onChange={setUnit} />
         </div>
         {unit === "rs" && (
-          <div className="flex items-center gap-2" title={isPairs ? "Total capital, split equally across the year's pairs" : isQm ? "Capital, fully invested long, the same every day" : "Gross exposure: half long, half short, the same every day"}>
+          <div className="flex items-center gap-2" title={isPairs ? "Total capital, split equally across the year's pairs" : isQm || isLc ? "Capital, fully invested long, the same every day" : "Gross exposure: half long, half short, the same every day"}>
             <span className="text-xs uppercase tracking-[0.14em] text-[#6f6a62]">Capital</span>
             <Segmented options={CAPITALS} value={capital} onChange={setCapital} />
           </div>
@@ -795,7 +845,7 @@ export default function PortfolioBacktestPage({ model = "xsmr" }) {
             <p className="mb-2 font-mono text-xs text-[#9b968c]">
               {isPairs
                 ? `${capitalLabel} capital split equally across the year's pairs (${data.take_n ? `${data.take_n}` : "all selected"}), ~${s.avg_stocks} open on an average day.`
-                : isQm
+                : isQm || isLc
                 ? `${capitalLabel} invested long every day, spread over ~${s.avg_stocks} stocks.`
                 : `${capitalLabel} gross exposure every day: half long, half short, spread over ~${s.avg_stocks} stocks.`}{" "}
               Rupees are the % results scaled to that size, not compounded.
@@ -851,7 +901,7 @@ export default function PortfolioBacktestPage({ model = "xsmr" }) {
           <section className="mb-4 rounded-md border border-[#2c313a] bg-[#181b20] px-4 py-3">
             <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
               <p className="text-xs uppercase tracking-[0.14em] text-[#6f6a62]">
-                All versions · {isPairs ? PAIR_TAKES.find(([t]) => t === take)[1] : isQm ? DATASETS.find(([d]) => d === dataset)[1] : `${DATASETS.find(([d]) => d === dataset)[1]} · ${(isMom ? MOM_TAKES : XSMR_TAKES).find(([t]) => t === take)[1]}`} ·{" "}
+                All versions · {isPairs ? PAIR_TAKES.find(([t]) => t === take)[1] : isQm ? DATASETS.find(([d]) => d === dataset)[1] : `${DATASETS.find(([d]) => d === dataset)[1]} · ${(isLc ? LC_TAKES : isMom ? MOM_TAKES : XSMR_TAKES).find(([t]) => t === take)[1]}`} ·{" "}
                 {slippage}% slippage
               </p>
               <p className="font-mono text-xs text-[#9b968c]">Click a row to open it</p>
