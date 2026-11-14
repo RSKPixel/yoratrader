@@ -687,8 +687,10 @@ export default function PortfolioBacktestPage({ model = "xsmr" }) {
   const shownUnit = data ? (data.lotsMode ? "lots" : unit === "lots" ? "pct" : unit) : unit;
   const fmt = useMemo(() => makeFmt(shownUnit, capital), [shownUnit, capital]);
 
-  const base = isLc ? `${lcSetup}-${lcHold}${lcRepeat}${lcStop}` : isQm ? `${qmVersion}${qmHedge === "nifty" ? "-hedged" : ""}` : isMom ? momFill : isPairs ? `${method}${fill === "next" ? "-next" : ""}` : version === "daily" ? "daily" : `intraday-${entry}${entry === "0915" && stop === "1sd" ? "-1sd" : ""}`;
-  const variant = take === "all" || (isLc && lcRepeat) ? base : `${base}-${take}`;
+  // Max open is a margin budget in lots, so it applies in "1 lot / stock" mode only.
+  const lcMax = isLc && lots ? lcRepeat : "";
+  const base = isLc ? `${lcSetup}-${lcHold}${lcMax}${lcStop}` : isQm ? `${qmVersion}${qmHedge === "nifty" ? "-hedged" : ""}` : isMom ? momFill : isPairs ? `${method}${fill === "next" ? "-next" : ""}` : version === "daily" ? "daily" : `intraday-${entry}${entry === "0915" && stop === "1sd" ? "-1sd" : ""}`;
+  const variant = take === "all" || lcMax ? base : `${base}-${take}`;
   const [month, setMonth] = useState(null);
   const [monthRows, setMonthRows] = useState({ rows: [], loading: false });
 
@@ -802,6 +804,7 @@ export default function PortfolioBacktestPage({ model = "xsmr" }) {
               <span className="text-xs uppercase tracking-[0.14em] text-[#6f6a62]">Hold</span>
               <Segmented options={LC_HOLDS} value={lcHold} onChange={setLcHold} />
             </div>
+            {lots && (
             <div
               className="flex items-center gap-2"
               title="Many: each day's picks share a fifth of capital, so up to 5 days of picks are open together (the book). 1 / 2 / 3 / 5: at most that many trades open at once, each 1/N of capital (one lot each); a new trade only when a slot frees up, the most oversold qualifying stock not already held. Size it to your margin: each open futures lot needs its own."
@@ -809,6 +812,7 @@ export default function PortfolioBacktestPage({ model = "xsmr" }) {
               <span className="text-xs uppercase tracking-[0.14em] text-[#6f6a62]">Max open</span>
               <Segmented options={LC_POSITIONS} value={lcRepeat} onChange={setLcRepeat} />
             </div>
+            )}
             <div
               className="flex items-center gap-2"
               title="Not in the book (Connors argues stops hurt mean reversion). 1σ / 2σ: a stop 1 or 2 standard deviations of the stock's last 90 daily returns below the buy price, on the daily low (out at the open on a gap through it) and the 15m lows to 15:15 on the sell day."
@@ -865,7 +869,7 @@ export default function PortfolioBacktestPage({ model = "xsmr" }) {
             )}
           </>
         )}
-        {!isQm && !(isLc && lcRepeat) && (
+        {!isQm && !lcMax && (
         <div
           className="flex items-center gap-2"
           title={
@@ -932,7 +936,7 @@ export default function PortfolioBacktestPage({ model = "xsmr" }) {
             <Stat
               label="Trades"
               value={s.trades.toLocaleString("en-IN")}
-              title={isPairs ? `Pair trades closed · ${s.days} days` : `One trade = one day's book (${s.days} days, ~${s.avg_stocks} stocks a day)`}
+              title={isPairs ? `Pair trades closed · ${s.days} days` : isLc && s.trades !== s.days ? `Trades closed (buy to sell) · ${s.days} days${s.stopped_pct ? ` · ${s.stopped_pct}% stopped` : ""} · win rate, cost and net per trade are each trade's share of the book` : `One trade = one day's book (${s.days} days, ~${s.avg_stocks} stocks a day)`}
             />
             <Stat label="Win rate" value={`${s.win_rate}%`} title={`After costs. Before costs: ${s.win_rate_gross}%`} />
             <Stat label={`Gross ${unitSign}`} value={fmt.big(s.gross_total_pct)} className={pctClass(s.gross_total_pct)} title={`Before costs. ${s.gross.ann_return_pct}% a year`} />

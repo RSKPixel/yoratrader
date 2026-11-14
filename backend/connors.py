@@ -215,23 +215,51 @@ def _simulate(d, variant, lot=None):
 
 def run(dataset):
     d = _data(dataset)
-    out, lots_out = {}, {}
+    out, lots_out, trades_out = {}, {}, {}
     lot = xsmr.lot_series(d["px"].columns)
+    idx, cols = d["px"].index, d["px"].columns
     for variant in (variant_id(v, t) for v in VARIANTS for t in TAKES if not (VARIANTS[v]["max_open"] and t != "all")):
-        rows, lot_rows, _ = _simulate(d, variant, lot)
+        rows, lot_rows, trades = _simulate(d, variant, lot)
         first = next((i for i, r in enumerate(rows) if r[2] > 0), len(rows))
         out[variant], lots_out[variant] = rows[first:], lot_rows[first:]
-    return out, lots_out
+        if variant.startswith("every-") and variant_id(parse_variant(variant)[0]) == variant and not VARIANTS[variant]["max_open"]:
+            continue  # the uncapped baseline (every stock above its average, ~110 buys a day): no trade list
+        trades_out[variant] = [(idx[t["buy_i"]].date(), idx[t["sell_i"]].date(), str(cols[t["s"]]), float(t["w"]),
+                                float(t["buy"]), float(t["sell"]), float(t["lot"]) if t["lot"] else None, t["reason"])
+                               for t in trades if t["sell"] is not None]
+    return out, lots_out, trades_out
+
+
+def _ensure_trades(cursor):
+    # Closed trades, for the per-trade cards (the daily book is in bt_portfolio).
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS bt_connors_trades (
+            dataset TEXT NOT NULL, variant TEXT NOT NULL, buy_day DATE NOT NULL, sell_day DATE NOT NULL,
+            symbol TEXT NOT NULL, weight DOUBLE PRECISION NOT NULL,  -- share of capital
+            buy DOUBLE PRECISION NOT NULL, sell DOUBLE PRECISION NOT NULL,
+            lot DOUBLE PRECISION,  -- today's lot size (one-lot mode)
+            reason TEXT NOT NULL   -- time, stop or stop (gap)
+        );
+        CREATE INDEX IF NOT EXISTS bt_connors_trades_v ON bt_connors_trades (dataset, variant);
+        """
+    )
 
 
 def run_all(datasets=DATASETS):
     with connect() as conn, conn.cursor() as cursor:
         xsmr._ensure_table(cursor)
+        _ensure_trades(cursor)
         conn.commit()
     counts = {}
     for dataset in datasets:
-        result, lots = run(dataset)
+        result, lots, trades = run(dataset)
         with connect() as conn, conn.cursor() as cursor:
+            cursor.execute("DELETE FROM bt_connors_trades WHERE dataset = %s", (dataset,))
+            for variant, rows in trades.items():
+                execute_values(cursor, "INSERT INTO bt_connors_trades (dataset, variant, buy_day, sell_day, symbol, weight, "
+                                       "buy, sell, lot, reason) VALUES %s",
+                               [(dataset, variant, *r) for r in rows], page_size=10000)
             cursor.execute("DELETE FROM bt_portfolio WHERE model = %s AND dataset = %s", (MODEL, dataset))
             for variant, rows in result.items():
                 execute_values(cursor, "INSERT INTO bt_portfolio (model, variant, dataset, day, gross_ret, turnover, "
@@ -244,7 +272,45 @@ def run_all(datasets=DATASETS):
 
 
 def results(variant, dataset, slippage=0.0002, lots=False):
-    return xsmr.results(variant, dataset, slippage, model=MODEL, lots=lots)
+    """The page, with the per-trade cards and the month grid's trades / win rate from the closed trades.
+    A trade's result is its share of the book (weight x (return - costs on the buy and the sale)), or
+    in one-lot mode its rupees / 100, so the cards read like the daily figures."""
+    out = xsmr.results(variant, dataset, slippage, model=MODEL, lots=lots)
+    if not out["summary"]:
+        return out
+    with connect() as conn:
+        t = pd.read_sql("SELECT sell_day, weight, buy, sell, lot, reason FROM bt_connors_trades "
+                        "WHERE dataset = %s AND variant = %s", conn, params=[dataset, variant])
+    if t.empty:
+        return out
+    cost = xsmr.cost_per_side(slippage)
+    if lots:
+        t = t[t["lot"].notna()]
+        t["gross"] = t["lot"] * (t["sell"] - t["buy"]) / 100
+        t["cost"] = t["lot"] * (t["sell"] + t["buy"]) * cost / 100
+    else:
+        t["gross"] = t["weight"] * (t["sell"] / t["buy"] - 1)
+        t["cost"] = t["weight"] * (1 + t["sell"] / t["buy"]) * cost
+    t["net"] = t["gross"] - t["cost"]
+    wins, losses = t.loc[t["net"] > 0, "net"].sum(), -t.loc[t["net"] < 0, "net"].sum()
+    out["summary"].update({
+        "trades": int(len(t)), "win_rate": round(float(100 * (t["net"] > 0).mean()), 1),
+        "win_rate_gross": round(float(100 * (t["gross"] > 0).mean()), 1),
+        "avg_cost_pct": round(float(100 * t["cost"].mean()), 4), "avg_net_pct": round(float(100 * t["net"].mean()), 4),
+        "profit_factor": round(float(wins / losses), 2) if losses > 0 else None,
+        "stopped_pct": round(float(100 * t["reason"].str.startswith("stop").mean()), 1),
+        "avg_trade_pct": round(float(100 * (t["sell"] / t["buy"] - 1).mean()), 3),
+    })
+    t["sell_day"] = pd.to_datetime(t["sell_day"])
+    for key, fmt in (("years", "%Y"), ("months", "%Y-%m")):
+        g = t.groupby(t["sell_day"].dt.strftime(fmt))["net"]
+        counts, rate = g.size(), g.apply(lambda x: (x > 0).mean())
+        label = "year" if key == "years" else "month"
+        for row in out[key]:
+            k = str(row[label])
+            row["trades"] = int(counts.get(k, 0))
+            row["win_rate"] = round(float(100 * rate[k]), 1) if k in rate.index else None
+    return out
 
 
 def compare(dataset, slippage=0.0002, take="all", lots=False, variant=None):

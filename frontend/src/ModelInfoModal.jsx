@@ -1099,7 +1099,7 @@ export function ConnorsInfo() {
       <Section title="Max open and stop (not in the book)">
         <List>
           <li>
-            <B>Max open · Many</B> (the book): each day's picks share a fifth of capital, and a stock picked again
+            <B>Max open</B> appears in the 1 lot / stock view, since it's a margin budget in lots. <B>Many</B> (the book): each day's picks share a fifth of capital, and a stock picked again
             while held is bought again. <B>1 / 2 / 3 / 5</B>: at most that many trades open at once, for a margin
             budget (each open futures lot needs its own margin). Each trade gets 1/N of capital, or one lot. A new trade
             starts only when a slot frees up: the most oversold qualifying stock not already held, from that 15:15 on.
