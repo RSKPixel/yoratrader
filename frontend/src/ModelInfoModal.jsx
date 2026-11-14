@@ -868,3 +868,73 @@ export function PairsInfo() {
     </>
   );
 }
+
+export function XsmomInfo() {
+  return (
+    <>
+      <Section title="The rules">
+        <p className="mb-2">Cross-sectional momentum on stocks (Ernest Chan, Algorithmic Trading, ch. 6), with the book's parameters:</p>
+        <List>
+          <li>
+            <B>Rank</B>: every day after the close, rank the stocks by their return over the last 252 trading days (12
+            months).
+          </li>
+          <li>
+            <B>Pick</B>: buy the top 10% and short the bottom 10% (the book: the top and bottom 50 of the S&amp;P 500), equal
+            rupees each. Long and short are each half of the day's money.
+          </li>
+          <li>
+            <B>Hold 25 trading days</B>, overlapping: each day's picks get 1/25 of the capital, so the book on any day is the
+            last 25 days' picks together. About 1/25 of it changes each day instead of all of it once a month, so a
+            stock is often held by several of the 25 books at once.
+          </li>
+        </List>
+      </Section>
+
+      <Section title="Fill and take">
+        <List>
+          <li>
+            The book trades at the close the ranking comes from. <B>Next close</B> keeps the ranking and trades one day
+            later: a fill check.
+          </li>
+          <li>
+            <B>Take</B>: 10% per side is the book (about 22 a side on the F&amp;O list, 5 on the Nifty 50, so 5 + 5 is the
+            same as the book there). Across 25 overlapping books that is ~45 stocks held at once on the F&amp;O list.{" "}
+            <B>5 + 5</B> picks only the 5 strongest and weakest each day: ~17 stocks held at once.
+          </li>
+        </List>
+      </Section>
+
+      <Section title="Returns and costs">
+        <List>
+          <li>
+            Results are % of gross exposure (long + short), summed day by day, not compounded. Annual = mean daily × 248.
+          </li>
+          <li>
+            Costs on every rupee traded: NSE futures charges plus the chosen slippage. Turnover is about 6× capital a year.
+            The monthly futures roll is not charged; short legs need futures to hold overnight.
+          </li>
+          <li>Click a month for its days, and a day for every stock held into that close.</li>
+        </List>
+      </Section>
+
+      <Section title="Data">
+        <List>
+          <li>Daily closes from 2000; the first full book is in January 2004 (a 12-month ranking needs enough stocks with history).</li>
+          <li>
+            A stock is ranked only with 253 straight closes and no daily move over 20% in the window (a split or bonus in
+            unadjusted prices, or a bad print). A day's move over 20% earns nothing. Sparse special sessions are dropped.
+          </li>
+          <li>
+            <B>Survivorship</B>: today's F&amp;O list for every year. Momentum is sensitive to this: stocks that rose
+            enough to join the list are in it from the start, and losers that dropped out are missing.
+          </li>
+          <li>
+            <B>Momentum crashes</B>: the book lost heavily in 2008–09, when the market fell and then rebounded, and last
+            year's losers led the rebound.
+          </li>
+        </List>
+      </Section>
+    </>
+  );
+}

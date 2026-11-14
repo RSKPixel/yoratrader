@@ -43,6 +43,7 @@ const NAV_ITEMS = {
     { id: "bt-gapmom", label: "Opening gap momentum · Backtest" },
     { id: "chan-xsmr", label: "Cross-sectional mean reversion · Backtest" },
     { id: "chan-pairs", label: "Pairs trading · Backtest" },
+    { id: "chan-xsmom", label: "Cross-sectional momentum · Backtest" },
   ],
   system: [{ id: "settings", label: "Settings" }],
 };
@@ -712,7 +713,7 @@ export default function App() {
         <GapSignalsPage />
       ) : activePage === "xsmr-paper" ? (
         <XsmrPaperPage />
-      ) : activePage === "chan-xsmr" || activePage === "chan-pairs" ? (
+      ) : activePage === "chan-xsmr" || activePage === "chan-pairs" || activePage === "chan-xsmom" ? (
         <PortfolioBacktestPage key={activePage} model={activePage.slice(5)} />
       ) : activePage.startsWith("bt-") ? (
         <BacktestPage key={activePage} model={activePage.slice(3)} />
