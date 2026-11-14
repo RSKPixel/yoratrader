@@ -45,7 +45,19 @@ MAX_MOVE = xsmr.MAX_MOVE
 SETUPS = {"rsi2": "2-day RSI below 10 (book)", "low10": "New 10-day low", "down3": "3 down days",
           "every": "Any stock above the 200-day average (no RSI threshold)"}
 HOLDS = {5: "hold 5 days (book)", 2: "hold 2 days"}
-VARIANTS = {f"{s}-{h}d": {"label": f"{SETUPS[s]} · {HOLDS[h]}", "setup": s, "hold": h} for s in SETUPS for h in HOLDS}
+# "-one": one open position per stock. While a stock is held, new signals for it are skipped and the
+# day's place goes to the next most oversold stock, so every trade is one lot from buy to sell.
+# Without it (the default) a stock picked again while held adds a slice (in one-lot mode the
+# overlapping buys merge into one lot held to the last sell date).
+# Stop (not in the book; Connors argues stops hurt mean reversion): "-1sd" / "-2sd" puts it 1 / 2
+# standard deviations of the stock's last 90 daily returns below the buy price (1σ is Buy on gap's
+# stop). Checked on the daily low for the days in between (out at the open if the stock gaps
+# through it) and on the 15m lows up to 15:15 on the sell day; out at the stop price.
+STOPS = {"": None, "-1sd": 1.0, "-2sd": 2.0}
+VARIANTS = {f"{s}-{h}d{o}{st}": {"label": f"{SETUPS[s]} · {HOLDS[h]}{' · 1 open per stock' if o else ''}"
+                                          f"{f' · {k:g}σ stop' if k else ''}",
+                                 "setup": s, "hold": h, "one": bool(o), "stop": k}
+            for s in SETUPS for h in HOLDS for o in ("", "-one") for st, k in STOPS.items()}
 BOOK = ("rsi2-5d",)
 TAKES = {"all": None, "top5": 5, "top3": 3}
 
@@ -103,22 +115,99 @@ def _data(dataset, start=None, end=None):
     pxf = px.ffill(limit=3)
     ret = pxf / pxf.shift(1) - 1
     ret = ret.where(ret.abs() <= MAX_MOVE, 0.0).fillna(0.0)
+    with connect() as conn:
+        f = pd.read_sql("SELECT symbol, day, open, low FROM bt_daily WHERE close > 0 AND symbol IN "
+                        "(SELECT symbol FROM bt_symbols WHERE dataset = %s) AND day >= %s AND day <= %s",
+                        conn, params=[dataset, idx[0].date(), idx[-1].date()])
+    f["day"] = pd.to_datetime(f["day"])
+    day_open = f.pivot(index="day", columns="symbol", values="open").reindex(index=idx, columns=cols)
+    day_low = f.pivot(index="day", columns="symbol", values="low").reindex(index=idx, columns=cols)
     return {"px": pxf, "rsi": rsi, "eligible": eligible, "setups": setups, "r": ret,
-            "rankable": qualified.sum(axis=1)}
+            "rankable": qualified.sum(axis=1), "open": day_open, "low": day_low,
+            "low1515": p["low1515"].reindex(index=idx, columns=cols), "sigma": p["sigma"].reindex(index=idx, columns=cols)}
 
 
-def _book(d, variant):
+def _simulate(d, variant, lot=None):
+    """Trade by trade. Each day at 15:15: the day's picks (setup, above the 200-day average, the
+    take's lowest RSIs, skipping stocks still held under "1 open per stock") share 1/hold of capital
+    and are bought at the 15:15 price; each is sold at the 15:15 price `hold` days later, or at the
+    stop. Returns daily rows (% of capital), one-lot rows (rupees: one lot per trade, today's lot
+    sizes) and the trades."""
     base, take = parse_variant(variant)
     meta = VARIANTS[base]
-    hit = (d["setups"][meta["setup"]] & d["eligible"]).fillna(False)
-    if TAKES[take]:
-        order = d["rsi"].where(hit).rank(axis=1, method="first")
-        hit = hit & (order <= TAKES[take])
-    hit = hit & (d["rankable"] >= MIN_STOCKS).to_numpy()[:, None]
-    n = hit.sum(axis=1)
-    sig = hit.astype(float).div(n.where(n > 0, 1), axis=0)  # each day's picks share one slice
-    w = sig.rolling(meta["hold"], min_periods=1).sum() / meta["hold"]
-    return {"w": w, "r": d["r"], "hit": hit}
+    hold, top, k = meta["hold"], TAKES[take], meta["stop"]
+    idx, cols = d["px"].index, d["px"].columns
+    hit = ((d["setups"][meta["setup"]] & d["eligible"]).fillna(False)
+           & (d["rankable"] >= MIN_STOCKS).to_numpy()[:, None]).to_numpy()
+    px, rsi = d["px"].to_numpy(), d["rsi"].to_numpy()
+    op, lo, lo15, sd = (d[x].to_numpy() for x in ("open", "low", "low1515", "sigma"))
+    lots = (lot.reindex(cols).to_numpy() if lot is not None else np.full(len(cols), np.nan))
+    n = len(idx)
+    gross, turn, held = np.zeros(n), np.zeros(n), np.zeros(n, dtype=int)
+    g_rs, t_rs, not_rs, held_lots = np.zeros(n), np.zeros(n), np.zeros(n), np.zeros(n, dtype=int)
+    free_from = np.zeros(len(cols), dtype=int)
+    open_trades, trades = [], []
+    for i in range(n):
+        still = []
+        for tr in open_trades:  # each open trade's move from yesterday's 15:15 to today's
+            s_ = tr["s"]
+            prev = tr["last"]
+            last_day = i == tr["sell_i"]
+            price = px[i, s_]
+            exit_px = reason = None
+            if tr["stop"] is not None:
+                o = op[i, s_]
+                low = lo15[i, s_] if last_day else lo[i, s_]
+                if pd.notna(o) and o <= tr["stop"] and not last_day:
+                    exit_px, reason = float(o), "stop (gap)"
+                elif pd.notna(low) and low <= tr["stop"]:
+                    exit_px, reason = tr["stop"], "stop"
+            if exit_px is None and last_day:
+                exit_px, reason = (float(price) if pd.notna(price) else prev), "time"
+            now = exit_px if exit_px is not None else (float(price) if pd.notna(price) else prev)
+            ret = now / prev - 1
+            if abs(ret) > MAX_MOVE:  # a split or bad print: earns nothing
+                ret, now = 0.0, prev
+            held[i] += 1
+            gross[i] += tr["w"] * ret
+            if tr["lot"]:
+                held_lots[i] += 1
+                g_rs[i] += tr["lot"] * (now - prev)
+                not_rs[i] += tr["lot"] * prev
+            tr["last"] = now
+            if exit_px is not None:
+                turn[i] += tr["w"] * now / tr["buy"]
+                if tr["lot"]:
+                    t_rs[i] += tr["lot"] * now
+                tr.update(sell_i=i, sell=now, reason=reason)
+                trades.append(tr)
+                free_from[s_] = i  # can be bought again from this 15:15
+            else:
+                still.append(tr)
+        open_trades = still
+        cand = np.flatnonzero(hit[i] & (free_from <= i)) if meta["one"] else np.flatnonzero(hit[i])
+        if top and len(cand) > top:
+            cand = cand[np.argsort(rsi[i, cand], kind="stable")[:top]]
+        if len(cand):
+            w = 1.0 / (hold * len(cand))
+            for s_ in cand:
+                buy = float(px[i, s_])
+                stop = buy * (1 - k * sd[i, s_]) if k and pd.notna(sd[i, s_]) else None
+                size = float(lots[s_]) if pd.notna(lots[s_]) else 0.0
+                tr = {"s": s_, "buy_i": i, "sell_i": min(i + hold, n - 1) if i + hold < n else None, "buy": buy,
+                      "last": buy, "w": w, "stop": stop, "lot": size, "rsi": float(rsi[i, s_])}
+                if tr["sell_i"] is None:
+                    tr["sell_i"] = n + 10**6  # past the data: still open
+                turn[i] += w
+                t_rs[i] += size * buy
+                open_trades.append(tr)
+                if meta["one"]:
+                    free_from[s_] = n + 10**6
+    trades += [dict(tr, sell=None, reason="open") for tr in open_trades]
+    rows = [(idx[i].date(), float(gross[i]), float(turn[i]), float(gross[i]), 0.0, int(held[i])) for i in range(n)]
+    lot_rows = [(idx[i].date(), float(g_rs[i]), float(t_rs[i]), float(g_rs[i]), 0.0, float(not_rs[i]), int(held_lots[i]))
+                for i in range(n)]
+    return rows, lot_rows, trades
 
 
 def run(dataset):
@@ -126,15 +215,9 @@ def run(dataset):
     out, lots_out = {}, {}
     lot = xsmr.lot_series(d["px"].columns)
     for variant in (variant_id(v, t) for v in VARIANTS for t in TAKES):
-        b = _book(d, variant)
-        held = b["w"].shift(1).fillna(0.0)
-        gross = (held * b["r"]).sum(axis=1)
-        turnover = (b["w"] - held).abs().sum(axis=1)
-        stocks = (held > 0).sum(axis=1)
-        first = b["w"].index[(b["w"].sum(axis=1) > 0).to_numpy()].min()
-        days = d["px"].index[d["px"].index >= first]
-        out[variant] = [(t.date(), float(gross[t]), float(turnover[t]), float(gross[t]), 0.0, int(stocks[t])) for t in days]
-        lots_out[variant] = xsmom._lot_rows(d["px"], b, lot, days)
+        rows, lot_rows, _ = _simulate(d, variant, lot)
+        first = next((i for i, r in enumerate(rows) if r[2] > 0), len(rows))
+        out[variant], lots_out[variant] = rows[first:], lot_rows[first:]
     return out, lots_out
 
 
@@ -161,9 +244,13 @@ def results(variant, dataset, slippage=0.0002, lots=False):
     return xsmr.results(variant, dataset, slippage, model=MODEL, lots=lots)
 
 
-def compare(dataset, slippage=0.0002, take="all", lots=False):
+def compare(dataset, slippage=0.0002, take="all", lots=False, variant=None):
+    """Every setup and hold, with the repeat-buy rule and stop of `variant` (the page's selection)."""
     rows = []
+    want = VARIANTS[parse_variant(variant)[0]] if variant else {"one": False, "stop": None}
     for base, meta in VARIANTS.items():
+        if meta["one"] != want["one"] or meta["stop"] != want["stop"]:
+            continue
         f = xsmr._load(variant_id(base, take), dataset, slippage, model=MODEL, lots=lots)
         if not f.empty:
             rows.append({"variant": variant_id(base, take), "label": meta["label"], "book": base in BOOK, **xsmr._stats(f)})
@@ -175,38 +262,38 @@ def month_days(variant, dataset, month, slippage=0.0002, lots=False):
 
 
 def day_trades(variant, dataset, day):
-    """Every position held into one day's 15:15, one row per purchase: when it was bought and at what
-    2-day RSI and price, when and at what price it is sold (hold days later), the whole trade's
-    result, and today's move and contribution."""
+    """Every position held into one day's 15:15, one row per purchase: when it was bought, at what
+    2-day RSI and price, when and how it was sold (time or stop), the whole trade's result, and the
+    day's move and its share of the book."""
     ts = pd.Timestamp(day)
-    d = _data(dataset, day - timedelta(days=30), day + timedelta(days=20))
+    d = _data(dataset, day - timedelta(days=60), day + timedelta(days=20))
     idx = d["px"].index
     if ts not in idx:
         return []
-    b = _book(d, variant)
+    lot = xsmr.lot_series(d["px"].columns)
+    _, _, trades = _simulate(d, variant, lot)
     i = idx.get_loc(ts)
     hold = VARIANTS[parse_variant(variant)[0]]["hold"]
-    if i < 1:
-        return []
-    picks_per_day = b["hit"].sum(axis=1)
-    rows, lot = [], xsmr.lot_series(d["px"].columns)
-    for j in range(max(0, i - hold), i):  # purchases still held into today
-        t = idx[j]
-        for symbol in b["hit"].columns[b["hit"].loc[t].to_numpy()]:
-            buy = float(d["px"].at[t, symbol])
-            sold_at = idx[j + hold] if j + hold < len(idx) else None
-            sell = float(d["px"].at[sold_at, symbol]) if sold_at is not None and pd.notna(d["px"].at[sold_at, symbol]) else None
-            w = 1.0 / (hold * int(picks_per_day[t]))
-            move = float(b["r"].at[ts, symbol])
-            size = lot.get(symbol)
-            rows.append({"symbol": symbol, "side": "long", "weight_pct": round(100 * w, 3),
-                         "signal_pct": round(float(d["rsi"].at[t, symbol]), 1),
-                         "bought": t.date().isoformat(), "buy": round(buy, 2),
-                         "sold": sold_at.date().isoformat() if sold_at is not None else None,
-                         "sell": round(sell, 2) if sell is not None else None,
-                         "trade_pct": round(100 * (sell / buy - 1), 2) if sell is not None else None,
-                         "day_of_hold": i - j, "hold": hold,
-                         "move_pct": round(100 * move, 2), "contribution_bps": round(float(10000 * w * move), 2),
-                         "lot_size": int(size) if pd.notna(size) else None,
-                         "trade_rs": round(size * (sell - buy)) if pd.notna(size) and sell is not None else None})
+    cols = d["px"].columns
+    rows = []
+    for tr in trades:
+        if not (tr["buy_i"] < i <= min(tr["sell_i"], len(idx) - 1)) or tr["buy_i"] < i - hold:
+            continue
+        s_ = tr["s"]
+        symbol = cols[s_]
+        prev = d["px"].iat[i - 1, s_]
+        today = tr["sell"] if tr["sell_i"] == i else d["px"].iat[i, s_]
+        move = float(today / prev - 1) if pd.notna(prev) and pd.notna(today) else 0.0
+        sold = tr["sell"] is not None
+        rows.append({"symbol": symbol, "side": "long", "weight_pct": round(100 * tr["w"], 3),
+                     "signal_pct": round(tr["rsi"], 1), "bought": idx[tr["buy_i"]].date().isoformat(),
+                     "buy": round(tr["buy"], 2),
+                     "stop": round(tr["stop"], 2) if tr["stop"] is not None else None,
+                     "sold": idx[tr["sell_i"]].date().isoformat() if sold else None,
+                     "sell": round(tr["sell"], 2) if sold else None, "reason": tr["reason"],
+                     "trade_pct": round(100 * (tr["sell"] / tr["buy"] - 1), 2) if sold else None,
+                     "day_of_hold": i - tr["buy_i"], "hold": hold,
+                     "move_pct": round(100 * move, 2), "contribution_bps": round(10000 * tr["w"] * move, 2),
+                     "lot_size": int(tr["lot"]) if tr["lot"] else None,
+                     "trade_rs": round(tr["lot"] * (tr["sell"] - tr["buy"])) if sold and tr["lot"] else None})
     return sorted(rows, key=lambda x: (x["bought"], x["symbol"]))

@@ -1083,7 +1083,7 @@ export function ConnorsInfo() {
         <List>
           <li>
             Each day's picks get 1/5 of capital, split equally, so the book is the last five days' picks together. A day
-            with no picks leaves its slice in cash. A stock picked again while held adds a slice.
+            with no picks leaves its slice in cash.
           </li>
           <li>
             <B>All signals</B> is the book: about 10 a day on the F&amp;O list, ~30 stocks held. <B>Lowest 5 / 3 RSI</B>{" "}
@@ -1092,6 +1092,25 @@ export function ConnorsInfo() {
           <li>
             <B>No threshold</B> is the control. With All it holds every stock above its 200-day average (the baseline);
             with a take it buys the day's lowest RSIs whatever their level. Compare with it to see what the setup itself adds.
+          </li>
+        </List>
+      </Section>
+
+      <Section title="Repeat buys and stop (not in the book)">
+        <List>
+          <li>
+            <B>Repeat buys · Allowed</B> (the default): a stock picked again while held is bought again, as another slice
+            (another lot in one-lot mode). <B>1 open per stock</B>: while a stock is held its new signals are skipped, and
+            the day's place goes to the next most oversold stock, so every trade is one lot from buy to sell.
+          </li>
+          <li>
+            <B>Stop 1σ / 2σ</B>: 1 or 2 standard deviations of the stock's last 90 daily returns below the buy price (1σ
+            is Buy on gap's stop). It's checked on each day's low (out at the open if the stock gaps through it) and on
+            the 15m lows up to 15:15 on the sell day, and the exit is at the stop price.
+          </li>
+          <li>
+            Connors argues stops hurt mean reversion, and the test agrees: a 1σ stop catches over half the trades (they
+            are bought falling and often dip further first) and cuts the return by about two thirds.
           </li>
         </List>
       </Section>

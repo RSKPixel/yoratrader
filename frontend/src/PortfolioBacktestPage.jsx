@@ -64,6 +64,15 @@ const LC_HOLDS = [
   ["5d", "5 days (book)"],
   ["2d", "2 days"],
 ];
+const LC_REPEATS = [
+  ["", "Allowed (book)"],
+  ["-one", "1 open per stock"],
+];
+const LC_STOPS = [
+  ["", "None (book)"],
+  ["-1sd", "1σ"],
+  ["-2sd", "2σ"],
+];
 const LC_TAKES = [
   ["all", "All signals"],
   ["top5", "Lowest 5 RSI"],
@@ -215,16 +224,18 @@ function MonthGrid({ months, years, fmt, selected, onSelect }) {
 
 function HoldTrades({ trades }) {
   const hold = trades[0]?.hold;
+  const hasStop = trades.some((t) => t.stop != null);
   return (
     <div className="max-h-96 overflow-auto px-3 py-2">
       <p className="mb-1 font-mono text-[0.7rem] text-[#9b968c]">
-        {trades.length} positions held into this 15:15 · bought and sold at 15:15, {hold} trading days apart · RSI = 2-day RSI
-        when bought · trade = the whole trade, buy to sell · today = this day's move and its share of the book
+        {trades.length} positions held into this 15:15 · bought at 15:15, sold at 15:15 {hold} trading days later
+        {hasStop && " or at the stop"} · RSI = 2-day RSI when bought · trade = the whole trade, buy to sell · today = this
+        day's move and its share of the book
       </p>
       <table className="w-full text-xs">
         <thead className="sticky top-0 bg-[#181b20] text-left uppercase tracking-[0.1em] text-[#6f6a62]">
           <tr>
-            {["Stock", "RSI", "Buy date", "Buy", "Sell date", "Sell", "Trade", "Day", "Weight", "Today", "Contribution", "Lot", "Trade, 1 lot ₹"].map((h) => (
+            {["Stock", "RSI", "Buy date", "Buy", ...(hasStop ? ["Stop"] : []), "Sell date", "Sell", "Trade", "Day", "Weight", "Today", "Contribution", "Lot", "Trade, 1 lot ₹"].map((h) => (
               <th key={h} className="px-2 py-1 font-medium">
                 {h}
               </th>
@@ -238,8 +249,12 @@ function HoldTrades({ trades }) {
               <td className="px-2 py-1 text-[#c8c3b8]">{t.signal_pct}</td>
               <td className="px-2 py-1 text-[#c8c3b8]">{t.bought}</td>
               <td className="px-2 py-1 text-[#c8c3b8]">{t.buy}</td>
+              {hasStop && <td className="px-2 py-1 text-[#f0b4b4]">{t.stop ?? "—"}</td>}
               <td className="px-2 py-1 text-[#c8c3b8]">{t.sold ?? "open"}</td>
-              <td className="px-2 py-1 text-[#c8c3b8]">{t.sell ?? "—"}</td>
+              <td className={`px-2 py-1 ${t.reason?.startsWith("stop") ? "text-[#f0b4b4]" : "text-[#c8c3b8]"}`}>
+                {t.sell ?? "—"}
+                {t.reason?.startsWith("stop") && ` · ${t.reason}`}
+              </td>
               <td className={`px-2 py-1 ${pctClass(t.trade_pct)}`}>{t.trade_pct == null ? "—" : fmtPct(t.trade_pct, 2)}</td>
               <td className="px-2 py-1 text-[#9b968c]">
                 {t.day_of_hold} / {t.hold}
@@ -645,6 +660,8 @@ export default function PortfolioBacktestPage({ model = "xsmr" }) {
   const isLc = model === "connors";
   const [lcSetup, setLcSetup] = useState("rsi2");
   const [lcHold, setLcHold] = useState("5d");
+  const [lcRepeat, setLcRepeat] = useState("");
+  const [lcStop, setLcStop] = useState("");
   const [momFill, setMomFill] = useState("book");
   const [qmVersion, setQmVersion] = useState("book");
   const [qmHedge, setQmHedge] = useState("none");
@@ -667,7 +684,7 @@ export default function PortfolioBacktestPage({ model = "xsmr" }) {
   const shownUnit = data ? (data.lotsMode ? "lots" : unit === "lots" ? "pct" : unit) : unit;
   const fmt = useMemo(() => makeFmt(shownUnit, capital), [shownUnit, capital]);
 
-  const base = isLc ? `${lcSetup}-${lcHold}` : isQm ? `${qmVersion}${qmHedge === "nifty" ? "-hedged" : ""}` : isMom ? momFill : isPairs ? `${method}${fill === "next" ? "-next" : ""}` : version === "daily" ? "daily" : `intraday-${entry}${entry === "0915" && stop === "1sd" ? "-1sd" : ""}`;
+  const base = isLc ? `${lcSetup}-${lcHold}${lcRepeat}${lcStop}` : isQm ? `${qmVersion}${qmHedge === "nifty" ? "-hedged" : ""}` : isMom ? momFill : isPairs ? `${method}${fill === "next" ? "-next" : ""}` : version === "daily" ? "daily" : `intraday-${entry}${entry === "0915" && stop === "1sd" ? "-1sd" : ""}`;
   const variant = take === "all" ? base : `${base}-${take}`;
   const [month, setMonth] = useState(null);
   const [monthRows, setMonthRows] = useState({ rows: [], loading: false });
@@ -708,6 +725,8 @@ export default function PortfolioBacktestPage({ model = "xsmr" }) {
     if (isLc) {
       setLcSetup(b.split("-")[0]);
       setLcHold(b.split("-")[1]);
+      setLcRepeat(b.includes("-one") ? "-one" : "");
+      setLcStop(b.endsWith("-1sd") ? "-1sd" : b.endsWith("-2sd") ? "-2sd" : "");
     } else if (isQm) {
       setQmVersion(b.replace(/-hedged$/, ""));
       setQmHedge(b.endsWith("-hedged") ? "nifty" : "none");
@@ -779,6 +798,20 @@ export default function PortfolioBacktestPage({ model = "xsmr" }) {
             <div className="flex items-center gap-2" title="Bought at 15:15, sold at 15:15 this many trading days later. 5 days is the book's week.">
               <span className="text-xs uppercase tracking-[0.14em] text-[#6f6a62]">Hold</span>
               <Segmented options={LC_HOLDS} value={lcHold} onChange={setLcHold} />
+            </div>
+            <div
+              className="flex items-center gap-2"
+              title="Allowed: a stock picked again while held is bought again (another slice; in one-lot mode, another lot). 1 open per stock: a held stock's new signals are skipped and the place goes to the next most oversold stock."
+            >
+              <span className="text-xs uppercase tracking-[0.14em] text-[#6f6a62]">Repeat buys</span>
+              <Segmented options={LC_REPEATS} value={lcRepeat} onChange={setLcRepeat} />
+            </div>
+            <div
+              className="flex items-center gap-2"
+              title="Not in the book (Connors argues stops hurt mean reversion). 1σ / 2σ: a stop 1 or 2 standard deviations of the stock's last 90 daily returns below the buy price, on the daily low (out at the open on a gap through it) and the 15m lows to 15:15 on the sell day."
+            >
+              <span className="text-xs uppercase tracking-[0.14em] text-[#6f6a62]">Stop</span>
+              <Segmented options={LC_STOPS} value={lcStop} onChange={setLcStop} />
             </div>
           </>
         ) : isQm ? (
