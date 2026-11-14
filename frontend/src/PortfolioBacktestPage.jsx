@@ -15,6 +15,10 @@ const VB_KS = [
   ["k1", "k = 1.0 × range"],
   ["k0.5", "k = 0.5 × range"],
 ];
+const VB_SIDES = [
+  ["long", "Long"],
+  ["short", "Short (check)"],
+];
 const VB_EXITS = [
   ["swing", "First profitable open (book)"],
   ["intraday", "15:15 same day"],
@@ -291,13 +295,14 @@ function BreakoutTrades({ trades }) {
   return (
     <div className="max-h-96 overflow-auto px-3 py-2">
       <p className="mb-1 font-mono text-[0.7rem] text-[#9b968c]">
-        {trades.length} positions open on this day · bought when price reached the open + k × yesterday's range (time = the
-        15m candle) · sold at the first 09:15 open above the buy price, or the 5th day's open · trade = buy to sell
+        {trades.length} positions open on this day · entered when price reached the open {trades[0]?.side === "short" ? "−" : "+"} k ×
+        yesterday's range (time = the 15m candle) · exited at the first 09:15 open in profit, or the 5th day's open · trade =
+        entry to exit, for the side held
       </p>
       <table className="w-full text-xs">
         <thead className="sticky top-0 bg-[#181b20] text-left uppercase tracking-[0.1em] text-[#6f6a62]">
           <tr>
-            {["Symbol", "Buy date", "Time", "Buy", "Sell date", "Sell", "Exit", "Trade", "Day", "Weight", "Lot", "Trade, 1 lot ₹"].map((h) => (
+            {["Symbol", "Side", "Entry date", "Time", "Entry", "Exit date", "Exit", "Reason", "Trade", "Day", "Weight", "Lot", "Trade, 1 lot ₹"].map((h) => (
               <th key={h} className="px-2 py-1 font-medium">
                 {h}
               </th>
@@ -308,6 +313,7 @@ function BreakoutTrades({ trades }) {
           {trades.map((t) => (
             <tr key={`${t.symbol}-${t.bought}`}>
               <td className="px-2 py-1 text-[#e7e4dc]">{t.symbol}</td>
+              <td className={`px-2 py-1 ${t.side === "long" ? "text-[#8fbf9f]" : "text-[#f0b4b4]"}`}>{t.side}</td>
               <td className="px-2 py-1 text-[#c8c3b8]">{t.bought}</td>
               <td className="px-2 py-1 text-[#9b968c]">{t.buy_time}</td>
               <td className="px-2 py-1 text-[#c8c3b8]">{t.buy}</td>
@@ -700,7 +706,7 @@ const PAGES = {
   vbo: {
     title: "Volatility breakout",
     blurb:
-      "Long only (Larry Williams): buy when the price rises above today's open by k × yesterday's range, sell at the first profitable 09:15 open (at most 5 days). At most N positions open, capital ÷ N each. Returns are % of capital, summed at a fixed size.",
+      "Larry Williams, long (the short side is a check): buy when the price rises above today's open by k × yesterday's range, sell at the first profitable 09:15 open (at most 5 days). At most N positions open, capital ÷ N each. Returns are % of capital, summed at a fixed size.",
     info: VboInfo,
   },
   pairs: {
@@ -721,6 +727,7 @@ export default function PortfolioBacktestPage({ model = "xsmr" }) {
   const [vbK, setVbK] = useState("k1");
   const [vbExit, setVbExit] = useState("swing");
   const [vbOpen, setVbOpen] = useState(5);
+  const [vbSide, setVbSide] = useState("long");
   const [lcSetup, setLcSetup] = useState("rsi2");
   const [lcHold, setLcHold] = useState("5d");
   const [lcOpen, setLcOpen] = useState(3); // max open positions; 0 = many (the book)
@@ -750,7 +757,7 @@ export default function PortfolioBacktestPage({ model = "xsmr" }) {
   const fmt = useMemo(() => makeFmt(shownUnit, capital), [shownUnit, capital]);
 
   const lcMax = isLc && lcOpen ? `-max${lcOpen}` : "";
-  const base = isVb ? `${vbK}-${vbExit}-max${vbOpen}` : isLc ? `${lcSetup}-${lcHold}${lcMax}${lcStop}${lcTiming}` : isQm ? `${qmVersion}${qmHedge === "nifty" ? "-hedged" : ""}` : isMom ? momFill : isPairs ? `${method}${fill === "next" ? "-next" : ""}` : version === "daily" ? "daily" : `intraday-${entry}${entry === "0915" && stop === "1sd" ? "-1sd" : ""}`;
+  const base = isVb ? `${vbK}-${vbExit}${vbSide === "short" ? "-short" : ""}-max${vbOpen}` : isLc ? `${lcSetup}-${lcHold}${lcMax}${lcStop}${lcTiming}` : isQm ? `${qmVersion}${qmHedge === "nifty" ? "-hedged" : ""}` : isMom ? momFill : isPairs ? `${method}${fill === "next" ? "-next" : ""}` : version === "daily" ? "daily" : `intraday-${entry}${entry === "0915" && stop === "1sd" ? "-1sd" : ""}`;
   const variant = take === "all" || lcMax || isVb ? base : `${base}-${take}`;
   const [month, setMonth] = useState(null);
   const [monthRows, setMonthRows] = useState({ rows: [], loading: false });
@@ -789,10 +796,11 @@ export default function PortfolioBacktestPage({ model = "xsmr" }) {
   const selectVariant = (v) => {
     const b = take === "all" || !v.endsWith(`-${take}`) ? v : v.slice(0, -(take.length + 1));
     if (isVb) {
-      const [k, e, m] = b.split("-");
-      setVbK(k);
-      setVbExit(e);
-      setVbOpen(Number(m.slice(3)));
+      const parts = b.split("-");
+      setVbK(parts[0]);
+      setVbExit(parts[1]);
+      setVbSide(parts.includes("short") ? "short" : "long");
+      setVbOpen(Number(parts[parts.length - 1].slice(3)));
     } else if (isLc) {
       setLcSetup(b.split("-")[0]);
       setLcHold(b.split("-")[1]);
@@ -860,6 +868,13 @@ export default function PortfolioBacktestPage({ model = "xsmr" }) {
           </>
         ) : isVb ? (
           <>
+            <div
+              className="flex items-center gap-2"
+              title="Long is what's used here. Williams presents both sides; Short (sell below the open − k × range, bought back at the first open below the sale price, at most 5 days) is shown as a check: it loses on the indices and the stocks."
+            >
+              <span className="text-xs uppercase tracking-[0.14em] text-[#6f6a62]">Side</span>
+              <Segmented options={VB_SIDES} value={vbSide} onChange={setVbSide} />
+            </div>
             <div
               className="flex items-center gap-2"
               title="The buy stop: today's 09:15 open + k × yesterday's high-low range. Williams uses about half the range to the whole range; both are shown rather than one picked."

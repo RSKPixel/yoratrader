@@ -8,7 +8,9 @@ only, on the F&O indices (the book is about index futures) and the F&O stocks.
 - Exit (book): Williams' "first profitable open": sold at the first 09:15 open above the buy
   price, at most 5 trading days later (otherwise at the 5th day's open). No stop. "intraday" sells
   at 15:15 the same day instead: a check (it loses everywhere).
-- Long only: the short mirror lost in every test (intraday and swing).
+- Long is what's used here. Williams presents both sides; the short mirror ("-short": sell below
+  the open - k x range, bought back at the first open below the sale price, at most 5 days) is kept
+  as a check: it lost in every test (intraday and swing).
 - Book: at most N positions open at once ("-max<N>"), each 1/N of capital; one per instrument at a
   time. A slot freed at an open can be filled by a later breakout that day. When more instruments
   break out than slots are free, the earliest breakouts fill first (as real stop orders would).
@@ -44,8 +46,10 @@ BARS = 24  # 09:15 .. 15:00
 IST_OFFSET = 19800  # seconds; India has no daylight saving
 INDEX_LOTS = {"NIFTY 50": "NIFTY", "NIFTY BANK": "BANKNIFTY", "NIFTY FIN SERVICE": "FINNIFTY",
               "NIFTY MID SELECT": "MIDCPNIFTY", "NIFTY NEXT 50": "NIFTYNXT50"}
-VARIANTS = {f"{k}-{e}-max{m}": {"label": f"k = {v:g} x range · {EXITS[e]} · max {m} open", "k": v, "exit": e, "max_open": m}
-            for k, v in KS.items() for e in EXITS for m in MAX_OPEN}
+SIDES = {"": "long", "-short": "short (check)"}
+VARIANTS = {f"{k}-{e}{sd}-max{m}": {"label": f"{SIDES[sd].capitalize()} · k = {v:g} x range · {EXITS[e]} · max {m} open",
+                                     "k": v, "exit": e, "max_open": m, "side": 1 if not sd else -1}
+            for sd in SIDES for k, v in KS.items() for e in EXITS for m in MAX_OPEN}
 BOOK = tuple(f"{k}-swing-max{m}" for k in KS for m in MAX_OPEN)
 TAKES = {"all": None}
 DEFAULT_OPEN = {"indices": 5, "fno": 5}
@@ -68,11 +72,12 @@ def _load(dataset):
     with connect() as conn, conn.cursor() as cursor:
         buf = io.StringIO()
         cursor.copy_expert(cursor.mogrify(
-            "COPY (SELECT symbol, extract(epoch FROM datetime)::bigint, open, high, close FROM bt_15m "
+            "COPY (SELECT symbol, extract(epoch FROM datetime)::bigint, open, high, low, close FROM bt_15m "
             "WHERE symbol IN (SELECT symbol FROM bt_symbols WHERE dataset = %s)) TO STDOUT", (dataset,)).decode(), buf)
     buf.seek(0)
-    bars = pd.read_csv(buf, sep="\t", header=None, names=["symbol", "ts", "open", "high", "close"],
-                       dtype={"symbol": "category", "ts": np.int64, "open": np.float64, "high": np.float64, "close": np.float64})
+    bars = pd.read_csv(buf, sep="\t", header=None, names=["symbol", "ts", "open", "high", "low", "close"],
+                       dtype={"symbol": "category", "ts": np.int64, "open": np.float64, "high": np.float64,
+                              "low": np.float64, "close": np.float64})
     del buf
     # Integer day codes (days since 1970, IST) and numpy lookups: no per-row Python objects.
     local = bars["ts"].to_numpy() + IST_OFFSET
@@ -110,8 +115,8 @@ def _load(dataset):
     row_ok = aligned & (pos < len(days_arr)) & (days_arr[np.minimum(pos, len(days_arr) - 1)] == dcode) & (sym_index[scode] >= 0)
     r, c, k = pos[row_ok], sym_index[scode[row_ok]], slot[row_ok]
     shape = (len(days_arr), len(syms), BARS)
-    bo, bh, bc = np.full(shape, np.nan), np.full(shape, np.nan), np.full(shape, np.nan)
-    bo[r, c, k], bh[r, c, k], bc[r, c, k] = (bars[col].to_numpy()[row_ok] for col in ("open", "high", "close"))
+    bo, bh, bl, bc = (np.full(shape, np.nan) for _ in range(4))
+    bo[r, c, k], bh[r, c, k], bl[r, c, k], bc[r, c, k] = (bars[col].to_numpy()[row_ok] for col in ("open", "high", "low", "close"))
     del bars
     days = pd.to_datetime(days_arr, unit="D")
 
@@ -124,24 +129,26 @@ def _load(dataset):
     x_ok = (x1515 >= d_low * (1 - xsmr.RANGE_TOLERANCE)) & (x1515 <= d_high * (1 + xsmr.RANGE_TOLERANCE))
     x1515 = np.where(x_ok, x1515, np.nan)
     o_clean = np.where(np.abs(o915 / d_open - 1) <= backtest.GAP_OPEN_TOLERANCE, o915, np.nan)
-    return {"days": D, "syms": syms, "o915": o_clean, "x1515": x1515, "bo": bo, "bh": bh, "rng": rng, "ok": ok}
+    return {"days": D, "syms": syms, "o915": o_clean, "x1515": x1515, "bo": bo, "bh": bh, "bl": bl, "rng": rng, "ok": ok}
 
 
-def _signals(d, k):
-    """Per day and symbol: the 15m slot of the first breakout (-1 if none) and the fill price."""
-    level = d["o915"] + k * d["rng"]
+def _signals(d, k, side=1):
+    """Per day and symbol: the 15m slot of the first breakout (-1 if none) and the fill price.
+    side 1: up through the open + k x range; -1: down through the open - k x range."""
+    level = d["o915"] + side * k * d["rng"]
     with np.errstate(invalid="ignore"):
-        hit = d["bh"] >= level[:, :, None]
+        hit = d["bh"] >= level[:, :, None] if side > 0 else d["bl"] <= level[:, :, None]
     any_hit = hit.any(axis=2) & d["ok"] & np.isfinite(level)
     slot = np.where(any_hit, hit.argmax(axis=2), -1)
     bar_open = np.take_along_axis(d["bo"], np.maximum(slot, 0)[:, :, None], axis=2)[:, :, 0]
-    fill = np.where(any_hit, np.fmax(level, bar_open), np.nan)
+    fill = np.where(any_hit, np.fmax(level, bar_open) if side > 0 else np.fmin(level, bar_open), np.nan)
     return slot, fill
 
 
 def _simulate(d, variant):
     meta = VARIANTS[variant]
-    slot, fill = _signals(d, meta["k"])
+    sign = meta["side"]
+    slot, fill = _signals(d, meta["k"], sign)
     days, o, x = d["days"], d["o915"], d["x1515"]
     n, cap = len(days), meta["max_open"]
     w = 1.0 / cap
@@ -161,10 +168,11 @@ def _simulate(d, variant):
                 else:
                     still.append(tr)
                 continue
-            if o[i, s] > tr["buy"] or age >= SWING_DAYS:
-                gross[i] += w * (o[i, s] / tr["last"] - 1)
+            profit = sign * (o[i, s] - tr["buy"]) > 0
+            if profit or age >= SWING_DAYS:
+                gross[i] += sign * w * (o[i, s] / tr["last"] - 1)
                 turn[i] += w * o[i, s] / tr["buy"]
-                tr.update(sell_i=i, sell=float(o[i, s]), reason="profitable open" if o[i, s] > tr["buy"] else f"day {SWING_DAYS} open")
+                tr.update(sell_i=i, sell=float(o[i, s]), reason="profitable open" if profit else f"day {SWING_DAYS} open")
                 trades.append(tr)
             else:
                 still.append(tr)
@@ -181,7 +189,7 @@ def _simulate(d, variant):
         for tr in open_trades:  # mark at 15:15; intraday trades are sold there
             s = tr["s"]
             if not np.isnan(x[i, s]):
-                gross[i] += w * (x[i, s] / tr["last"] - 1)
+                gross[i] += sign * w * (x[i, s] / tr["last"] - 1)
                 tr["last"] = float(x[i, s])
             held[i] += 1
             if meta["exit"] == "intraday" and tr["buy_i"] == i:
@@ -192,8 +200,8 @@ def _simulate(d, variant):
                 still.append(tr)
         open_trades = still
     trades += [dict(tr, sell_i=None, sell=None, reason="open") for tr in open_trades]
-    f = pd.DataFrame({"day": [t.date() for t in days], "gross_ret": gross, "turnover": turn, "long_ret": gross,
-                      "short_ret": 0.0, "stocks": held})
+    f = pd.DataFrame({"day": [t.date() for t in days], "gross_ret": gross, "turnover": turn,
+                      "long_ret": gross if sign > 0 else 0.0, "short_ret": gross if sign < 0 else 0.0, "stocks": held})
     return f[f["turnover"].cumsum() > 0].reset_index(drop=True), trades
 
 
@@ -284,7 +292,7 @@ def results(variant, dataset, slippage=0.0002, lots=False):
                       "buy": [x["buy"] for x in closed], "sell": [x["sell"] for x in closed],
                       "held": [x["sell_i"] - x["buy_i"] for x in closed], "reason": [x["reason"] for x in closed]})
     cost = xsmr.cost_per_side(slippage)
-    t["ret"] = t["sell"] / t["buy"] - 1
+    t["ret"] = VARIANTS[variant]["side"] * (t["sell"] / t["buy"] - 1)
     t["gross"], t["cost"] = t["w"] * t["ret"], t["w"] * (1 + t["sell"] / t["buy"]) * cost
     t["net"] = t["gross"] - t["cost"]
     wins, losses = t.loc[t["net"] > 0, "net"].sum(), -t.loc[t["net"] < 0, "net"].sum()
@@ -310,7 +318,7 @@ def results(variant, dataset, slippage=0.0002, lots=False):
 
 
 def compare(dataset, slippage=0.0002, take="all", lots=False, variant=None):
-    """Both k values and both exits, at the max open of `variant`."""
+    """Both sides, both k values and both exits, at the max open of `variant`."""
     m = VARIANTS[variant]["max_open"] if variant else DEFAULT_OPEN[dataset]
     rows = []
     for base, meta in VARIANTS.items():
@@ -336,6 +344,7 @@ def day_trades(variant, dataset, day):
         return []
     i = days.get_loc(ts)
     lots = _lots(d)
+    sign = VARIANTS[variant]["side"]
     rows = []
     for tr in trades:
         last_i = tr["sell_i"] if tr["sell_i"] is not None else len(days) - 1
@@ -345,12 +354,12 @@ def day_trades(variant, dataset, day):
         sold = tr["sell"] is not None
         mins = 555 + 15 * tr["slot"]
         size = lots[s]
-        rows.append({"symbol": d["syms"][s], "side": "long", "weight_pct": round(100 * tr["w"], 3),
+        rows.append({"symbol": d["syms"][s], "side": "long" if sign > 0 else "short", "weight_pct": round(100 * tr["w"], 3),
                      "bought": days[tr["buy_i"]].date().isoformat(), "buy_time": f"{mins // 60:02d}:{mins % 60:02d}",
                      "buy": round(tr["buy"], 2),
                      "sold": days[tr["sell_i"]].date().isoformat() if sold else None,
                      "sell": round(tr["sell"], 2) if sold else None, "reason": tr["reason"],
-                     "trade_pct": round(100 * (tr["sell"] / tr["buy"] - 1), 2) if sold else None,
+                     "trade_pct": round(100 * sign * (tr["sell"] / tr["buy"] - 1), 2) if sold else None,
                      "day_of_hold": i - tr["buy_i"], "lot_size": int(size) if size else None,
-                     "trade_rs": round(size * (tr["sell"] - tr["buy"])) if sold and size else None})
+                     "trade_rs": round(sign * size * (tr["sell"] - tr["buy"])) if sold and size else None})
     return sorted(rows, key=lambda r: (r["bought"], r["buy_time"], r["symbol"]))

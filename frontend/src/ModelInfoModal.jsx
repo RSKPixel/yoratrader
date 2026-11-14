@@ -1201,7 +1201,12 @@ export function VboInfo() {
             The <B>indices</B> are the clean version (liquid index futures, ~100 trades a year at k = 1.0) but sit in
             cash most days, so the book's yearly return is small. The capped <B>stock</B> book has large drawdowns.
           </li>
-          <li>The short mirror (sell below the open − k × range) lost in every test, so it isn't included.</li>
+          <li>
+            <B>Short side</B>: Williams presents the breakout for both sides (in stock indices he notes the buy side is
+            stronger). The mirror — sell below the open − k × range, buy back at the first open below the sale price, at
+            most 5 days — is on the page as a check (Side → Short). It loses on the indices and badly on the stocks,
+            intraday and swing, so the book here is long only.
+          </li>
         </List>
       </Section>
 
