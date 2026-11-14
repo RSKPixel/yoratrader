@@ -65,8 +65,8 @@ const LC_HOLDS = [
   ["2d", "2 days"],
 ];
 const LC_TIMINGS = [
-  ["", "15:15 (2015 on)"],
   ["-close", "Close (2004 on)"],
+  ["", "15:15 (2015 on)"],
 ];
 const LC_STOPS = [
   ["", "None (book)"],
@@ -661,7 +661,7 @@ export default function PortfolioBacktestPage({ model = "xsmr" }) {
   const [lcSetup, setLcSetup] = useState("rsi2");
   const [lcHold, setLcHold] = useState("5d");
   const [lcOpen, setLcOpen] = useState(0); // max open positions; 0 = many (the book)
-  const [lcTiming, setLcTiming] = useState("");
+  const [lcTiming, setLcTiming] = useState("-close"); // the long history by default
   const [lcStop, setLcStop] = useState("");
   const [momFill, setMomFill] = useState("book");
   const [qmVersion, setQmVersion] = useState("book");
