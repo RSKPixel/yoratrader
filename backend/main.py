@@ -47,6 +47,7 @@ async def startup():
     # only in production: dev shares the database and would record everything twice.
     if os.environ.get("APP_ENV") == "production" or os.environ.get("GAP_SCHEDULER") == "1":
         gapwatch.start_scheduler()
+    vbo.warm()  # the volatility breakout page's candles (~7 s for the F&O stocks), so the first visit is quick
 
 
 def _cors_origins():

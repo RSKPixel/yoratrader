@@ -22,6 +22,7 @@ entry (stocks have drifted up overnight); against a baseline that buys every 09:
 same exit, the breakout adds about 0.15% a trade on stocks and 0.2% on the indices.
 """
 
+import io
 import threading
 import time
 from datetime import timedelta
@@ -40,6 +41,7 @@ EXITS = {"swing": "first profitable open, max 5 days (book)", "intraday": "sell 
 MAX_OPEN = tuple(range(1, 11))
 SWING_DAYS = 5
 BARS = 24  # 09:15 .. 15:00
+IST_OFFSET = 19800  # seconds; India has no daylight saving
 INDEX_LOTS = {"NIFTY 50": "NIFTY", "NIFTY BANK": "BANKNIFTY", "NIFTY FIN SERVICE": "FINNIFTY",
               "NIFTY MID SELECT": "MIDCPNIFTY", "NIFTY NEXT 50": "NIFTYNXT50"}
 VARIANTS = {f"{k}-{e}-max{m}": {"label": f"k = {v:g} x range · {EXITS[e]} · max {m} open", "k": v, "exit": e, "max_open": m}
@@ -61,24 +63,34 @@ def parse_variant(variant):
 
 def _load(dataset):
     """Day x symbol matrices: 09:15 open, 15:15 price, each 15m candle's open/high, yesterday's range."""
+    # ~14M candles for the F&O stocks: COPY raw epoch seconds and convert here (5 s, ~260 MB) rather
+    # than read_sql with time zone maths per row in Postgres (30 s, ~1.8 GB).
+    with connect() as conn, conn.cursor() as cursor:
+        buf = io.StringIO()
+        cursor.copy_expert(cursor.mogrify(
+            "COPY (SELECT symbol, extract(epoch FROM datetime)::bigint, open, high, close FROM bt_15m "
+            "WHERE symbol IN (SELECT symbol FROM bt_symbols WHERE dataset = %s)) TO STDOUT", (dataset,)).decode(), buf)
+    buf.seek(0)
+    bars = pd.read_csv(buf, sep="\t", header=None, names=["symbol", "ts", "open", "high", "close"],
+                       dtype={"symbol": "category", "ts": np.int64, "open": np.float64, "high": np.float64, "close": np.float64})
+    del buf
+    # Integer day codes (days since 1970, IST) and numpy lookups: no per-row Python objects.
+    local = bars["ts"].to_numpy() + IST_OFFSET
+    minutes = (local % 86400) // 60 - 555
+    dcode, slot = local // 86400, minutes // 15
+    aligned = (minutes % 15 == 0) & (slot >= 0) & (slot < BARS)
+    names = np.asarray(bars["symbol"].cat.categories)
+    scode = bars["symbol"].cat.codes.to_numpy()
     with connect() as conn:
-        bars = pd.read_sql(
-            """
-            SELECT symbol, (datetime AT TIME ZONE 'Asia/Kolkata')::date AS day,
-                   ((extract(hour FROM datetime AT TIME ZONE 'Asia/Kolkata') * 60
-                     + extract(minute FROM datetime AT TIME ZONE 'Asia/Kolkata') - 555) / 15)::int AS slot,
-                   open, high, low, close
-            FROM bt_15m WHERE symbol IN (SELECT symbol FROM bt_symbols WHERE dataset = %s)
-              AND (datetime AT TIME ZONE 'Asia/Kolkata')::time <= '15:00'
-            """, conn, params=[dataset])
         daily = pd.read_sql("SELECT symbol, day, open, high, low, close FROM bt_daily WHERE close > 0 AND symbol IN "
                             "(SELECT symbol FROM bt_symbols WHERE dataset = %s)", conn, params=[dataset])
     daily["day"] = pd.to_datetime(daily["day"])
-    bars["day"] = pd.to_datetime(bars["day"])
     # A session is a day most symbols open at 09:15. Muhurat trading (an evening hour, on a weekend or a
     # holiday) has every symbol trading, so a count of symbols doesn't catch it; its range would be
     # taken as "yesterday's" the next morning.
-    opened = bars[bars["slot"] == 0].groupby("day")["symbol"].nunique()
+    first = aligned & (slot == 0)
+    day0, n0 = np.unique(np.unique(dcode[first] * 10000 + scode[first]) // 10000, return_counts=True)
+    opened = pd.Series(n0, index=pd.to_datetime(day0, unit="D"))
     count = daily.groupby("day").size()
     keep = count[(count >= 0.8 * count.rolling(21, center=True, min_periods=1).median())
                  & (opened.reindex(count.index).fillna(0) >= 0.5 * count)].index
@@ -88,17 +100,20 @@ def _load(dataset):
     daily["prev_close"] = g["close"].shift(1)
     dv = {c: daily.pivot(index="day", columns="symbol", values=c) for c in ("open", "high", "low", "range", "prev_close")}
 
-    bars = bars[(bars["slot"] >= 0) & (bars["slot"] < BARS) & bars["day"].isin(keep)]
-    days = sorted(set(bars["day"]) & set(dv["open"].index))
-    syms = sorted(set(bars["symbol"]) & set(dv["open"].columns))
-    di = {d: i for i, d in enumerate(days)}
-    si = {s: i for i, s in enumerate(syms)}
-    shape = (len(days), len(syms), BARS)
-    bo, bh = np.full(shape, np.nan), np.full(shape, np.nan)
-    bc = np.full(shape, np.nan)
-    b = bars[bars["symbol"].isin(si)]
-    r, c, k = b["day"].map(di).to_numpy(), b["symbol"].map(si).to_numpy(), b["slot"].to_numpy()
-    bo[r, c, k], bh[r, c, k], bc[r, c, k] = b["open"].to_numpy(), b["high"].to_numpy(), b["close"].to_numpy()
+    keep_codes = ((keep - pd.Timestamp("1970-01-01")).days).to_numpy()
+    days_arr = np.intersect1d(np.unique(dcode[aligned]), keep_codes)
+    syms = sorted(set(names) & set(dv["open"].columns))
+    sym_index = np.full(len(names), -1)
+    for i, s_ in enumerate(syms):
+        sym_index[np.flatnonzero(names == s_)[0]] = i
+    pos = np.searchsorted(days_arr, dcode)
+    row_ok = aligned & (pos < len(days_arr)) & (days_arr[np.minimum(pos, len(days_arr) - 1)] == dcode) & (sym_index[scode] >= 0)
+    r, c, k = pos[row_ok], sym_index[scode[row_ok]], slot[row_ok]
+    shape = (len(days_arr), len(syms), BARS)
+    bo, bh, bc = np.full(shape, np.nan), np.full(shape, np.nan), np.full(shape, np.nan)
+    bo[r, c, k], bh[r, c, k], bc[r, c, k] = (bars[col].to_numpy()[row_ok] for col in ("open", "high", "close"))
+    del bars
+    days = pd.to_datetime(days_arr, unit="D")
 
     D = pd.DatetimeIndex(days)
     al = lambda x: x.reindex(index=D, columns=syms).to_numpy(dtype=float)
@@ -182,29 +197,68 @@ def _simulate(d, variant):
     return f[f["turnover"].cumsum() > 0].reset_index(drop=True), trades
 
 
-CACHE_SECONDS = 3600
-_cache, _lock = {}, threading.Lock()
+# The candles are loaded once per dataset and kept until new ones are stored (checked at most every
+# CHECK_SECONDS with one cheap max() query). One load at a time per key: a page switch fires several
+# requests at once, and each used to start its own load. Books (~0.1 s each) are kept per data version.
+CHECK_SECONDS = 600
+_cache, _lock, _building = {}, threading.Lock(), {}
 
 
 def _cached(key, build):
     with _lock:
-        hit = _cache.get(key)
-        if hit and time.time() - hit[0] < CACHE_SECONDS:
-            return hit[1]
-    value = build()
+        if key in _cache:
+            return _cache[key]
+        gate = _building.setdefault(key, threading.Lock())
+    with gate:  # the first caller builds; the others wait here, then read the cache
+        with _lock:
+            if key in _cache:
+                return _cache[key]
+        value = build()
+        with _lock:
+            _cache[key] = value
+            _building.pop(key, None)
+            books = [k for k in _cache if k[0] == "book"]
+            for k in books[: max(0, len(books) - 60)]:
+                _cache.pop(k, None)
+        return value
+
+
+def _version(dataset):
+    """The latest stored 15m candle, re-read at most every CHECK_SECONDS."""
     with _lock:
-        _cache[key] = (time.time(), value)
-        books = sorted((t, k) for k, (t, _) in _cache.items() if k[0] == "book")
-        for _, k in books[: max(0, len(books) - 60)]:
-            _cache.pop(k, None)
-    return value
+        seen = _cache.get(("version", dataset))
+        if seen and time.time() - seen[0] < CHECK_SECONDS:
+            return seen[1]
+    with connect() as conn, conn.cursor() as cursor:
+        cursor.execute("SELECT max(datetime) FROM bt_15m WHERE symbol IN (SELECT symbol FROM bt_symbols WHERE dataset = %s)",
+                       (dataset,))
+        stamp = cursor.fetchone()[0]
+    with _lock:
+        if seen and seen[1] != stamp:  # new candles: drop the old data and books
+            for k in [k for k in _cache if k[0] in ("data", "book") and k[1] == dataset]:
+                _cache.pop(k, None)
+        _cache[("version", dataset)] = (time.time(), stamp)
+    return stamp
 
 
 def _run(variant, dataset):
     parse_variant(variant)
-    d = _cached(("data", dataset), lambda: _load(dataset))
-    f, trades = _cached(("book", dataset, variant), lambda: _simulate(d, variant))
+    version = _version(dataset)
+    d = _cached(("data", dataset, version), lambda: _load(dataset))
+    f, trades = _cached(("book", dataset, version, variant), lambda: _simulate(d, variant))
     return f.copy(), trades, d
+
+
+def warm():
+    """Load both datasets and the page's default books in the background (called at startup)."""
+    def go():
+        for dataset in DATASETS:
+            try:
+                for k in KS:
+                    _run(f"{k}-swing-max{DEFAULT_OPEN[dataset]}", dataset)
+            except Exception as error:
+                print("Volatility breakout warm-up failed:", error)
+    threading.Thread(target=go, daemon=True, name="vbo-warm").start()
 
 
 def _frame(variant, dataset, slippage):
