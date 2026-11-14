@@ -25,6 +25,7 @@ import fib
 import kbdtfib
 import orb
 import ws_hub
+import pairs
 import xsmr
 
 jobs = {}
@@ -594,27 +595,47 @@ def kbdt_ltp():
         return {"status": "error", "message": str(error)}
 
 
-@app.get("/api/backtest/portfolio")
-def backtest_portfolio(variant: str = Query("intraday-0915"), dataset: str = Query("fno"),
-                       slippage: float = Query(0.02, ge=0, le=1)):
-    """Cross-sectional mean reversion (portfolio returns): one variant, plus all variants to compare."""
-    if variant not in xsmr.VARIANTS or dataset not in xsmr.DATASETS:
-        raise HTTPException(status_code=400, detail="unknown variant or dataset")
+PORTFOLIO_MODELS = {"xsmr": xsmr, "pairs": pairs}
+
+
+def _portfolio_check(model, variant, dataset):
+    """Validates a portfolio-model request; returns (module, take)."""
+    module = PORTFOLIO_MODELS.get(model)
+    if module is None:
+        raise HTTPException(status_code=400, detail="unknown model")
     try:
+        _, take = module.parse_variant(variant)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="unknown variant")
+    if model == "xsmr" and dataset not in xsmr.DATASETS:
+        raise HTTPException(status_code=400, detail="unknown dataset")
+    return module, take
+
+
+@app.get("/api/backtest/portfolio")
+def backtest_portfolio(model: str = Query("xsmr"), variant: str = Query("intraday-0915"), dataset: str = Query("fno"),
+                       slippage: float = Query(0.02, ge=0, le=1)):
+    """Portfolio-return backtests (cross-sectional mean reversion, pairs): one variant, plus all to compare."""
+    module, take = _portfolio_check(model, variant, dataset)
+    try:
+        if model == "pairs":
+            return {"status": "success", **pairs.results(variant, slippage / 100), "compare": pairs.compare(slippage / 100, take)}
         return {"status": "success", **xsmr.results(variant, dataset, slippage / 100),
-                "compare": xsmr.compare(dataset, slippage / 100)}
+                "compare": xsmr.compare(dataset, slippage / 100, take)}
     except Exception as error:
         print("Portfolio backtest failed:", error)
         return {"status": "error", "message": str(error)}
 
 
 @app.get("/api/backtest/portfolio/month")
-def backtest_portfolio_month(month: str = Query(..., pattern=r"^\d{4}-\d{2}$"), variant: str = Query("intraday-0915"),
-                             dataset: str = Query("fno"), slippage: float = Query(0.02, ge=0, le=1)):
-    """The days behind one month cell of the cross-sectional mean reversion page."""
-    if variant not in xsmr.VARIANTS or dataset not in xsmr.DATASETS:
-        raise HTTPException(status_code=400, detail="unknown variant or dataset")
+def backtest_portfolio_month(month: str = Query(..., pattern=r"^\d{4}-\d{2}$"), model: str = Query("xsmr"),
+                             variant: str = Query("intraday-0915"), dataset: str = Query("fno"),
+                             slippage: float = Query(0.02, ge=0, le=1)):
+    """What one month cell adds up: the days (cross-sectional) or the trades closed (pairs)."""
+    _portfolio_check(model, variant, dataset)
     try:
+        if model == "pairs":
+            return {"status": "success", "trades": pairs.month_trades(variant, month, slippage / 100)}
         return {"status": "success", "days": xsmr.month_days(variant, dataset, month, slippage / 100)}
     except Exception as error:
         print("Portfolio month failed:", error)
@@ -625,12 +646,23 @@ def backtest_portfolio_month(month: str = Query(..., pattern=r"^\d{4}-\d{2}$"), 
 def backtest_portfolio_day(day: str = Query(..., pattern=r"^\d{4}-\d{2}-\d{2}$"), variant: str = Query("intraday-0915"),
                            dataset: str = Query("fno")):
     """Every stock position of the cross-sectional mean reversion book on one day."""
-    if variant not in xsmr.VARIANTS or dataset not in xsmr.DATASETS:
-        raise HTTPException(status_code=400, detail="unknown variant or dataset")
+    _portfolio_check("xsmr", variant, dataset)
     try:
         return {"status": "success", "trades": xsmr.day_trades(variant, dataset, _date.fromisoformat(day))}
     except Exception as error:
         print("Portfolio day failed:", error)
+        return {"status": "error", "message": str(error)}
+
+
+@app.get("/api/backtest/pairs/year")
+def backtest_pairs_year(year: int = Query(..., ge=2000, le=2100), variant: str = Query("bollinger"),
+                        slippage: float = Query(0.02, ge=0, le=1)):
+    """The pairs traded in one year with their formation statistics and result."""
+    _portfolio_check("pairs", variant, "fno")
+    try:
+        return {"status": "success", "pairs": pairs.pairs_year(variant, year, slippage / 100)}
+    except Exception as error:
+        print("Pairs year failed:", error)
         return {"status": "error", "message": str(error)}
 
 

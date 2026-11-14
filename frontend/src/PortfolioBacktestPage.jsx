@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createChart, LineSeries } from "lightweight-charts";
-import ModelInfoModal, { InfoButton, XsmrInfo } from "./ModelInfoModal";
+import ModelInfoModal, { InfoButton, PairsInfo, XsmrInfo } from "./ModelInfoModal";
 import { formatRs, Segmented, SLIPPAGE, Stat } from "./backtestShared";
 
-// Cross-sectional mean reversion (Chan ch. 4): a market-neutral portfolio, so results are
-// daily % returns on gross exposure (long + short), summed at a fixed exposure, not R per trade.
+// Portfolio-return backtests from Chan's book: cross-sectional mean reversion (ch. 4) and pairs
+// trading (ch. 2-4). Both are market-neutral books, so results are daily % returns on capital,
+// summed at a fixed size, not R per trade.
 
 const DATASETS = [
   ["fno", "All F&O stocks"],
@@ -19,6 +20,24 @@ const ENTRIES = [
   ["0916", "09:16"],
   ["0930", "09:30"],
   ["0945", "09:45"],
+];
+const XSMR_TAKES = [
+  ["all", "All (book)"],
+  ["top5", "5 + 5"],
+  ["top3", "3 + 3"],
+];
+const PAIR_METHODS = [
+  ["bollinger", "Bollinger"],
+  ["kalman", "Kalman filter"],
+];
+const PAIR_FILLS = [
+  ["close", "Signal close (book)"],
+  ["next", "Next close"],
+];
+const PAIR_TAKES = [
+  ["all", "All (book)"],
+  ["top10", "Top 10"],
+  ["top5", "Top 5"],
 ];
 const UNITS = [
   ["pct", "%"],
@@ -299,10 +318,172 @@ function CompareTable({ rows, variant, onSelect, fmt }) {
   );
 }
 
-export default function PortfolioBacktestPage() {
+function PairMonthTrades({ month, trades, loading, fmt, onClose }) {
+  const [y, m] = month.split("-");
+  const total = trades.reduce((a, t) => a + t.book_pct, 0);
+  return (
+    <div className="mt-3 border-t border-[#2c313a] pt-3">
+      <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+        <p className="text-xs uppercase tracking-[0.14em] text-[#9b968c]">
+          {MONTHS[Number(m) - 1]} {y} · {trades.length} trades closed · net {fmt.big(total, 2)} of the book
+        </p>
+        <button type="button" onClick={onClose} className="font-mono text-xs text-[#6f6a62] hover:text-[#e7e4dc]">
+          close ✕
+        </button>
+      </div>
+      <p className="mb-1 font-mono text-[0.7rem] text-[#6f6a62]">
+        Long the spread = buy y, short x. "On pair" is the return on that pair's capital; "of book" is its share of the
+        whole account. The month cell also includes P&amp;L of trades still open at month end.
+      </p>
+      {loading ? (
+        <p className="font-mono text-xs text-[#6f6a62]">Loading…</p>
+      ) : (
+        <div className="max-h-[28rem] overflow-auto">
+          <table className="w-full min-w-[760px] text-xs">
+            <thead className="sticky top-0 bg-[#181b20] text-left uppercase tracking-[0.1em] text-[#6f6a62]">
+              <tr>
+                {["Pair (y / x)", "Rank", "Side", "Entry", "Exit", "Days", "Gross on pair", "Net on pair", "Net of book"].map((h) => (
+                  <th key={h} className="px-2 py-1.5 font-medium">
+                    {h}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-[#23272e] whitespace-nowrap font-mono">
+              {trades.map((t, i) => (
+                <tr key={i}>
+                  <td className="px-2 py-1.5 text-[#e7e4dc]">
+                    {t.y} / {t.x}
+                  </td>
+                  <td className="px-2 py-1.5 text-[#9b968c]">#{t.rank}</td>
+                  <td className={`px-2 py-1.5 ${t.side === "long" ? "text-[#8fbf9f]" : "text-[#f0b4b4]"}`}>{t.side}</td>
+                  <td className="px-2 py-1.5 text-[#c8c3b8]">{t.entry}</td>
+                  <td className="px-2 py-1.5 text-[#c8c3b8]">{t.exit}</td>
+                  <td className="px-2 py-1.5 text-[#9b968c]">{t.days}</td>
+                  <td className={`px-2 py-1.5 ${pctClass(t.gross_pct)}`}>{fmtPct(t.gross_pct, 2)}</td>
+                  <td className={`px-2 py-1.5 ${pctClass(t.net_pct)}`}>{fmtPct(t.net_pct, 2)}</td>
+                  <td className={`px-2 py-1.5 ${pctClass(t.book_pct)}`}>{fmt.big(t.book_pct, 2)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PairsByYear({ years, variant, slippage }) {
+  const [year, setYear] = useState(null);
+  const [rows, setRows] = useState({ pairs: [], loading: false });
+  const active = year ?? years[years.length - 1]?.year;
+  useEffect(() => {
+    if (!active) return undefined;
+    const controller = new AbortController();
+    setRows({ pairs: [], loading: true });
+    fetch(`/api/backtest/pairs/year?year=${active}&variant=${variant}&slippage=${slippage}`, { signal: controller.signal })
+      .then((r) => r.json())
+      .then((payload) => setRows({ pairs: payload.status === "success" ? payload.pairs : [], loading: false }))
+      .catch(() => {});
+    return () => controller.abort();
+  }, [active, variant, slippage]);
+  const summary = years.find((y) => y.year === active);
+  return (
+    <section className="mb-4 rounded-md border border-[#2c313a] bg-[#181b20] px-4 py-3">
+      <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+        <p className="text-xs uppercase tracking-[0.14em] text-[#6f6a62]">Pairs by year · picked on the year before</p>
+        {summary && (
+          <p className="font-mono text-xs text-[#9b968c]">
+            {summary.pairs} pairs · {summary.traded} traded · {summary.trades} trades · {summary.green} net positive
+          </p>
+        )}
+      </div>
+      <div className="mb-3 flex flex-wrap gap-1">
+        {years.map((y) => (
+          <button
+            key={y.year}
+            type="button"
+            onClick={() => setYear(y.year)}
+            className={`rounded px-2 py-1 font-mono text-xs ${
+              y.year === active ? "bg-[#e7e4dc] text-[#14110c]" : "text-[#9b968c] hover:bg-white/5"
+            }`}
+          >
+            {y.year}
+          </button>
+        ))}
+      </div>
+      {rows.loading ? (
+        <p className="font-mono text-xs text-[#6f6a62]">Loading…</p>
+      ) : (
+        <div className="max-h-[28rem] overflow-auto">
+          <table className="w-full min-w-[860px] text-xs">
+            <thead className="sticky top-0 bg-[#181b20] text-left uppercase tracking-[0.1em] text-[#6f6a62]">
+              <tr>
+                {["Rank", "Pair (y / x)", "Industry", "Hedge", "Test t", "Half-life", "Trades", "Days open", "Gross", "Net"].map((h) => (
+                  <th key={h} className="px-2 py-1.5 font-medium">
+                    {h}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-[#23272e] whitespace-nowrap font-mono">
+              {rows.pairs.map((p) => (
+                <tr key={`${p.y}-${p.x}`}>
+                  <td className="px-2 py-1.5 text-[#9b968c]">#{p.rank}</td>
+                  <td className="px-2 py-1.5 text-[#e7e4dc]">
+                    {p.y} / {p.x}
+                    {p.stopped && (
+                      <span title={`Stopped ${p.stopped}: a move over 20% or a missing price`} className="ml-2 rounded bg-[#f0b4b4]/15 px-1.5 py-0.5 text-[0.65rem] text-[#f0b4b4]">
+                        stopped
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-2 py-1.5 text-[#9b968c]">{p.industry}</td>
+                  <td className="px-2 py-1.5 text-[#c8c3b8]">{p.hedge}</td>
+                  <td className="px-2 py-1.5 text-[#c8c3b8]">{p.tstat}</td>
+                  <td className="px-2 py-1.5 text-[#c8c3b8]">{p.half_life} d</td>
+                  <td className="px-2 py-1.5 text-[#c8c3b8]">{p.trades}</td>
+                  <td className="px-2 py-1.5 text-[#9b968c]">{p.days_open}</td>
+                  <td className={`px-2 py-1.5 ${pctClass(p.gross_pct)}`}>{fmtPct(p.gross_pct, 2)}</td>
+                  <td className={`px-2 py-1.5 ${pctClass(p.net_pct)}`}>{fmtPct(p.net_pct, 2)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <p className="mt-2 font-mono text-[0.7rem] text-[#6f6a62]">
+        Gross and net are on the pair's own capital for the year. Hedge: shares of x per share of y (Bollinger). Test t:
+        the Engle–Granger statistic in the pick year; more negative = stronger.
+      </p>
+    </section>
+  );
+}
+
+const PAGES = {
+  xsmr: {
+    title: "Cross-sectional mean reversion",
+    blurb:
+      "Market-neutral: every day, long the stocks that lagged and short the ones that led, in proportion to the move. Returns are % of gross exposure, summed at a fixed size.",
+    info: XsmrInfo,
+  },
+  pairs: {
+    title: "Pairs trading",
+    blurb:
+      "Same-industry F&O pairs that passed a cointegration test on last year's prices, traded this year when their spread stretches. Returns are % of total capital, split equally across the year's pairs.",
+    info: PairsInfo,
+  },
+};
+
+export default function PortfolioBacktestPage({ model = "xsmr" }) {
+  const page = PAGES[model];
+  const isPairs = model === "pairs";
   const [version, setVersion] = useState("intraday");
   const [entry, setEntry] = useState("0915");
   const [dataset, setDataset] = useState("fno");
+  const [take, setTake] = useState("all");
+  const [method, setMethod] = useState("bollinger");
+  const [fill, setFill] = useState("close");
   const [slippage, setSlippage] = useState(0.02);
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -312,26 +493,29 @@ export default function PortfolioBacktestPage() {
   const [capital, setCapital] = useState(1000000);
   const fmt = useMemo(() => makeFmt(unit, capital), [unit, capital]);
 
-  const variant = version === "daily" ? "daily" : `intraday-${entry}`;
+  const base = isPairs ? `${method}${fill === "next" ? "-next" : ""}` : version === "daily" ? "daily" : `intraday-${entry}`;
+  const variant = take === "all" ? base : `${base}-${take}`;
   const [month, setMonth] = useState(null);
-  const [monthDays, setMonthDays] = useState({ days: [], loading: false });
+  const [monthRows, setMonthRows] = useState({ rows: [], loading: false });
 
   useEffect(() => {
     if (!month) return undefined;
     const controller = new AbortController();
-    setMonthDays({ days: [], loading: true });
-    fetch(`/api/backtest/portfolio/month?month=${month}&variant=${variant}&dataset=${dataset}&slippage=${slippage}`, {
+    setMonthRows({ rows: [], loading: true });
+    fetch(`/api/backtest/portfolio/month?model=${model}&month=${month}&variant=${variant}&dataset=${dataset}&slippage=${slippage}`, {
       signal: controller.signal,
     })
       .then((r) => r.json())
-      .then((payload) => setMonthDays({ days: payload.status === "success" ? payload.days : [], loading: false }))
+      .then((payload) =>
+        setMonthRows({ rows: payload.status === "success" ? payload.days || payload.trades : [], loading: false }),
+      )
       .catch(() => {});
     return () => controller.abort();
-  }, [month, variant, dataset, slippage]);
+  }, [model, month, variant, dataset, slippage]);
 
   useEffect(() => {
     setLoading(true);
-    fetch(`/api/backtest/portfolio?variant=${variant}&dataset=${dataset}&slippage=${slippage}`)
+    fetch(`/api/backtest/portfolio?model=${model}&variant=${variant}&dataset=${dataset}&slippage=${slippage}`)
       .then((r) => r.json())
       .then((payload) => {
         if (payload.status !== "success") {
@@ -343,65 +527,94 @@ export default function PortfolioBacktestPage() {
       })
       .catch(() => setError("Could not reach the API"))
       .finally(() => setLoading(false));
-  }, [variant, dataset, slippage]);
+  }, [model, variant, dataset, slippage]);
 
   const selectVariant = (v) => {
-    if (v === "daily") setVersion("daily");
+    const b = take === "all" ? v : v.slice(0, -(take.length + 1));
+    if (isPairs) {
+      setMethod(b.split("-")[0]);
+      setFill(b.endsWith("-next") ? "next" : "close");
+    } else if (b === "daily") setVersion("daily");
     else {
       setVersion("intraday");
-      setEntry(v.split("-")[1]);
+      setEntry(b.split("-")[1]);
     }
   };
 
   const s = data?.summary;
+  const capitalLabel = CAPITALS.find(([c]) => c === capital)[1];
+  const Info = page.info;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-auto">
       <header className="mb-6 flex flex-wrap items-end justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">
-            <h1 className="text-2xl font-semibold tracking-tight">Backtest · Cross-sectional mean reversion</h1>
+            <h1 className="text-2xl font-semibold tracking-tight">Backtest · {page.title}</h1>
             <InfoButton onClick={() => setShowInfo(true)} label="How this backtest works" />
           </div>
-          <p className="mt-1 max-w-3xl text-sm text-[#9b968c]">
-            Market-neutral: every day, long the stocks that lagged and short the ones that led, in proportion to the move.
-            Returns are % of gross exposure, summed at a fixed size.
-          </p>
+          <p className="mt-1 max-w-3xl text-sm text-[#9b968c]">{page.blurb}</p>
         </div>
         {s && (
           <p className="font-mono text-xs text-[#6f6a62]">
-            {s.from} → {s.to} · {s.days} days · ~{s.avg_stocks} stocks a day
+            {s.from} → {s.to} · {s.days} days · ~{s.avg_stocks} {isPairs ? "pairs open" : "stocks"} a day
           </p>
         )}
       </header>
 
       <div className="mb-3 flex flex-wrap items-center gap-3">
-        <div className="flex items-center gap-2" title="Intraday: signal previous close → open, held open → 15:15. Daily: signal last 15:15 → 15:15, held to the next 15:15.">
-          <span className="text-xs uppercase tracking-[0.14em] text-[#6f6a62]">Version</span>
-          <Segmented options={VERSIONS} value={version} onChange={setVersion} />
-        </div>
-        {version === "intraday" && (
-          <div
-            className="flex items-center gap-2"
-            title="The book enters at the 09:15 open (the opening-auction price). 09:30 and 09:45 keep the same signal and enter later: a check on how much of the result depends on the auction fill."
-          >
-            <span className="text-xs uppercase tracking-[0.14em] text-[#6f6a62]">Entry</span>
-            <Segmented options={ENTRIES} value={entry} onChange={setEntry} />
-          </div>
+        {isPairs ? (
+          <>
+            <div className="flex items-center gap-2" title="Bollinger: fixed hedge, z-score over the half-life. Kalman filter: hedge re-estimated daily.">
+              <span className="text-xs uppercase tracking-[0.14em] text-[#6f6a62]">Method</span>
+              <Segmented options={PAIR_METHODS} value={method} onChange={setMethod} />
+            </div>
+            <div className="flex items-center gap-2" title="The book trades at the close the signal is computed from; next close is the fill check.">
+              <span className="text-xs uppercase tracking-[0.14em] text-[#6f6a62]">Fill</span>
+              <Segmented options={PAIR_FILLS} value={fill} onChange={setFill} />
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="flex items-center gap-2" title="Intraday: signal previous close → open, held open → 15:15. Daily: signal last 15:15 → 15:15, held to the next 15:15.">
+              <span className="text-xs uppercase tracking-[0.14em] text-[#6f6a62]">Version</span>
+              <Segmented options={VERSIONS} value={version} onChange={setVersion} />
+            </div>
+            {version === "intraday" && (
+              <div
+                className="flex items-center gap-2"
+                title="The book enters at the 09:15 open (the opening-auction price). 09:16, 09:30 and 09:45 keep the same signal and enter later: a check on how much of the result depends on the auction fill."
+              >
+                <span className="text-xs uppercase tracking-[0.14em] text-[#6f6a62]">Entry</span>
+                <Segmented options={ENTRIES} value={entry} onChange={setEntry} />
+              </div>
+            )}
+          </>
         )}
+        <div
+          className="flex items-center gap-2"
+          title={
+            isPairs
+              ? "All: every selected pair (the book). Top 10 / 5: only the pairs with the strongest cointegration test, fixed before the year."
+              : "All: every stock with linear weights (the book). 5 + 5 / 3 + 3: only the stocks furthest from the average move per side, equal rupees each."
+          }
+        >
+          <span className="text-xs uppercase tracking-[0.14em] text-[#6f6a62]">Take</span>
+          <Segmented options={isPairs ? PAIR_TAKES : XSMR_TAKES} value={take} onChange={setTake} />
+        </div>
       </div>
       <div className="mb-4 flex flex-wrap items-center gap-3">
-        <Segmented options={DATASETS} value={dataset} onChange={setDataset} />
+        {!isPairs && <Segmented options={DATASETS} value={dataset} onChange={setDataset} />}
         <div className="flex items-center gap-2" title="Slippage per side, as a percent of price, on top of charges">
           <span className="text-xs uppercase tracking-[0.14em] text-[#6f6a62]">Slippage</span>
           <Segmented options={SLIPPAGE} value={slippage} onChange={setSlippage} />
         </div>
-        <div className="flex items-center gap-2" title="Show results as % of gross exposure, or in rupees for the chosen gross exposure (long + short)">
+        <div className="flex items-center gap-2" title="Show results as % of capital, or in rupees for the chosen capital">
           <span className="text-xs uppercase tracking-[0.14em] text-[#6f6a62]">Show</span>
           <Segmented options={UNITS} value={unit} onChange={setUnit} />
         </div>
         {unit === "rs" && (
-          <div className="flex items-center gap-2" title="Gross exposure: half long, half short, the same every day">
+          <div className="flex items-center gap-2" title={isPairs ? "Total capital, split equally across the year's pairs" : "Gross exposure: half long, half short, the same every day"}>
             <span className="text-xs uppercase tracking-[0.14em] text-[#6f6a62]">Capital</span>
             <Segmented options={CAPITALS} value={capital} onChange={setCapital} />
           </div>
@@ -418,17 +631,19 @@ export default function PortfolioBacktestPage() {
         <>
           {unit === "rs" && (
             <p className="mb-2 font-mono text-xs text-[#9b968c]">
-              {CAPITALS.find(([c]) => c === capital)[1]} gross exposure every day: half long, half short, spread over ~
-              {s.avg_stocks} stocks. Rupees are the % results scaled to that size, not compounded.
+              {isPairs
+                ? `${capitalLabel} capital split equally across the year's pairs (${data.take_n ? `${data.take_n}` : "all selected"}), ~${s.avg_stocks} open on an average day.`
+                : `${capitalLabel} gross exposure every day: half long, half short, spread over ~${s.avg_stocks} stocks.`}{" "}
+              Rupees are the % results scaled to that size, not compounded.
             </p>
           )}
           <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-8">
-            <Stat label="Net / year" value={fmt.big(s.net.ann_return_pct)} className={pctClass(s.net.ann_return_pct)} title="Mean daily net return × 248, at a fixed gross exposure (not compounded)" />
+            <Stat label="Net / year" value={fmt.big(s.net.ann_return_pct)} className={pctClass(s.net.ann_return_pct)} title="Mean daily net return × 248, at a fixed size (not compounded)" />
             <Stat label="Gross / year" value={fmt.big(s.gross.ann_return_pct)} className={pctClass(s.gross.ann_return_pct)} title="Before charges and slippage" />
-            <Stat label="Cost / day" value={fmt.bps(-s.avg_cost_bps)} title={`${s.avg_turnover}× gross traded a day at ${data.cost_per_side_bps} bps per side`} />
+            <Stat label="Cost / day" value={fmt.bps(-s.avg_cost_bps)} title={`${s.avg_turnover}× capital traded a day at ${data.cost_per_side_bps} bps per side`} />
             <Stat label="Net / day" value={fmt.bps(s.net.avg_day_bps)} className={pctClass(s.net.avg_day_bps)} />
             <Stat label="Net Sharpe" value={s.net.sharpe ?? "—"} className={pctClass(s.net.sharpe)} title={`Before costs: ${s.gross.sharpe}`} />
-            <Stat label="Max drawdown" value={fmt.big(s.net.max_dd_pct)} className="text-[#f0b4b4]" title="Largest fall in cumulative net, at a fixed gross exposure" />
+            <Stat label="Max drawdown" value={fmt.big(s.net.max_dd_pct)} className="text-[#f0b4b4]" title="Largest fall in cumulative net, at a fixed size" />
             <Stat label="Win days" value={`${s.net.win_days_pct}%`} title="Days with a positive net return" />
             <Stat label="Green years" value={`${s.green_years}/${s.years}`} title={`Gross bps a day: long side ${s.long_bps}, short side ${s.short_bps}`} />
           </div>
@@ -436,28 +651,31 @@ export default function PortfolioBacktestPage() {
           <section className="mb-4 rounded-md border border-[#2c313a] bg-[#181b20] px-4 py-3">
             <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
               <p className="text-xs uppercase tracking-[0.14em] text-[#6f6a62]">
-                {unit === "rs" ? `Net ₹ by month (${CAPITALS.find(([c]) => c === capital)[1]} gross exposure)` : "Net % by month (of gross exposure)"}
+                {unit === "rs" ? `Net ₹ by month (${capitalLabel})` : "Net % by month"}
               </p>
-              <p className="font-mono text-xs text-[#9b968c]">Click a month for its days</p>
+              <p className="font-mono text-xs text-[#9b968c]">Click a month for its {isPairs ? "trades" : "days"}</p>
             </div>
             <MonthGrid months={data.months} years={data.years} fmt={fmt} selected={month} onSelect={setMonth} />
-            {month && (
-              <MonthDays
-                month={month}
-                days={monthDays.days}
-                loading={monthDays.loading}
-                fmt={fmt}
-                onClose={() => setMonth(null)}
-                variant={variant}
-                dataset={dataset}
-              />
-            )}
+            {month &&
+              (isPairs ? (
+                <PairMonthTrades month={month} trades={monthRows.rows} loading={monthRows.loading} fmt={fmt} onClose={() => setMonth(null)} />
+              ) : (
+                <MonthDays
+                  month={month}
+                  days={monthRows.rows}
+                  loading={monthRows.loading}
+                  fmt={fmt}
+                  onClose={() => setMonth(null)}
+                  variant={variant}
+                  dataset={dataset}
+                />
+              ))}
           </section>
 
           <section className="mb-4 rounded-md border border-[#2c313a] bg-[#181b20] px-4 py-3">
             <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
               <p className="text-xs uppercase tracking-[0.14em] text-[#6f6a62]">
-                {unit === "rs" ? "Cumulative ₹ (fixed exposure, weekly)" : "Cumulative % (fixed exposure, weekly)"}
+                {unit === "rs" ? "Cumulative ₹ (fixed size, weekly)" : "Cumulative % (fixed size, weekly)"}
               </p>
               <p className="font-mono text-xs text-[#9b968c]">
                 <span className="text-[#e2c08a]">—</span> net · <span className="text-[#6f6a62]">—</span> gross (before costs)
@@ -466,10 +684,13 @@ export default function PortfolioBacktestPage() {
             <EquityChart equity={data.equity} fmt={fmt} />
           </section>
 
+          {isPairs && data.pair_years?.length > 0 && <PairsByYear years={data.pair_years} variant={variant} slippage={slippage} />}
+
           <section className="mb-4 rounded-md border border-[#2c313a] bg-[#181b20] px-4 py-3">
             <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
               <p className="text-xs uppercase tracking-[0.14em] text-[#6f6a62]">
-                All versions · {DATASETS.find(([d]) => d === dataset)[1]} · {slippage}% slippage
+                All versions · {isPairs ? PAIR_TAKES.find(([t]) => t === take)[1] : `${DATASETS.find(([d]) => d === dataset)[1]} · ${XSMR_TAKES.find(([t]) => t === take)[1]}`} ·{" "}
+                {slippage}% slippage
               </p>
               <p className="font-mono text-xs text-[#9b968c]">Click a row to open it</p>
             </div>
@@ -479,8 +700,8 @@ export default function PortfolioBacktestPage() {
       )}
 
       {showInfo && (
-        <ModelInfoModal title="Cross-sectional mean reversion · how it works" onClose={() => setShowInfo(false)}>
-          <XsmrInfo />
+        <ModelInfoModal title={`${page.title} · how it works`} onClose={() => setShowInfo(false)}>
+          <Info />
         </ModelInfoModal>
       )}
     </div>

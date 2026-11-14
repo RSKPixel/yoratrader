@@ -33,6 +33,28 @@ VARIANTS = {
     "daily": {"label": "Daily · 15:15 to next 15:15 (book)", "entry": "15:15"},
 }
 BOOK = ("intraday-0915", "daily")
+# How many stocks the book holds. "all" is the book: linear weights on every priced stock (~190
+# F&O stocks a day, one futures lot each: not tradable on a small account). "top5"/"top3": only
+# the N stocks per side furthest from the cross-section mean, equal rupees each, so the book is
+# 2N positions. Stored as "<variant>-<take>"; "all" keeps the plain variant id.
+TAKES = {"all": None, "top5": 5, "top3": 3}
+
+
+def variant_id(base, take="all"):
+    return base if take == "all" else f"{base}-{take}"
+
+
+def parse_variant(variant):
+    """'intraday-0915-top5' -> ('intraday-0915', 'top5'); raises ValueError if unknown."""
+    for take in TAKES:
+        if take != "all" and variant.endswith(f"-{take}"):
+            base = variant[: -len(take) - 1]
+            break
+    else:
+        base, take = variant, "all"
+    if base not in VARIANTS:
+        raise ValueError(f"unknown variant {variant}")
+    return base, take
 DATASETS = ("fno", "stocks")
 TRADING_DAYS = 248
 MIN_STOCKS = 20  # days with fewer priced stocks are skipped
@@ -108,10 +130,18 @@ def _prices(dataset, start=None, end=None):
             for col in ("open915", "open916", "open930", "open945", "px1515", "day_close")}
 
 
-def _weights(signal):
-    """Linear long-short weights per row: -(r - mean) / sum |r - mean|, NaN where unpriced."""
+def _weights(signal, top=None):
+    """Linear long-short weights per row: -(r - mean) / sum |r - mean|, NaN where unpriced.
+    With top=N: only the N lowest and N highest deviations, each +-0.5/N (equal rupees per stock)."""
     dev = signal.sub(signal.mean(axis=1), axis=0)
-    return -dev.div(dev.abs().sum(axis=1), axis=0)
+    if top is None:
+        return -dev.div(dev.abs().sum(axis=1), axis=0)
+    low = dev.rank(axis=1, method="first")
+    high = dev.rank(axis=1, method="first", ascending=False)
+    w = pd.DataFrame(0.0, index=dev.index, columns=dev.columns)
+    w[low <= top] = 0.5 / top
+    w[high <= top] = -0.5 / top
+    return w.where(dev.notna())
 
 
 ENTRY_COLS = {"intraday-0915": "open915", "intraday-0916": "open916", "intraday-0930": "open930",
@@ -119,6 +149,7 @@ ENTRY_COLS = {"intraday-0915": "open915", "intraday-0916": "open916", "intraday-
 
 
 def _book(p, variant):
+    variant, take = parse_variant(variant)
     """Signal, weights, entry and exit prices per day and stock for one variant.
     Intraday: signal previous official close -> 09:15 open; position entry -> 15:15 the same day.
     Daily: signal 15:15(t-1) -> 15:15(t); position 15:15(t) -> 15:15(t+1), rebalanced daily."""
@@ -131,14 +162,14 @@ def _book(p, variant):
         entry, exit_ = p[ENTRY_COLS[variant]], p["px1515"]
     pos = exit_ / entry - 1
     ok = sig.notna() & pos.notna() & (sig.abs() <= MAX_MOVE) & (pos.abs() <= MAX_MOVE)
-    w = _weights(sig.where(ok)).fillna(0.0)
+    w = _weights(sig.where(ok), TAKES[take]).fillna(0.0)
     return {"sig": sig, "w": w, "pos": pos, "entry": entry, "exit": exit_, "n": ok.sum(axis=1)}
 
 
 def run(dataset):
     p = _prices(dataset)
     out = {}
-    for variant in VARIANTS:
+    for variant in (variant_id(v, t) for v in VARIANTS for t in TAKES):
         b = _book(p, variant)
         rows, prev = [], None
         for day in b["w"].index:
@@ -146,7 +177,7 @@ def run(dataset):
                 prev = None
                 continue
             wd, rd = b["w"].loc[day], b["pos"].loc[day].fillna(0.0)
-            if variant == "daily":  # rebalance from yesterday's book
+            if variant.startswith("daily"):  # rebalance from yesterday's book
                 traded = float(wd.abs().sum() if prev is None else (wd - prev).abs().sum())
                 prev = wd
             else:  # the whole book in at the open, out at 15:15
@@ -266,12 +297,13 @@ def results(variant, dataset, slippage=0.0002, model="xsmr"):
             "cost_per_side_bps": round(10000 * cost_per_side(slippage), 2)}
 
 
-def compare(dataset, slippage=0.0002):
+def compare(dataset, slippage=0.0002, take="all"):
     rows = []
-    for variant, meta in VARIANTS.items():
+    for base, meta in VARIANTS.items():
+        variant = variant_id(base, take)
         f = _load(variant, dataset, slippage)
         if not f.empty:
-            rows.append({"variant": variant, "label": meta["label"], "book": variant in BOOK, **_stats(f)})
+            rows.append({"variant": variant, "label": meta["label"], "book": base in BOOK, **_stats(f)})
     return rows
 
 

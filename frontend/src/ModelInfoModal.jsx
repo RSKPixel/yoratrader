@@ -768,8 +768,9 @@ export function XsmrInfo() {
             twice a day.
           </li>
           <li>
-            Holding ~190 stocks at once is not possible with futures lots; in practice this needs the cash market
-            (single shares, intraday shorts) or a cut-down version.
+            Holding ~190 stocks at once is not possible with futures lots. <B>Take</B> cuts the book down: 5 long + 5
+            short or 3 long + 3 short, the stocks furthest from the average move, equal rupees each. That is a practical
+            restriction, not the book's rule; it concentrates the bet, so returns and drawdowns both grow.
           </li>
         </List>
       </Section>
@@ -786,6 +787,81 @@ export function XsmrInfo() {
           </li>
           <li>
             <B>Survivorship</B>: today's lists for the whole period. Stocks that collapsed out of F&amp;O are missing.
+          </li>
+        </List>
+      </Section>
+    </>
+  );
+}
+
+export function PairsInfo() {
+  return (
+    <>
+      <Section title="The rules">
+        <p className="mb-2">
+          Pairs trading with cointegration (Ernest Chan, Algorithmic Trading, ch. 2–4), walk-forward so every trade is
+          out of sample:
+        </p>
+        <List>
+          <li>
+            <B>Pick (once a year)</B>: every pair of F&amp;O stocks in the same NSE industry (Nifty 500 classification)
+            gets the Engle–Granger test on the previous calendar year's daily closes: regress one price on the other, then
+            an ADF test on the leftover spread. Both orders are tried; the stronger one is kept. Pairs that pass at 5%
+            with a positive hedge ratio are traded the next year.
+          </li>
+          <li>
+            <B>Bollinger</B>: spread = y − hedge × x (hedge fixed from the pick year). z-score over a lookback equal to the
+            spread's half-life. Long the spread below z = −1, short above +1, exit when z crosses 0. Hold 1 share of y
+            against hedge shares of x.
+          </li>
+          <li>
+            <B>Kalman filter</B>: re-estimates the hedge ratio every day (the book's δ = 0.0001, Ve = 0.001). Long the
+            spread while the forecast error is below −√Q, short while above +√Q. Run on log prices so the book's settings
+            mean the same for cheap and expensive stocks; the hedge is in rupees and rebalanced daily.
+          </li>
+          <li>Open positions are closed on the last trading day of the year; the pick starts over.</li>
+        </List>
+      </Section>
+
+      <Section title="Fill and take">
+        <List>
+          <li>
+            The book trades at the close the signal comes from. <B>Next close</B> keeps the signal and trades one day
+            later: a check that the result does not depend on that fill.
+          </li>
+          <li>
+            <B>Take</B>: all pairs is the book (often 100+ pairs, 200+ legs). Top 10 / top 5 trade only the pairs with the
+            strongest test result, chosen before the year starts, so there is no look-ahead.
+          </li>
+        </List>
+      </Section>
+
+      <Section title="Returns and costs">
+        <List>
+          <li>
+            Capital is split equally across the year's pairs (all, 10 or 5) and sits idle while a pair is flat. Results are
+            % of total capital, summed day by day, not compounded. Annual = mean daily × 248.
+          </li>
+          <li>
+            Costs on every rupee traded: NSE futures charges plus the chosen slippage. Short legs need futures (or SLB) to
+            hold overnight.
+          </li>
+          <li>
+            Click a month for the trades closed in it. "Pair" results are on that pair's own capital; "book" is its share
+            of the whole account.
+          </li>
+        </List>
+      </Section>
+
+      <Section title="Data">
+        <List>
+          <li>Daily closes of today's F&amp;O stocks from 2000; the first pick year is 2000, the first trading year 2001.</li>
+          <li>
+            A pair is stopped for the rest of the year if either stock moves more than 20% in a day or has no price
+            (corporate action or bad data); that day's P&amp;L is not counted.
+          </li>
+          <li>
+            <B>Survivorship</B>: today's F&amp;O list for every year, and today's industry for each stock.
           </li>
         </List>
       </Section>

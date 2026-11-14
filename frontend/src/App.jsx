@@ -38,6 +38,7 @@ const NAV_ITEMS = {
     { id: "bt-gap", label: "Buy on gap · Backtest" },
     { id: "bt-gapmom", label: "Opening gap momentum · Backtest" },
     { id: "chan-xsmr", label: "Cross-sectional mean reversion · Backtest" },
+    { id: "chan-pairs", label: "Pairs trading · Backtest" },
   ],
   system: [{ id: "settings", label: "Settings" }],
 };
@@ -705,8 +706,8 @@ export default function App() {
         <KbdtSignalsPage />
       ) : activePage === "gap-signals" ? (
         <GapSignalsPage />
-      ) : activePage === "chan-xsmr" ? (
-        <PortfolioBacktestPage />
+      ) : activePage === "chan-xsmr" || activePage === "chan-pairs" ? (
+        <PortfolioBacktestPage key={activePage} model={activePage.slice(5)} />
       ) : activePage.startsWith("bt-") ? (
         <BacktestPage key={activePage} model={activePage.slice(3)} />
       ) : activePage === "penfold" ? (
