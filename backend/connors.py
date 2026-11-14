@@ -88,10 +88,12 @@ def parse_variant(variant):
     return base, take
 
 
-def _data(dataset, start=None, end=None, timing="15:15"):
+def _data(dataset, start=None, end=None, timing="15:15", closes=None):
     """Prices and setups. 15:15: computed live at 15:15 (closes to yesterday + today's 15:15 price),
-    traded at 15:15. close: computed from and traded at the official closes."""
-    c = xsmom._closes(dataset)
+    traded at 15:15. close: computed from and traded at the official closes (or `closes`, for the
+    live signal: yesterday's closes plus today's prices)."""
+    c = xsmom._closes(dataset) if closes is None else closes
+    c = c[c.index.dayofweek < 5]  # weekend special sessions (Muhurat: an evening hour) aren't trading days here
     if start is not None:
         c = c[c.index >= pd.Timestamp(start) - timedelta(days=500)]
     if end is not None:
@@ -155,6 +157,24 @@ def _data(dataset, start=None, end=None, timing="15:15"):
     return {"px": pxf, "rsi": rsi, "eligible": eligible, "setups": setups, "r": ret,
             "rankable": qualified.sum(axis=1), "open": day_open, "low": day_low,
             "low1515": low_exit, "sigma": sigma}
+
+
+def live_signals(prices, today, dataset="fno"):
+    """Today's setup, live: the backtest's own signal code on official closes to yesterday plus
+    `prices` ({symbol: price now}) as today's close. Returns how many stocks qualified for the trend
+    filter, and every stock above its 200-day average with its 2-day RSI and whether it's below 10."""
+    ts = pd.Timestamp(today)
+    c = xsmom._closes(dataset)
+    c = c[c.index < ts].iloc[-450:].copy()
+    c.loc[ts] = pd.Series(prices, dtype=float).reindex(c.columns)
+    d = _data(dataset, timing="close", closes=c)
+    if d["px"].index[-1] != ts:
+        return {"rankable": 0, "stocks": []}
+    rsi, eligible = d["rsi"].loc[ts], d["eligible"].loc[ts]
+    stocks = [{"symbol": s_, "rsi": round(float(rsi[s_]), 2), "signal": bool(rsi[s_] < RSI_MAX)}
+              for s_ in eligible.index[eligible.to_numpy()] if pd.notna(rsi[s_])]
+    return {"rankable": int(d["rankable"][ts]), "last_close": c.index[-2].date().isoformat(),
+            "stocks": sorted(stocks, key=lambda x: x["rsi"])}
 
 
 def _simulate(d, variant, lot=None):

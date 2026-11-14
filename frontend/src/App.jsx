@@ -5,6 +5,7 @@ import KbdtPage from "./KbdtPage";
 import GapSignalsPage from "./GapSignalsPage";
 import PortfolioBacktestPage from "./PortfolioBacktestPage";
 import XsmrPaperPage from "./XsmrPaperPage";
+import ConnorsPaperPage from "./ConnorsPaperPage";
 import KbdtSignalsPage from "./KbdtSignalsPage";
 import IntradayModelPage from "./IntradayModelPage";
 import { FibInfo, KbdtFibInfo, OrbInfo } from "./ModelInfoModal";
@@ -23,32 +24,34 @@ const READY_STATE = {
   3: "CLOSED",
 };
 
+// Every model is labelled by how long it holds: Intraday (flat by the close) or Positional (held overnight).
 const NAV_ITEMS = {
   market: [{ id: "indian-market", label: "Indian Market" }],
   tradingModels: [
-    { id: "penfold", label: "Key Breakout Dow Theory" },
-    { id: "orb", label: "Opening Range Breakout" },
-    { id: "fib", label: "Fib Pullback" },
-    { id: "kbdtfib", label: "Key Break + Fib" },
+    { id: "penfold", label: "Key Breakout Dow Theory (Positional)" },
+    { id: "orb", label: "Opening Range Breakout (Intraday)" },
+    { id: "fib", label: "Fib Pullback (Intraday)" },
+    { id: "kbdtfib", label: "Key Break + Fib (Intraday)" },
   ],
-  signals: [{ id: "kbdt-signals", label: "KBDT · Index futures" }],
+  signals: [{ id: "kbdt-signals", label: "KBDT · Index futures (Positional)" }],
   paper: [
-    { id: "gap-signals", label: "Buy on gap" },
-    { id: "xsmr-paper", label: "Cross-sectional mean reversion" },
+    { id: "gap-signals", label: "Buy on gap (Intraday)" },
+    { id: "xsmr-paper", label: "Cross-sectional mean reversion (Intraday)" },
+    { id: "connors-paper", label: "Short-term mean reversion (Positional)" },
   ],
-  backtest: [{ id: "bt-kbdt", label: "Key Breakout Dow Theory" }],
+  backtest: [{ id: "bt-kbdt", label: "Key Breakout Dow Theory (Positional)" }],
   // Models from Ernest Chan's "Algorithmic Trading: Winning Strategies and Their Rationale".
   chan: [
-    { id: "bt-gap", label: "Buy on gap · Backtest" },
-    { id: "bt-gapmom", label: "Opening gap momentum · Backtest" },
-    { id: "chan-xsmr", label: "Cross-sectional mean reversion · Backtest" },
-    { id: "chan-pairs", label: "Pairs trading · Backtest" },
-    { id: "chan-xsmom", label: "Cross-sectional momentum · Backtest" },
+    { id: "bt-gap", label: "Buy on gap · Backtest (Intraday)" },
+    { id: "bt-gapmom", label: "Opening gap momentum · Backtest (Intraday)" },
+    { id: "chan-xsmr", label: "Cross-sectional mean reversion · Backtest (Intraday)" },
+    { id: "chan-pairs", label: "Pairs trading · Backtest (Positional)" },
+    { id: "chan-xsmom", label: "Cross-sectional momentum · Backtest (Positional)" },
   ],
   // Gray & Vogel, "Quantitative Momentum" (Wiley, 2016).
-  grayVogel: [{ id: "qm-qmom", label: "Quantitative momentum · Backtest" }],
+  grayVogel: [{ id: "qm-qmom", label: "Quantitative momentum · Backtest (Positional)" }],
   // Connors & Sen, "How Markets Really Work" (2nd ed., Bloomberg Press / Wiley, 2012).
-  connors: [{ id: "lc-connors", label: "Short-term mean reversion · Backtest" }],
+  connors: [{ id: "lc-connors", label: "Short-term mean reversion · Backtest (Positional)" }],
   system: [{ id: "settings", label: "Settings" }],
 };
 
@@ -753,6 +756,8 @@ export default function App() {
         <GapSignalsPage />
       ) : activePage === "xsmr-paper" ? (
         <XsmrPaperPage />
+      ) : activePage === "connors-paper" ? (
+        <ConnorsPaperPage />
       ) : activePage === "chan-xsmr" || activePage === "chan-pairs" || activePage === "chan-xsmom" || activePage === "qm-qmom" || activePage === "lc-connors" ? (
         <PortfolioBacktestPage key={activePage} model={activePage.split("-")[1]} />
       ) : activePage.startsWith("bt-") ? (

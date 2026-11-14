@@ -31,6 +31,7 @@ import xsmom
 import qmom
 import connors
 import xsmrwatch
+import connorswatch
 
 jobs = {}
 
@@ -710,6 +711,16 @@ def xsmr_paper(slippage: float = Query(0.02, ge=0, le=1)):
         return {"status": "success", **xsmrwatch.paper(slippage / 100)}
     except Exception as error:
         print("Cross-sectional paper failed:", error)
+        return {"status": "error", "message": str(error)}
+
+
+@app.get("/api/connors/paper")
+def connors_paper(slippage: float = Query(0.02, ge=0, le=1)):
+    """Short-term mean reversion paper trading: open positions, closed trades, days."""
+    try:
+        return {"status": "success", **connorswatch.paper(slippage / 100)}
+    except Exception as error:
+        print("Connors paper failed:", error)
         return {"status": "error", "message": str(error)}
 
 

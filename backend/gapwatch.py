@@ -436,6 +436,12 @@ def _tick():
         result = xsmrwatch.record_preopen_open()
         if result.get("recorded"):
             print("Pre-open test: futures open", result)
+    import connorswatch  # short-term mean reversion paper trading (imported here: it imports gapwatch)
+
+    if connorswatch.RECORD_AT <= t < connorswatch.RECORD_UNTIL:
+        result = connorswatch.record()
+        if result.get("recorded"):
+            print("Short-term mean reversion paper: recorded", result)
     if t >= EXIT_AT:
         closed = finalize()
         if closed:
