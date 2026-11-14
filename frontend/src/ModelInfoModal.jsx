@@ -1158,3 +1158,67 @@ export function ConnorsInfo() {
     </>
   );
 }
+
+export function VboInfo() {
+  return (
+    <>
+      <Section title="The rules">
+        <p className="mb-2">
+          Volatility breakout (Larry Williams, Long-Term Secrets to Short-Term Trading, 2nd ed. 2011), long only:
+        </p>
+        <List>
+          <li>
+            <B>Buy stop</B> at today's 09:15 open + <B>k × yesterday's range</B> (high − low). Williams uses about half
+            the range to the whole range, so k = 0.5 and k = 1.0 are both shown rather than one picked.
+          </li>
+          <li>
+            Filled at the stop level (or the 15m candle's open, if it opened above it) the first time a 15m candle from
+            09:15 to 15:00 reaches it.
+          </li>
+          <li>
+            <B>Exit</B>, Williams' "first profitable open": sold at the first 09:15 open above the buy price, at most 5
+            trading days later; otherwise at the 5th day's open. No stop. <B>15:15 same day</B> is the intraday check.
+          </li>
+          <li>
+            <B>Max open</B>: at most N positions at once, each capital ÷ N, one per index or stock. When more break out
+            than slots are free, the earliest breakouts fill first, as real stop orders would.
+          </li>
+        </List>
+      </Section>
+
+      <Section title="What the tests show">
+        <List>
+          <li>
+            <B>Intraday it fails</B>: bought on the breakout and sold at 15:15, it loses on the stocks and is flat on the
+            indices. Intraday momentum has failed every test here.
+          </li>
+          <li>
+            <B>The swing exit flatters every long trade</B>: stocks have tended to drift up overnight, so even buying every
+            09:15 open and selling at the first profitable open wins ~60% of the time. Against that baseline, the
+            breakout adds about 0.15% a trade on the stocks and 0.2% on the indices, and it's still positive from 2025.
+          </li>
+          <li>
+            The <B>indices</B> are the clean version (liquid index futures, ~100 trades a year at k = 1.0) but sit in
+            cash most days, so the book's yearly return is small. The capped <B>stock</B> book has large drawdowns.
+          </li>
+          <li>The short mirror (sell below the open − k × range) lost in every test, so it isn't included.</li>
+        </List>
+      </Section>
+
+      <Section title="Returns, costs and data">
+        <List>
+          <li>Results are % of capital, marked at 15:15 each day, summed at a fixed size, not compounded.</li>
+          <li>Costs: NSE futures charges plus the chosen slippage on the buy and the sale. The futures roll is not charged.</li>
+          <li>
+            15-minute candles from February 2015. Data hygiene as in Buy on gap: the first 15m open within 1% of the daily
+            open, the 15:15 price within the day's range, no move over 20%. Muhurat sessions are not days.
+          </li>
+          <li>
+            The first stock request loads every 15m candle (about 30 seconds); after that the books come from a cache.
+            Today's F&amp;O list is used for every year (survivorship), which flatters long trades.
+          </li>
+        </List>
+      </Section>
+    </>
+  );
+}
