@@ -1,33 +1,39 @@
 import { useEffect, useState } from "react";
 import { Field, formatRs, inputStyle, Segmented } from "./V2Controls";
 
-// The parameters every backtest shares: capital, max open positions, and whether results show as % of
-// capital or rupees. Kept across models and remembered per browser.
+// The parameters every backtest has: universe, capital, max open positions, and whether results show
+// as % of capital or rupees. Each model keeps its own values, remembered per browser.
 
-const KEY = "yt-v2-backtest-params";
+const KEY = "yt-v2-backtest-params-by-model";
 export const DEFAULT_PARAMS = { capital: 1000000, maxOpen: 5, show: "rs", universe: "fno" };
 export const UNIVERSES = { fno: "F&O stocks", stocks: "Nifty 50 stocks", indices: "Indices" };
 const CAPITAL_PICKS = [500000, 1000000, 2500000, 5000000, 10000000];
 const MAX_OPEN = 10;
 
-export function useBacktestParams() {
-  const [params, setParams] = useState(() => {
-    try {
-      const saved = JSON.parse(localStorage.getItem(KEY) || "null");
-      if (saved && typeof saved === "object") return { ...DEFAULT_PARAMS, ...saved };
-    } catch {
-      // nothing saved, or storage blocked
-    }
-    return DEFAULT_PARAMS;
-  });
+function loadAll() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(KEY) || "null");
+    if (saved && typeof saved === "object") return saved;
+  } catch {
+    // nothing saved, or storage blocked
+  }
+  return {};
+}
+
+// Parameters for one model: its saved values, else the defaults (its first universe; long-short models
+// start at max open 6).
+export function useBacktestParams(model, defaults = {}) {
+  const [all, setAll] = useState(loadAll);
+  const params = { ...DEFAULT_PARAMS, ...defaults, ...(all[model] || {}) };
   useEffect(() => {
     try {
-      localStorage.setItem(KEY, JSON.stringify(params));
+      localStorage.setItem(KEY, JSON.stringify(all));
     } catch {
       // not saved: still applies for this visit
     }
-  }, [params]);
-  return [params, (patch) => setParams((p) => ({ ...p, ...patch }))];
+  }, [all]);
+  const update = (patch) => setAll((a) => ({ ...a, [model]: { ...DEFAULT_PARAMS, ...defaults, ...(a[model] || {}), ...patch } }));
+  return [params, update];
 }
 
 function CapitalInput({ value, onChange }) {

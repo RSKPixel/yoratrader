@@ -189,8 +189,8 @@ function initialOpen() {
 export default function V2Backtesting({ model, onSelect }) {
   const m = findBacktest(model) || findBacktest(DEFAULT_BACKTEST);
   const [open, setOpen] = useState(initialOpen);
-  const [params, setParams] = useBacktestParams();
-  // The universe is shared too; a model without the chosen one shows its first (the choice is kept).
+  const [params, setParams] = useBacktestParams(m.id, { universe: m.universes[0], maxOpen: m.step > 1 ? 6 : 5 });
+  // Per model; a saved universe the model no longer has falls back to its first.
   const universe = m.universes.includes(params.universe) ? params.universe : m.universes[0];
   // Long-short models need as many shorts as longs: Max open moves in 2s (an odd choice rounds up).
   const step = m.step || 1;
