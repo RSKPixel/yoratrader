@@ -31,6 +31,7 @@ STOP_PCTS = (0.5, 0.75, 1.0, 1.5, 2.0)
 MAX_OPEN = 10
 MAX_PER_DAY = 3
 RISK = 0.01  # As per model: 1R = 1% of capital
+MAX_TRADE_MOVE = 0.5  # a trade moving more than this within its 1-5 days is a bad print
 CACHE_SECONDS = 1800
 _cache, _lock = {}, threading.Lock()
 
@@ -49,6 +50,9 @@ def _trades(dataset, var):
         t = pd.read_sql("SELECT symbol, date AS day, side, entry_time, entry_label, entry, stop, exit, exit_reason, r, exit_date "
                         "FROM bt_trades WHERE model = 'kbdt' AND dataset = %s AND variant = %s AND status = 'closed' "
                         "ORDER BY entry_time, symbol", conn, params=[dataset, var])
+    # Data hygiene: a few stored 15m candles have a zero price (a "gap through the stop" at 0 looks like
+    # a -100% trade); trades with a zero price or a move over MAX_TRADE_MOVE are bad prints, left out.
+    t = t[(t["entry"] > 0) & (t["exit"] > 0) & ((t["exit"] / t["entry"] - 1).abs() <= MAX_TRADE_MOVE)].reset_index(drop=True)
     days = v2common.trading_days(dataset, t["day"].min()) if len(t) else pd.DatetimeIndex([])
     t["entry_day"], t["exit_day"] = pd.to_datetime(t["day"]), pd.to_datetime(t["exit_date"])
     sign = np.where(t["side"] == "long", 1, -1)
