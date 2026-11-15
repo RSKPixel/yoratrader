@@ -6,6 +6,7 @@ import V2Settings from "./V2Settings";
 import V2Data from "./V2Data";
 import { KiteButton } from "./V2Kite";
 import V2Dashboard from "./V2Dashboard";
+import V2Live from "./V2Live";
 
 // YoraTrader: top navigation and one content area. Pages live at /v2/<page> ("/" opens the dashboard).
 
@@ -197,6 +198,10 @@ export default function AppV2() {
       ) : page === "dashboard" ? (
         <main className="min-h-0 flex-1 overflow-auto px-4 py-6 md:px-6">
           <V2Dashboard />
+        </main>
+      ) : page === "live" ? (
+        <main className="min-h-0 flex-1 overflow-auto px-4 py-6 md:px-6">
+          <V2Live />
         </main>
       ) : page === "data" ? (
         <main className="min-h-0 flex-1 overflow-auto px-4 py-6 md:px-6">
