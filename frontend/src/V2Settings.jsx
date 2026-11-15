@@ -144,12 +144,12 @@ export default function V2Settings({ theme, onTheme, onClose, initialTab = "gene
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-auto bg-black/50 p-4 pt-14" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
       <div
         role="dialog"
         aria-modal="true"
         aria-label="Settings"
-        className="flex max-h-[85vh] w-full max-w-3xl flex-col overflow-hidden rounded-lg border"
+        className="flex h-[80vh] w-full max-w-3xl flex-col overflow-hidden rounded-lg border"
         style={{ borderColor: "var(--border)", background: "var(--bg)" }}
         onClick={(e) => e.stopPropagation()}
       >
@@ -177,7 +177,7 @@ export default function V2Settings({ theme, onTheme, onClose, initialTab = "gene
             Close
           </button>
         </div>
-        <div className="min-h-0 overflow-auto p-4" role="tabpanel">
+        <div className="min-h-0 flex-1 overflow-auto p-4" role="tabpanel">
           {tab === "general" && <General theme={theme} onTheme={onTheme} />}
           {tab === "kite" && <KiteTab />}
           {tab === "profile" && <Profile />}
