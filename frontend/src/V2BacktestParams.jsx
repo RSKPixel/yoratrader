@@ -72,15 +72,14 @@ function CapitalInput({ value, onChange }) {
   );
 }
 
-function MaxOpenStepper({ value, onChange, step: by = 1 }) {
+function MaxOpenStepper({ value, onChange }) {
   const book = value === 0;
-  const start = by > 1 ? 6 : 5;
-  const step = (d) => onChange(Math.min(MAX_OPEN, Math.max(by, (book ? start : value) + d * by)));
+  const step = (d) => onChange(Math.min(MAX_OPEN, Math.max(1, (book ? 5 : value) + d)));
   const btn = "grid h-8 w-8 place-items-center text-base transition-colors hover:bg-[var(--surface)] disabled:opacity-40";
   return (
     <div className="flex items-center gap-2">
       <div className="flex items-center overflow-hidden rounded-md border" style={inputStyle}>
-        <button type="button" className={btn} onClick={() => step(-1)} disabled={!book && value <= by} aria-label="Fewer positions">
+        <button type="button" className={btn} onClick={() => step(-1)} disabled={!book && value <= 1} aria-label="Fewer positions">
           −
         </button>
         <span className="w-10 text-center text-sm tabular-nums">{book ? "—" : value}</span>
@@ -90,7 +89,7 @@ function MaxOpenStepper({ value, onChange, step: by = 1 }) {
       </div>
       <button
         type="button"
-        onClick={() => onChange(book ? start : 0)}
+        onClick={() => onChange(book ? 5 : 0)}
         aria-pressed={book}
         className="rounded-md border px-2 py-1 text-xs transition-colors hover:bg-[var(--surface-2)]"
         style={book ? { borderColor: "var(--accent)", color: "var(--accent)" } : { borderColor: "var(--border)", color: "var(--muted)" }}
@@ -102,7 +101,7 @@ function MaxOpenStepper({ value, onChange, step: by = 1 }) {
   );
 }
 
-export default function V2BacktestParams({ params, onChange, universes = ["fno"], step = 1 }) {
+export default function V2BacktestParams({ params, onChange, universes = ["fno"] }) {
   const per = params.maxOpen ? params.capital / params.maxOpen : null;
   return (
     <div className="flex flex-wrap items-end gap-x-8 gap-y-4 rounded-lg border px-4 py-3" style={{ borderColor: "var(--border)", background: "var(--surface)" }}>
@@ -117,15 +116,8 @@ export default function V2BacktestParams({ params, onChange, universes = ["fno"]
       <Field label="Capital" hint="The value of the positions held (not margin: futures margin is roughly a fifth of it)">
         <CapitalInput value={params.capital} onChange={(capital) => onChange({ capital })} />
       </Field>
-      <Field
-        label="Max open"
-        hint={
-          step > 1
-            ? "Long-short: as many shorts as longs, so this moves in 2s (N/2 long + N/2 short), capital ÷ N each. As per model: the model's own sizing."
-            : "At most this many positions at once, capital ÷ N each. As per model: each model's own sizing."
-        }
-      >
-        <MaxOpenStepper value={params.maxOpen} onChange={(maxOpen) => onChange({ maxOpen })} step={step} />
+      <Field label="Max open" hint="At most this many positions at once, capital ÷ N each. As per model: each model's own sizing.">
+        <MaxOpenStepper value={params.maxOpen} onChange={(maxOpen) => onChange({ maxOpen })} />
       </Field>
       <Field label="Show" hint="Results as % of capital or in rupees">
         <Segmented
@@ -144,7 +136,7 @@ export default function V2BacktestParams({ params, onChange, universes = ["fno"]
             <span className="font-medium tabular-nums" style={{ color: "var(--text)" }}>
               {formatRs(per)}
             </span>{" "}
-            per position · {step > 1 ? `${params.maxOpen / 2} long + ${params.maxOpen / 2} short` : `${params.maxOpen} max`}
+            per position · {params.maxOpen} max
           </>
         ) : (
           "Sized as per the model"

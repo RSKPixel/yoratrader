@@ -19,9 +19,9 @@ export const BACKTEST_GROUPS = [
     models: [
       { id: "buy-on-gap", universes: ["fno", "stocks", "indices"], short: "BG", label: "Buy/Sell on gap", style: "Intraday" },
       { id: "gap-momentum", universes: ["indices", "fno"], short: "GM", label: "Opening gap momentum", style: "Intraday" },
-      { id: "xs-mean-reversion", step: 2, universes: ["fno", "stocks"], short: "XR", label: "Cross-sectional mean reversion", style: "Intraday" },
-      { id: "pairs", step: 2, universes: ["fno"], short: "PT", label: "Pairs trading", style: "Positional" },
-      { id: "xs-momentum", step: 2, universes: ["fno", "stocks"], short: "XM", label: "Cross-sectional momentum", style: "Positional" },
+      { id: "xs-mean-reversion", universes: ["fno", "stocks"], short: "XR", label: "Cross-sectional mean reversion", style: "Intraday" },
+      { id: "pairs", universes: ["fno"], short: "PT", label: "Pairs trading", style: "Positional" },
+      { id: "xs-momentum", universes: ["fno", "stocks"], short: "XM", label: "Cross-sectional momentum", style: "Positional" },
     ],
   },
   {
@@ -190,10 +190,7 @@ export default function V2Backtesting({ model, onSelect }) {
   const [params, setParams] = useBacktestParams();
   // The universe is shared too; a model without the chosen one shows its first (the choice is kept).
   const universe = m.universes.includes(params.universe) ? params.universe : m.universes[0];
-  // Long-short models need as many shorts as longs: Max open moves in 2s (an odd choice rounds up).
-  const step = m.step || 1;
-  const maxOpen = params.maxOpen && step > 1 ? Math.min(10, Math.ceil(params.maxOpen / step) * step) : params.maxOpen;
-  const modelParams = { ...params, universe, maxOpen };
+  const modelParams = { ...params, universe };
   const toggle = () => {
     setOpen((was) => {
       try {
@@ -220,7 +217,7 @@ export default function V2Backtesting({ model, onSelect }) {
           <StyleTag style={m.style} />
         </div>
         <div className="mt-4">
-          <V2BacktestParams params={modelParams} onChange={setParams} universes={m.universes} step={step} />
+          <V2BacktestParams params={modelParams} onChange={setParams} universes={m.universes} />
         </div>
         {m.id === "buy-on-gap" && <V2BuyOnGap params={modelParams} />}
         {m.id === "kbdt" && <V2Kbdt params={modelParams} />}
