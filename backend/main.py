@@ -32,6 +32,7 @@ import qmom
 import v2gap
 import v2kbdt
 import v2xsmr
+import v2pairs
 import connors
 import xsmrwatch
 import connorswatch
@@ -763,6 +764,36 @@ def v2_backtest_xsmr_month(month: str = Query(..., pattern=r"^\d{4}-\d{2}$"), da
         return {"status": "success", "trades": v2xsmr.month_trades(month, **args)}
     except Exception as error:
         print("v2 xsmr month failed:", error)
+        return {"status": "error", "message": str(error)}
+
+
+def _v2pairs_args(method, fill, max_open, pairs, slippage):
+    if method not in v2pairs.METHODS or fill not in ("close", "next"):
+        raise HTTPException(status_code=400, detail="unknown method or fill")
+    return dict(method=method, fill=fill, max_open=max_open, pairs=pairs, slippage=slippage / 100)
+
+
+@app.get("/api/v2/backtest/pairs")
+def v2_backtest_pairs(method: str = Query("bollinger"), fill: str = Query("close"), max_open: int = Query(6, ge=0, le=v2pairs.MAX_OPEN),
+                      pairs: int = Query(3, ge=1, le=5), slippage: float = Query(0.02, ge=0, le=1)):
+    """Pairs trading (v2 page): k pairs at a time within max open (or every selected pair), as fractions of capital."""
+    args = _v2pairs_args(method, fill, max_open, pairs, slippage)
+    try:
+        return {"status": "success", **v2pairs.results(**args)}
+    except Exception as error:
+        print("v2 pairs backtest failed:", error)
+        return {"status": "error", "message": str(error)}
+
+
+@app.get("/api/v2/backtest/pairs/month")
+def v2_backtest_pairs_month(month: str = Query(..., pattern=r"^\d{4}-\d{2}$"), method: str = Query("bollinger"),
+                            fill: str = Query("close"), max_open: int = Query(6, ge=0, le=v2pairs.MAX_OPEN),
+                            pairs: int = Query(3, ge=1, le=5), slippage: float = Query(0.02, ge=0, le=1)):
+    args = _v2pairs_args(method, fill, max_open, pairs, slippage)
+    try:
+        return {"status": "success", "trades": v2pairs.month_trades(month, **args)}
+    except Exception as error:
+        print("v2 pairs month failed:", error)
         return {"status": "error", "message": str(error)}
 
 
