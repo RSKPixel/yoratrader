@@ -193,11 +193,75 @@ function Holdings({ rows }) {
   );
 }
 
+const fundName = (f) => f.replace(/ - DIRECT PLAN.*$/i, "").replace(/\b(\w)(\w*)/g, (_, a, b) => a + b.toLowerCase());
+const units = (v) => v.toLocaleString("en-IN", { maximumFractionDigits: 3 });
+const day = (iso) => (iso ? new Date(`${iso}T00:00:00`).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : "—");
+
+function MutualFunds({ mf }) {
+  const rows = mf?.holdings || [];
+  const sips = mf?.sips || [];
+  const invested = rows.reduce((a, f) => a + f.invested, 0);
+  const value = rows.reduce((a, f) => a + f.value, 0);
+  const monthly = sips.filter((x) => x.status === "ACTIVE" && x.frequency === "monthly").reduce((a, x) => a + (x.amount || 0), 0);
+  return (
+    <div className="flex flex-col gap-5">
+      {rows.length > 0 && (
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <Card label="Invested" value={rs(invested)} />
+          <Card label="Current value" value={rs(value)} />
+          <Card label="Total P&L" value={`${signedRs(value - invested)} · ${pct(invested ? (100 * (value - invested)) / invested : null)}`} color={tone(value - invested)} />
+          <Card label="SIPs a month" value={rs(monthly)} hint="Active monthly SIPs" />
+        </div>
+      )}
+      <Table
+        empty="No mutual funds"
+        minWidth={860}
+        rows={rows.map((f) => ({ ...f, key: `${f.isin}:${f.folio}` }))}
+        columns={[
+          { label: "Fund", render: (f) => (<><span className="font-medium">{fundName(f.fund)}</span><span className="ml-1.5 text-xs" style={{ color: "var(--faint)" }}>{f.folio}</span></>) },
+          { label: "Units", right: true, render: (f) => units(f.units) },
+          { label: "Avg NAV", right: true, render: (f) => price(f.avg) },
+          { label: "NAV", right: true, render: (f) => price(f.nav) },
+          { label: "Invested", right: true, render: (f) => rs(f.invested) },
+          { label: "Value", right: true, render: (f) => rs(f.value) },
+          { label: "P&L", right: true, render: (f) => <span className="font-medium">{signedRs(f.pnl)}</span>, color: (f) => tone(f.pnl) },
+          { label: "P&L %", right: true, render: (f) => pct(f.invested ? (100 * f.pnl) / f.invested : null), color: (f) => tone(f.pnl) },
+        ]}
+      />
+      {sips.length > 0 && (
+        <div className="mt-4 flex flex-col gap-2">
+          <h3 className="text-sm font-semibold">SIPs</h3>
+          <div className="overflow-hidden rounded-md border" style={{ borderColor: "var(--border)" }}>
+            <div className="m-4">
+              <Table
+                empty=""
+                minWidth={720}
+                rows={sips.map((x) => ({ ...x, key: x.id }))}
+                rowStyle={(x) => (x.status !== "ACTIVE" ? { color: "var(--muted)" } : undefined)}
+                columns={[
+                  { label: "Fund", render: (x) => <span className="font-medium">{fundName(x.fund)}</span> },
+                  { label: "Status", render: (x) => <Badge color={x.status === "ACTIVE" ? "var(--positive)" : "var(--warning)"}>{x.status}</Badge> },
+                  { label: "Amount", right: true, render: (x) => rs(x.amount) },
+                  { label: "Frequency", render: (x) => <span className="text-xs">{x.frequency}{x.day ? ` · day ${x.day}` : ""}</span> },
+                  { label: "Next", render: (x) => (x.status === "ACTIVE" ? day(x.next) : "—") },
+                  { label: "Last", render: (x) => day(x.last) },
+                  { label: "Instalments", right: true, render: (x) => (x.completed != null && x.completed < 10000 ? x.completed : "—") },
+                ]}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 const TABS = [
   { id: "positions", label: "Positions" },
   { id: "orders", label: "Orders" },
   { id: "trades", label: "Trades" },
   { id: "holdings", label: "Holdings" },
+  { id: "mf", label: "Mutual funds" },
 ];
 
 export default function V2Live() {
@@ -245,6 +309,7 @@ export default function V2Live() {
     orders: (d.orders || []).filter((o) => o.status === "OPEN" || o.status === "TRIGGER PENDING").length,
     trades: (d.trades || []).length,
     holdings: (d.holdings || []).length,
+    mf: (d.mf?.holdings || []).length,
   };
   const live = marketOpen();
 
@@ -321,6 +386,8 @@ export default function V2Live() {
                 <Orders rows={d.orders || []} />
               ) : tab === "trades" ? (
                 <Trades rows={d.trades || []} />
+              ) : tab === "mf" ? (
+                <MutualFunds mf={d.mf} />
               ) : (
                 <Holdings rows={d.holdings || []} />
               )}

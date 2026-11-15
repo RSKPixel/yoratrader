@@ -1,6 +1,6 @@
 """The v2 Live page: the real Kite account, read-only (no order is ever placed from here).
 
-account() makes five Kite calls (margins, positions, orders, trades, holdings), cached LIVE_TTL
+account() makes seven Kite calls (margins, positions, orders, trades, holdings, mutual funds and SIPs), cached LIVE_TTL
 seconds so several open tabs don't hit Kite's rate limit. Each section fails on its own: one
 error doesn't blank the page.
 """
@@ -80,6 +80,24 @@ def _holdings(kite):
     return sorted(out, key=lambda h: -h["value"])
 
 
+def _mf(kite):
+    """Coin mutual funds: holdings (Kite's pnl comes back 0, so it's worked out here) and SIPs."""
+    funds = []
+    for h in kite.mf_holdings():
+        qty, avg, nav = _f(h["quantity"]) or 0, _f(h["average_price"]) or 0, _f(h["last_price"]) or 0
+        funds.append({"isin": h["tradingsymbol"], "fund": h["fund"], "folio": h.get("folio"), "units": qty, "avg": avg, "nav": nav,
+                      "nav_date": h.get("last_price_date") or None, "invested": avg * qty, "value": nav * qty,
+                      "pnl": (nav - avg) * qty, "pledged": _f(h.get("pledged_quantity")) or 0})
+    sips = [{"id": x["sip_id"], "fund": x["fund"], "isin": x["tradingsymbol"], "status": x["status"], "amount": _f(x.get("instalment_amount")),
+             "frequency": x.get("frequency"), "day": x.get("instalment_day"), "next": str(x.get("next_instalment") or "")[:10] or None,
+             "last": str(x.get("last_instalment") or "")[:10] or None, "completed": x.get("completed_instalments"),
+             "step_up": x.get("step_up") or None}
+            for x in kite.mf_sips()]
+    order = {"ACTIVE": 0, "PAUSED": 1}
+    return {"holdings": sorted(funds, key=lambda f: -f["value"]),
+            "sips": sorted(sips, key=lambda x: (order.get(x["status"], 2), x["next"] or "9"))}
+
+
 def account(force=False):
     with _lock:
         if not force and _cache["value"] and time.time() - _cache["at"] < LIVE_TTL:
@@ -88,7 +106,7 @@ def account(force=False):
     out = {"kite": kite_status, "fetched_at": time.strftime("%H:%M:%S"), "errors": {}}
     if kite_status.get("connected"):
         kite = kite_auth.trading_client()
-        for name, fn in (("margins", _margins), ("positions", _positions), ("orders", _orders), ("trades", _trades), ("holdings", _holdings)):
+        for name, fn in (("margins", _margins), ("positions", _positions), ("orders", _orders), ("trades", _trades), ("holdings", _holdings), ("mf", _mf)):
             try:
                 out[name] = fn(kite)
             except Exception as error:
