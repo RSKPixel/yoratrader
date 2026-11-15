@@ -2,10 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import CandleModal from "./CandleModal";
 import BacktestPage from "./BacktestPage";
 import KbdtPage from "./KbdtPage";
-import GapSignalsPage from "./GapSignalsPage";
 import PortfolioBacktestPage from "./PortfolioBacktestPage";
-import XsmrPaperPage from "./XsmrPaperPage";
-import ConnorsPaperPage from "./ConnorsPaperPage";
 import KbdtSignalsPage from "./KbdtSignalsPage";
 import IntradayModelPage from "./IntradayModelPage";
 import { FibInfo, KbdtFibInfo, OrbInfo } from "./ModelInfoModal";
@@ -34,11 +31,6 @@ const NAV_ITEMS = {
     { id: "kbdtfib", label: "Key Break + Fib (Intraday)" },
   ],
   signals: [{ id: "kbdt-signals", label: "KBDT · Index futures (Positional)" }],
-  paper: [
-    { id: "gap-signals", label: "Buy on gap (Intraday)" },
-    { id: "xsmr-paper", label: "Cross-sectional mean reversion (Intraday)" },
-    { id: "connors-paper", label: "Short-term mean reversion (Positional)" },
-  ],
   backtest: [{ id: "bt-kbdt", label: "Key Breakout Dow Theory (Positional)" }],
   // Models from Ernest Chan's "Algorithmic Trading: Winning Strategies and Their Rationale".
   chan: [
@@ -643,17 +635,10 @@ export default function App() {
               Paper trading
             </p>
             <div className="flex flex-col gap-0.5 pl-1">
-              {NAV_ITEMS.paper.map((item) => (
-                <button
-                  key={item.id}
-                  type="button"
-                  className={navItemClass(activePage === item.id)}
-                  aria-current={activePage === item.id ? "page" : undefined}
-                  onClick={() => setActivePage(item.id)}
-                >
-                  {item.label}
-                </button>
-              ))}
+              {/* Paper trading moved to v2; the scheduler still records the same way. */}
+              <a href="/v2/paper" className={navItemClass(false)}>
+                Open in v2 →
+              </a>
             </div>
           </div>
           <div>
@@ -755,12 +740,7 @@ export default function App() {
         <IntradayModelPage key={activePage} model={activePage} {...INTRADAY_MODELS[activePage]} />
       ) : activePage === "kbdt-signals" ? (
         <KbdtSignalsPage />
-      ) : activePage === "gap-signals" ? (
-        <GapSignalsPage />
-      ) : activePage === "xsmr-paper" ? (
-        <XsmrPaperPage />
-      ) : activePage === "connors-paper" ? (
-        <ConnorsPaperPage />
+
       ) : activePage === "chan-xsmr" || activePage === "chan-pairs" || activePage === "chan-xsmom" || activePage === "qm-qmom" || activePage === "lc-connors" ? (
         <PortfolioBacktestPage key={activePage} model={activePage.split("-")[1]} />
       ) : activePage.startsWith("bt-") ? (
