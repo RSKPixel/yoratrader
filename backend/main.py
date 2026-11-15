@@ -33,6 +33,7 @@ import v2gap
 import v2kbdt
 import v2xsmr
 import v2pairs
+import v2xsmom
 import connors
 import xsmrwatch
 import connorswatch
@@ -794,6 +795,36 @@ def v2_backtest_pairs_month(month: str = Query(..., pattern=r"^\d{4}-\d{2}$"), m
         return {"status": "success", "trades": v2pairs.month_trades(month, **args)}
     except Exception as error:
         print("v2 pairs month failed:", error)
+        return {"status": "error", "message": str(error)}
+
+
+def _v2xsmom_args(dataset, fill, max_open, pairs, slippage):
+    if dataset not in v2xsmom.DATASETS or fill not in ("close", "next"):
+        raise HTTPException(status_code=400, detail="unknown dataset or fill")
+    return dict(dataset=dataset, fill=fill, max_open=max_open, pairs=pairs, slippage=slippage / 100)
+
+
+@app.get("/api/v2/backtest/xsmom")
+def v2_backtest_xsmom(dataset: str = Query("fno"), fill: str = Query("close"), max_open: int = Query(6, ge=0, le=v2xsmom.MAX_OPEN),
+                      pairs: int = Query(3, ge=1, le=5), slippage: float = Query(0.02, ge=0, le=1)):
+    """Cross-sectional momentum (v2 page): k strongest + k weakest re-ranked every 25 days, or Chan's book."""
+    args = _v2xsmom_args(dataset, fill, max_open, pairs, slippage)
+    try:
+        return {"status": "success", **v2xsmom.results(**args)}
+    except Exception as error:
+        print("v2 xsmom backtest failed:", error)
+        return {"status": "error", "message": str(error)}
+
+
+@app.get("/api/v2/backtest/xsmom/month")
+def v2_backtest_xsmom_month(month: str = Query(..., pattern=r"^\d{4}-\d{2}$"), dataset: str = Query("fno"),
+                            fill: str = Query("close"), max_open: int = Query(6, ge=0, le=v2xsmom.MAX_OPEN),
+                            pairs: int = Query(3, ge=1, le=5), slippage: float = Query(0.02, ge=0, le=1)):
+    args = _v2xsmom_args(dataset, fill, max_open, pairs, slippage)
+    try:
+        return {"status": "success", "trades": v2xsmom.month_trades(month, **args)}
+    except Exception as error:
+        print("v2 xsmom month failed:", error)
         return {"status": "error", "message": str(error)}
 
 
