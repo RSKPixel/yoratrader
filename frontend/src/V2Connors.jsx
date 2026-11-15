@@ -112,10 +112,10 @@ export default function V2Connors({ params }) {
             held {s.avg_held_days} days · average RSI {s.avg_rsi}
             {stop !== "none" ? ` · ${s.stopped_pct}% stopped` : ""}
           </p>
-          <Panel title="Net by month" right="results count on the sale day · click a month for its trades">
+          <Panel title="Net by month" right="marked daily · trades by sale day · click a month for its trades">
             <MonthGrid years={data.years} months={data.months} value={value} onOpen={setMonth} />
           </Panel>
-          <Panel title="Equity" right="cumulative realised, fixed capital, not compounded · accent = net, grey = gross">
+          <Panel title="Equity" right="marked daily, fixed capital, not compounded · accent = net, grey = gross">
             <V2EquityChart points={data.equity} format={chartFormat} />
           </Panel>
         </>

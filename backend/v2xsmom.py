@@ -86,9 +86,24 @@ def _trades(dataset, k, lag):
             px = c.iloc[:, col].ffill().to_numpy()
             out.append({"symbol": s, "side": "long" if side > 0 else "short", "entry_day": idx[e], "exit_day": idx[x],
                         "days": x - e, "signal": signal, "entry": px[e], "exit": px[x], "ret": ret, "rolls": rolls,
-                        "growth": g[x] / g[e]})
+                        "growth": g[x] / g[e], "col": col, "e": e, "x": x})
         t = pd.DataFrame(out)
-        return t, idx[idx >= idx[start]]
+        # Marked daily per unit of weight: each trade's daily move while held, and its trading (in, out,
+        # rolls) on the day it happens, so the page can scale both by the position size.
+        n = len(idx)
+        ret_d, traded_d = np.zeros(n), np.zeros(n)
+        rv = r.to_numpy()
+        for tr in out:
+            e, x, side, col = tr["e"], tr["x"], (1 if tr["side"] == "long" else -1), tr["col"]
+            g = growth.iloc[:, col].to_numpy()
+            value = g[e:x + 1] / g[e]  # position value relative to the entry
+            ret_d[e + 1:x + 1] += side * value[:-1] * rv[e + 1:x + 1, col]
+            traded_d[e] += 1.0
+            traded_d[x] += value[-1]
+            roll_days = np.flatnonzero(ends[e:x]) + e
+            traded_d[roll_days] += 2 * value[roll_days - e]
+        marked = pd.DataFrame({"ret": ret_d, "traded": traded_d}, index=idx)
+        return t, idx[idx >= idx[start]], marked
     return _cached(("trades", dataset, k, lag), build)
 
 
@@ -97,28 +112,30 @@ def _sized(dataset, fill, max_open, pairs, slippage):
     if not max_open:  # the stored book, one row a day
         f = xsmr._load("book" if fill == "close" else "next", dataset, slippage, model="xsmom")
         if f.empty:
-            return f, pd.DatetimeIndex([])
+            return f, pd.DatetimeIndex([]), None
         t = pd.DataFrame({"day": pd.to_datetime(f["day"]), "book_ret": f["gross_ret"], "book_cost": f["turnover"] * cps,
                           "long": f["long_ret"], "short": f["short_ret"], "stocks": f["stocks"]})
         t["book_net"] = t["book_ret"] - t["book_cost"]
         t["ret"], t["cost"], t["net"] = t["book_ret"], t["book_cost"], t["book_net"]
-        return t, pd.DatetimeIndex(t["day"])
+        return t, pd.DatetimeIndex(t["day"]), None
     k = max(1, min(int(pairs or 1), max_open // 2 or 1))
-    t, days = _trades(dataset, k, 1 if fill == "next" else 0)
+    t, days, marked = _trades(dataset, k, 1 if fill == "next" else 0)
     t = t.copy()
     if t.empty:
-        return t, days
+        return t, days, None
     t["w"] = 1.0 / max_open
     t["cost"] = (1 + t["growth"] + 2 * t["rolls"]) * cps
     t["net"] = t["ret"] - t["cost"]
     for col in ("ret", "cost", "net"):
         t[f"book_{col}"] = t["w"] * t[col]
     t["day"] = t["exit_day"]
-    return t, days
+    w = 1.0 / max_open
+    daily = pd.DataFrame({"book_ret": w * marked["ret"], "book_cost": w * marked["traded"] * cps}, index=marked.index)
+    return t, days, daily
 
 
 def results(dataset="fno", fill="close", max_open=6, pairs=3, slippage=0.0002):
-    t, days = _sized(dataset, fill, max_open, pairs, slippage)
+    t, days, daily = _sized(dataset, fill, max_open, pairs, slippage)
     extra = {}
     if len(t) and max_open:
         extra = {"avg_held_days": round(float(t["days"].mean()), 1),
@@ -127,11 +144,11 @@ def results(dataset="fno", fill="close", max_open=6, pairs=3, slippage=0.0002):
     elif len(t):
         extra = {"trades_label": "Days", "avg_stocks": round(float(t["stocks"].mean())),
                  "long_net_pct": round(float(100 * t["long"].sum()), 3), "short_net_pct": round(float(100 * t["short"].sum()), 3)}
-    return v2common.build_results(t, days, slippage, extra)
+    return v2common.build_results(t, days, slippage, extra, daily=daily)
 
 
 def month_trades(month, dataset="fno", fill="close", max_open=6, pairs=3, slippage=0.0002):
-    t, _ = _sized(dataset, fill, max_open, pairs, slippage)
+    t, _, _ = _sized(dataset, fill, max_open, pairs, slippage)
     t = t[t["day"].dt.strftime("%Y-%m") == month] if len(t) else t
     if not max_open:
         return [{"day": r.day.date().isoformat(), "stocks": int(r.stocks), "ret_pct": round(100 * float(r.book_ret), 3),

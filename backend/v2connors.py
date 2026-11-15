@@ -32,7 +32,11 @@ def variant(setup, hold, max_open, stop, timing, take):
 
 
 def _sized(dataset, setup, hold, max_open, stop, timing, take, slippage):
-    _, trades, d = connors._run(variant(setup, hold, max_open, stop, timing, take), dataset)
+    f, trades, d = connors._run(variant(setup, hold, max_open, stop, timing, take), dataset)
+    cps = xsmr.cost_per_side(slippage)
+    # connors' own daily book (open trades marked at each close, trades charged on their day)
+    daily = pd.DataFrame({"book_ret": f["gross_ret"].to_numpy(), "book_cost": f["turnover"].to_numpy() * cps},
+                         index=pd.to_datetime(f["day"]))
     idx, cols = d["px"].index, d["px"].columns
     closed = [x for x in trades if x["sell"] is not None]
     t = pd.DataFrame({
@@ -42,29 +46,28 @@ def _sized(dataset, setup, hold, max_open, stop, timing, take, slippage):
         "stop": [x.get("stop") for x in closed], "roll": [x.get("roll", 0.0) for x in closed],
         "held": [x["sell_i"] - x["buy_i"] for x in closed]})
     if t.empty:
-        return t, pd.DatetimeIndex(idx)
-    cps = xsmr.cost_per_side(slippage)
+        return t, pd.DatetimeIndex(idx), daily
     t["ret"] = t["sell"] / t["buy"] - 1
     t["cost"] = (1 + t["sell"] / t["buy"] + t["roll"]) * cps
     t["net"] = t["ret"] - t["cost"]
     for col in ("ret", "cost", "net"):
         t[f"book_{col}"] = t["w"] * t[col]
     t["day"], t["entry_day"] = pd.to_datetime(t["day"]), pd.to_datetime(t["entry_day"])
-    return t, pd.DatetimeIndex(idx)
+    return t, pd.DatetimeIndex(idx), daily
 
 
 def results(dataset="fno", setup="rsi2", hold="5d", max_open=3, stop="none", timing="close", take="all", slippage=0.0002):
-    t, days = _sized(dataset, setup, hold, max_open, stop, timing, take, slippage)
+    t, days, daily = _sized(dataset, setup, hold, max_open, stop, timing, take, slippage)
     extra = {}
     if len(t):
         extra = {"avg_held_days": round(float(t["held"].mean()), 1),
                  "stopped_pct": round(float(100 * t["reason"].str.startswith("stop").mean()), 1),
                  "avg_rsi": round(float(t["rsi"].mean()), 1)}
-    return v2common.build_results(t, days, slippage, extra)
+    return v2common.build_results(t, days, slippage, extra, daily=daily)
 
 
 def month_trades(month, dataset="fno", setup="rsi2", hold="5d", max_open=3, stop="none", timing="close", take="all", slippage=0.0002):
-    t, _ = _sized(dataset, setup, hold, max_open, stop, timing, take, slippage)
+    t, _, _ = _sized(dataset, setup, hold, max_open, stop, timing, take, slippage)
     t = t[t["day"].dt.strftime("%Y-%m") == month] if len(t) else t
     return [{"entry_day": r.entry_day.date().isoformat(), "exit_day": r.day.date().isoformat(), "days": int(r.held),
              "symbol": r.symbol, "rsi": round(float(r.rsi), 1), "entry": round(float(r.buy), 2),

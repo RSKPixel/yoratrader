@@ -93,7 +93,7 @@ export default function V2Xsmom({ params }) {
             {s.from} → {s.to} · {value(s.net_year_pct)} net a year · Sharpe {s.sharpe ?? "—"} · {s.green_years}/{s.years} green years ·{" "}
             {book ? `~${s.avg_stocks} stocks held` : `held ${s.avg_held_days} trading days`} · long {value(s.long_net_pct)}, short {value(s.short_net_pct)}
           </p>
-          <Panel title="Net by month" right={book ? "click a month for its days" : "results count on the exit day · click a month for its trades"}>
+          <Panel title="Net by month" right={book ? "click a month for its days" : "marked daily · trades by exit day · click a month for its trades"}>
             <MonthGrid years={data.years} months={data.months} value={value} onOpen={setMonth} />
           </Panel>
           <Panel title="Equity" right="cumulative, fixed capital, not compounded · accent = net, grey = gross">

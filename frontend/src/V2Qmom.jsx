@@ -80,14 +80,14 @@ export default function V2Qmom({ params }) {
         <>
           <SummaryCards s={s} value={value} />
           <p className="-mt-1 text-xs" style={{ color: "var(--muted)" }}>
-            {s.from} → {s.to} · {value(s.net_year_pct)} net a year · Sharpe {s.sharpe ?? "—"} (on results at each rebalance) · {s.green_years}/
+            {s.from} → {s.to} · {value(s.net_year_pct)} net a year · Sharpe {s.sharpe ?? "—"} · {s.green_years}/
             {s.years} green years · ~{s.avg_held} stocks held · {s.kept_pct}% kept into the next period
             {s.hedge_net_pct != null ? ` · hedge ${value(s.hedge_net_pct)}` : ""}
           </p>
-          <Panel title="Net by month" right="results count at the rebalance that ends each holding · click a month for them">
+          <Panel title="Net by month" right="marked daily · trades and win rate by the rebalance that ends each holding · click a month for them">
             <MonthGrid years={data.years} months={data.months} value={value} onOpen={setMonth} />
           </Panel>
-          <Panel title="Equity" right="cumulative realised, fixed capital, not compounded · accent = net, grey = gross">
+          <Panel title="Equity" right="marked daily, fixed capital, not compounded · accent = net, grey = gross">
             <V2EquityChart points={data.equity} format={chartFormat} />
           </Panel>
         </>

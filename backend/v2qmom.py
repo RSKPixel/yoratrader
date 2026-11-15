@@ -65,18 +65,26 @@ def _rows(dataset, version, hedged, cap):
                         "entry": np.nan, "exit": np.nan, "kept": True, "mom": np.nan, "fip": np.nan, "hedge": True})
     t = pd.DataFrame(out)
     days = idx[idx >= idx[rebal[0]]] if rebal else idx[:0]
-    value = (t, pd.DatetimeIndex(days))
+    # The book marked to market every day: holdings' moves when they happen, trades on their day.
+    marked = pd.DataFrame({"ret": contrib.sum(axis=1), "traded": traded.sum(axis=1)}, index=idx)
+    if hedged:
+        marked["ret"] += hedge_ret
+        marked["traded"] += hedge_trade
+    if rebal:  # up to the last rebalance: the period still open is left out, as in the rows
+        marked = marked[(marked.index >= idx[rebal[0]]) & (marked.index <= idx[rebal[-1]])]
+    value = (t, pd.DatetimeIndex(days), marked)
     with _lock:
         _cache[key] = (time.time(), value)
     return value
 
 
 def _sized(dataset, version, hedge, max_open, slippage):
-    t, days = _rows(dataset, version, hedge == "nifty", max_open or None)
+    t, days, marked = _rows(dataset, version, hedge == "nifty", max_open or None)
     t = t.copy()
     if t.empty:
-        return t, days
+        return t, days, None
     cps = xsmr.cost_per_side(slippage)
+    daily = pd.DataFrame({"book_ret": marked["ret"], "book_cost": marked["traded"] * cps})
     t["book_cost"] = t["traded"] * cps
     t["book_net"] = t["book_ret"] - t["book_cost"]
     size = t["w"].where(t["w"] > 0, 1.0)
@@ -84,22 +92,22 @@ def _sized(dataset, version, hedge, max_open, slippage):
     t["net"] = t["ret"] - t["cost"]
     t["side"] = np.where(t["hedge"], "short", "long")
     t["day"] = t["exit_day"]
-    return t, days
+    return t, days, daily
 
 
 def results(dataset="fno", version="book", hedge="none", max_open=5, slippage=0.0002):
-    t, days = _sized(dataset, version, hedge, max_open, slippage)
+    t, days, daily = _sized(dataset, version, hedge, max_open, slippage)
     extra = {}
     if len(t):
         stocks = t[~t["hedge"]]
         extra = {"trades_label": "Holdings", "avg_held": round(float(stocks.groupby("entry_day").size().mean()), 1),
                  "kept_pct": round(float(100 * stocks["kept"].mean()), 1),
                  "hedge_net_pct": round(float(100 * t.loc[t["hedge"], "book_net"].sum()), 3) if hedge == "nifty" else None}
-    return v2common.build_results(t, days, slippage, extra)
+    return v2common.build_results(t, days, slippage, extra, daily=daily)
 
 
 def month_trades(month, dataset="fno", version="book", hedge="none", max_open=5, slippage=0.0002):
-    t, _ = _sized(dataset, version, hedge, max_open, slippage)
+    t, _, _ = _sized(dataset, version, hedge, max_open, slippage)
     t = t[t["day"].dt.strftime("%Y-%m") == month] if len(t) else t
 
     def num(v, d=2):
