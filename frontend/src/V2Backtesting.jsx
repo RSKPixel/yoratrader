@@ -1,4 +1,5 @@
 import { useState } from "react";
+import V2BacktestParams, { useBacktestParams } from "./V2BacktestParams";
 
 // v2 Backtesting: a sub nav of every model with a backtest, grouped by where it comes from. Each
 // model's page is blank for now; they move over from the classic app one by one.
@@ -183,6 +184,7 @@ function initialOpen() {
 export default function V2Backtesting({ model, onSelect }) {
   const m = findBacktest(model) || findBacktest(DEFAULT_BACKTEST);
   const [open, setOpen] = useState(initialOpen);
+  const [params, setParams] = useBacktestParams();
   const toggle = () => {
     setOpen((was) => {
       try {
@@ -207,6 +209,9 @@ export default function V2Backtesting({ model, onSelect }) {
         <div className="mt-1 flex flex-wrap items-center gap-3">
           <h1 className="text-xl font-semibold tracking-tight">{m.label}</h1>
           <StyleTag style={m.style} />
+        </div>
+        <div className="mt-4">
+          <V2BacktestParams params={params} onChange={setParams} />
         </div>
       </section>
     </div>
