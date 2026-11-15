@@ -114,6 +114,19 @@ function Downloads({ symbols, onDone }) {
   );
 }
 
+function Gaps({ block }) {
+  const gaps = block?.gaps || [];
+  if (!gaps.length) return <span style={{ color: "var(--faint)" }}>—</span>;
+  const longest = gaps.reduce((a, g) => (g.days > a.days ? g : a), gaps[0]);
+  const title = gaps.map((g) => `${g.from} → ${g.to} (${g.days.toLocaleString("en-IN")} trading days)`).join("\n");
+  return (
+    <span title={`No candles (out of F&O, or not in Kite's history):\n${title}`} style={{ color: "var(--muted)" }}>
+      {longest.from.slice(0, 7)} → {longest.to.slice(0, 7)}
+      {gaps.length > 1 ? <span style={{ color: "var(--faint)" }}> +{gaps.length - 1}</span> : null}
+    </span>
+  );
+}
+
 function Missing({ v }) {
   if (!v) return <span style={{ color: "var(--faint)" }}>0</span>;
   return (
@@ -130,10 +143,12 @@ const COLUMNS = [
   { key: "close", h: "Last close", sort: (r) => r.last_close ?? -1 },
   { key: "d_bars", h: "Daily", sort: (r) => r.daily.bars, group: "Daily" },
   { key: "d_span", h: "From → to", sort: (r) => r.daily.first || "", group: "Daily" },
+  { key: "d_gaps", h: "Gaps", sort: (r) => r.daily.gap_days || 0, group: "Daily" },
   { key: "d_miss", h: "Missing", sort: (r) => r.daily.missing, group: "Daily" },
   { key: "m_bars", h: "15 min", sort: (r) => r.m15.bars, group: "15 min" },
   { key: "m_days", h: "Days · /day", sort: (r) => r.m15.days, group: "15 min" },
   { key: "m_span", h: "From → to", sort: (r) => r.m15.first || "", group: "15 min" },
+  { key: "m_gaps", h: "Gaps", sort: (r) => r.m15.gap_days || 0, group: "15 min" },
   { key: "m_miss", h: "Missing", sort: (r) => r.m15.missing, group: "15 min" },
   { key: "o_days", h: "1 min days", sort: (r) => r.m1?.days ?? -1, backtestOnly: true },
   { key: "chart", h: "" },
@@ -144,6 +159,7 @@ export default function V2Data() {
   const [universe, setUniverse] = useState("all");
   const [query, setQuery] = useState("");
   const [gapsOnly, setGapsOnly] = useState(false);
+  const [longGapsOnly, setLongGapsOnly] = useState(false);
   const [sort, setSort] = useState({ key: "symbol", dir: 1 });
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
@@ -179,11 +195,12 @@ export default function V2Data() {
       .filter((r) => universe === "all" || r.universes.includes(universe))
       .filter((r) => !q || r.symbol.toUpperCase().includes(q) || (r.name || "").toUpperCase().includes(q))
       .filter((r) => !gapsOnly || r.daily.missing > 0 || r.m15.missing > 0)
+      .filter((r) => !longGapsOnly || r.daily.gaps?.length || r.m15.gaps?.length)
       .sort((a, b) => {
         const x = col.sort(a), y = col.sort(b);
         return (x > y ? 1 : x < y ? -1 : 0) * sort.dir;
       });
-  }, [data, universe, query, gapsOnly, sort]);
+  }, [data, universe, query, gapsOnly, longGapsOnly, sort]);
   const closeChart = useCallback(() => setChart(null), []);
   const t = data?.totals;
   const span = (o) => (o?.first ? `${o.first} → ${o.last}` : "—");
@@ -210,6 +227,8 @@ export default function V2Data() {
         return n(r.daily.bars);
       case "d_span":
         return <span style={{ color: "var(--muted)" }}>{span(r.daily)}</span>;
+      case "d_gaps":
+        return <Gaps block={r.daily} />;
       case "d_miss":
         return <Missing v={r.daily.missing} />;
       case "m_bars":
@@ -224,6 +243,8 @@ export default function V2Data() {
         );
       case "m_span":
         return <span style={{ color: "var(--muted)" }}>{span(r.m15)}</span>;
+      case "m_gaps":
+        return <Gaps block={r.m15} />;
       case "m_miss":
         return <Missing v={r.m15.missing} />;
       case "o_days":
@@ -245,7 +266,8 @@ export default function V2Data() {
         <div>
           <h1 className="text-xl font-semibold tracking-tight">Data</h1>
           <p className="mt-1 text-sm" style={{ color: "var(--muted)" }}>
-            Every symbol stored, how many candles it has and over what span. Missing = trading days in that span with no candle.
+            Every symbol stored, how many candles it has and over what span. Gaps = 20+ trading days with no candle (out of F&O, or not in
+            Kite's history; hover for the dates). Missing = the short holes left: the real data problems.
           </p>
         </div>
         <Segmented label="Source" options={SOURCES} value={source} onChange={setSource} />
@@ -277,6 +299,10 @@ export default function V2Data() {
             <label className="flex items-center gap-2 text-sm" style={{ color: "var(--muted)" }}>
               <input type="checkbox" checked={gapsOnly} onChange={(e) => setGapsOnly(e.target.checked)} />
               Only with missing days
+            </label>
+            <label className="flex items-center gap-2 text-sm" style={{ color: "var(--muted)" }}>
+              <input type="checkbox" checked={longGapsOnly} onChange={(e) => setLongGapsOnly(e.target.checked)} />
+              Only with gaps
             </label>
             <span className="ml-auto text-xs" style={{ color: "var(--faint)" }}>
               {rows.length} of {data.symbols.length} · click a header to sort

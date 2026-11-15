@@ -6,9 +6,11 @@ Two sources:
 - "live": the eod / intraday_15m tables the classic model pages scan (continuous futures, NSE and
   MCX).
 
-"Missing days" = trading days between a symbol's first and last candle that it has no candle for,
-against the Nifty 50's calendar (backtest) or the exchange's busiest symbol (live): a data-quality
-check (a stock added to F&O mid-way isn't missing anything before its first candle).
+Coverage, per symbol, between its first and last candle, against a calendar of the days at least half
+the usual number of symbols traded (so a special session a few traded isn't a day the rest missed):
+- gaps: runs of GAP_DAYS or more trading days with no candle (out of F&O for a while, or not in Kite's
+  history), each with its dates;
+- missing: the short holes left, the real data-quality problems.
 """
 
 import threading
@@ -37,88 +39,114 @@ def _cached(key, build):
     return value
 
 
-def _missing(first, last, calendar):
-    """Calendar days in [first, last] (calendar: a sorted array of days)."""
-    if first is None or last is None:
-        return 0
-    return int(np.searchsorted(calendar, np.datetime64(last), side="right") - np.searchsorted(calendar, np.datetime64(first), side="left"))
+GAP_DAYS = 20  # a run of this many trading days with no candle is a gap (not listed / no data), not a hole
+
+
+def _coverage(days, calendar):
+    """Missing days and gaps for one symbol: calendar days between its first and last candle that it
+    has no candle for, split into short holes ("missing") and runs of GAP_DAYS or more ("gaps")."""
+    if not len(days):
+        return {"missing": 0, "gaps": [], "gap_days": 0}
+    span = calendar[(calendar >= days[0]) & (calendar <= days[-1])]
+    absent = np.setdiff1d(span, days, assume_unique=True)
+    if not len(absent):
+        return {"missing": 0, "gaps": [], "gap_days": 0}
+    pos = np.searchsorted(calendar, absent)
+    runs = np.split(absent, np.flatnonzero(np.diff(pos) != 1) + 1)
+    gaps = [{"from": str(r[0]), "to": str(r[-1]), "days": int(len(r))} for r in runs if len(r) >= GAP_DAYS]
+    gap_days = sum(g["days"] for g in gaps)
+    return {"missing": int(len(absent) - gap_days), "gaps": gaps, "gap_days": int(gap_days)}
+
+
+def _calendar(day_symbol, min_share=0.5):
+    """Trading days: days at least min_share of the usual number of symbols traded (a Saturday
+    session a few commodities held, or a sparse special session, isn't a day the rest missed)."""
+    counts = day_symbol.groupby("day")["symbol"].nunique().sort_index()
+    usual = counts.rolling(41, center=True, min_periods=1).median()
+    return np.sort(counts.index[counts >= min_share * usual].to_numpy(dtype="datetime64[D]"))
+
+
+def _per_symbol(frame, keys):
+    """{key: sorted array of days} from a (keys..., day) frame."""
+    out = {}
+    for k, g in frame.groupby(keys):
+        out[k if isinstance(k, tuple) and len(keys) > 1 else (k[0] if isinstance(k, tuple) else k)] = np.sort(
+            g["day"].to_numpy(dtype="datetime64[D]"))
+    return out
 
 
 def _iso(v):
     return v.isoformat() if v is not None and not pd.isna(v) else None
 
 
+def _block(days, calendar, bars=None):
+    if not len(days):
+        return {"bars": 0, "days": 0, "first": None, "last": None, "missing": 0, "gaps": [], "gap_days": 0, "per_day": None}
+    cov = _coverage(days, calendar)
+    return {"bars": int(bars if bars is not None else len(days)), "days": int(len(days)), "first": str(days[0]), "last": str(days[-1]),
+            "per_day": round(float(bars) / len(days), 1) if bars else None, **cov}
+
+
 def _backtest():
     with connect() as conn:
         syms = pd.read_sql("SELECT symbol, array_agg(DISTINCT dataset ORDER BY dataset) AS universes, max(name) AS name "
                            "FROM bt_symbols GROUP BY symbol", conn)
-        daily = pd.read_sql("SELECT symbol, count(*) AS d_bars, min(day) AS d_first, max(day) AS d_last FROM bt_daily GROUP BY symbol", conn)
+        daily = pd.read_sql("SELECT symbol, day FROM bt_daily", conn)
         last = pd.read_sql("SELECT DISTINCT ON (symbol) symbol, day AS last_day, close AS last_close FROM bt_daily "
                            "ORDER BY symbol, day DESC", conn)
-        m15 = pd.read_sql(f"SELECT symbol, count(*) AS m_bars, count(DISTINCT (datetime AT TIME ZONE '{IST}')::date) AS m_days, "
-                          f"min((datetime AT TIME ZONE '{IST}')::date) AS m_first, max((datetime AT TIME ZONE '{IST}')::date) AS m_last "
-                          "FROM bt_15m GROUP BY symbol", conn)
+        m15 = pd.read_sql(f"SELECT symbol, (datetime AT TIME ZONE '{IST}')::date AS day, count(*) AS n FROM bt_15m GROUP BY 1, 2", conn)
         m1 = pd.read_sql("SELECT symbol, count(*) AS o_days, min(day) AS o_first, max(day) AS o_last FROM bt_1m GROUP BY symbol", conn)
-        cal_d = pd.read_sql("SELECT day FROM bt_daily WHERE symbol = 'NIFTY 50' ORDER BY day", conn)["day"]
-        cal_m = pd.read_sql(f"SELECT DISTINCT (datetime AT TIME ZONE '{IST}')::date AS day FROM bt_15m WHERE symbol = 'NIFTY 50' ORDER BY 1", conn)["day"]
-    f = syms.merge(daily, on="symbol", how="left").merge(last, on="symbol", how="left").merge(m15, on="symbol", how="left").merge(m1, on="symbol", how="left")
-    cd, cm = cal_d.to_numpy(dtype="datetime64[D]"), cal_m.to_numpy(dtype="datetime64[D]")
+    # calendars: days at least half the usual number of symbols traded (special sessions drop out)
+    cal_d, cal_m = _calendar(daily), _calendar(m15)
+    d_days, m_days = _per_symbol(daily, ["symbol"]), _per_symbol(m15, ["symbol"])
+    m_bars = m15.groupby("symbol")["n"].sum()
+    last = last.set_index("symbol")
+    m1 = m1.set_index("symbol")
     lots = stored_lot_sizes()
     rows = []
-    for r in f.itertuples():
-        d_bars, m_days = int(r.d_bars or 0) if pd.notna(r.d_bars) else 0, int(r.m_days) if pd.notna(r.m_days) else 0
-        d_first, d_last = (r.d_first if pd.notna(r.d_first) else None), (r.d_last if pd.notna(r.d_last) else None)
-        m_first, m_last = (r.m_first if pd.notna(r.m_first) else None), (r.m_last if pd.notna(r.m_last) else None)
-        lot = lots.get(("NSE", INDEX_FUTURES.get(r.symbol, r.symbol)))
+    for r in syms.itertuples():
+        sym = r.symbol
+        lr = last.loc[sym] if sym in last.index else None
+        o = m1.loc[sym] if sym in m1.index else None
         rows.append({
-            "symbol": r.symbol, "name": r.name, "universes": list(r.universes), "lot_size": lot,
-            "last_day": _iso(r.last_day), "last_close": round(float(r.last_close), 2) if pd.notna(r.last_close) else None,
-            "daily": {"bars": d_bars, "first": _iso(d_first), "last": _iso(d_last),
-                      "missing": max(0, _missing(d_first, d_last, cd) - d_bars) if d_first else 0},
-            "m15": {"bars": int(r.m_bars) if pd.notna(r.m_bars) else 0, "days": m_days, "first": _iso(m_first), "last": _iso(m_last),
-                    "per_day": round(float(r.m_bars) / m_days, 1) if m_days else None,
-                    "missing": max(0, _missing(m_first, m_last, cm) - m_days) if m_first else 0},
-            "m1": {"days": int(r.o_days) if pd.notna(r.o_days) else 0, "first": _iso(r.o_first if pd.notna(r.o_first) else None),
-                   "last": _iso(r.o_last if pd.notna(r.o_last) else None)},
+            "symbol": sym, "name": r.name, "universes": list(r.universes), "lot_size": lots.get(("NSE", INDEX_FUTURES.get(sym, sym))),
+            "last_day": _iso(lr["last_day"]) if lr is not None else None,
+            "last_close": round(float(lr["last_close"]), 2) if lr is not None and pd.notna(lr["last_close"]) else None,
+            "daily": _block(d_days.get(sym, np.array([], dtype="datetime64[D]")), cal_d),
+            "m15": _block(m_days.get(sym, np.array([], dtype="datetime64[D]")), cal_m, int(m_bars.get(sym, 0))),
+            "m1": {"days": int(o["o_days"]) if o is not None else 0, "first": _iso(o["o_first"]) if o is not None else None,
+                   "last": _iso(o["o_last"]) if o is not None else None},
         })
     return sorted(rows, key=lambda x: x["symbol"])
 
 
 def _live():
     with connect() as conn:
-        eod = pd.read_sql("SELECT exchange, symbol, count(*) AS d_bars, min(datetime) AS d_first, max(datetime) AS d_last FROM eod "
-                          "GROUP BY 1, 2", conn)
+        eod = pd.read_sql("SELECT exchange, symbol, datetime AS day FROM eod", conn)
         last = pd.read_sql("SELECT DISTINCT ON (exchange, symbol) exchange, symbol, datetime AS last_day, close AS last_close FROM eod "
                            "ORDER BY exchange, symbol, datetime DESC", conn)
-        m15 = pd.read_sql(f"SELECT exchange, symbol, count(*) AS m_bars, count(DISTINCT (datetime AT TIME ZONE '{IST}')::date) AS m_days, "
-                          f"min((datetime AT TIME ZONE '{IST}')::date) AS m_first, max((datetime AT TIME ZONE '{IST}')::date) AS m_last "
-                          "FROM intraday_15m GROUP BY 1, 2", conn)
-        cal_d = pd.read_sql("SELECT exchange, datetime AS day FROM eod GROUP BY 1, 2", conn)
-        cal_m = pd.read_sql(f"SELECT exchange, (datetime AT TIME ZONE '{IST}')::date AS day FROM intraday_15m GROUP BY 1, 2", conn)
-    f = eod.merge(last, on=["exchange", "symbol"], how="outer").merge(m15, on=["exchange", "symbol"], how="outer")
-    # an exchange's calendar: days at least half its symbols traded (sparse special sessions drop out)
+        m15 = pd.read_sql(f"SELECT exchange, symbol, (datetime AT TIME ZONE '{IST}')::date AS day, count(*) AS n FROM intraday_15m GROUP BY 1, 2, 3", conn)
     cals = {}
-    for name, cal, counts in (("d", cal_d, eod.groupby("exchange").size()), ("m", cal_m, m15.groupby("exchange").size())):
-        for ex, g in cal.groupby("exchange"):
-            cals[(name, ex)] = np.sort(g["day"].to_numpy(dtype="datetime64[D]"))
+    for kind, frame in (("d", eod), ("m", m15)):
+        for ex, g in frame.groupby("exchange"):
+            cals[(kind, ex)] = _calendar(g)
+    d_days, m_days = _per_symbol(eod, ["exchange", "symbol"]), _per_symbol(m15, ["exchange", "symbol"])
+    m_bars = m15.groupby(["exchange", "symbol"])["n"].sum()
+    last = last.set_index(["exchange", "symbol"])
     lots = stored_lot_sizes()
+    empty = np.array([], dtype="datetime64[D]")
     rows = []
-    for r in f.itertuples():
-        d_bars = int(r.d_bars) if pd.notna(r.d_bars) else 0
-        m_days = int(r.m_days) if pd.notna(r.m_days) else 0
-        d_first, d_last = (r.d_first if pd.notna(r.d_first) else None), (r.d_last if pd.notna(r.d_last) else None)
-        m_first, m_last = (r.m_first if pd.notna(r.m_first) else None), (r.m_last if pd.notna(r.m_last) else None)
+    for ex, sym in sorted(set(d_days) | set(m_days)):
+        lr = last.loc[(ex, sym)] if (ex, sym) in last.index else None
         rows.append({
-            "symbol": r.symbol, "exchange": r.exchange, "universes": [r.exchange.lower()], "lot_size": lots.get((r.exchange, r.symbol)),
-            "last_day": _iso(r.last_day), "last_close": round(float(r.last_close), 2) if pd.notna(r.last_close) else None,
-            "daily": {"bars": d_bars, "first": _iso(d_first), "last": _iso(d_last),
-                      "missing": max(0, _missing(d_first, d_last, cals.get(("d", r.exchange), np.array([], dtype="datetime64[D]"))) - d_bars) if d_first else 0},
-            "m15": {"bars": int(r.m_bars) if pd.notna(r.m_bars) else 0, "days": m_days, "first": _iso(m_first), "last": _iso(m_last),
-                    "per_day": round(float(r.m_bars) / m_days, 1) if m_days else None,
-                    "missing": max(0, _missing(m_first, m_last, cals.get(("m", r.exchange), np.array([], dtype="datetime64[D]"))) - m_days) if m_first else 0},
+            "symbol": sym, "exchange": ex, "universes": [ex.lower()], "lot_size": lots.get((ex, sym)),
+            "last_day": _iso(lr["last_day"]) if lr is not None else None,
+            "last_close": round(float(lr["last_close"]), 2) if lr is not None and pd.notna(lr["last_close"]) else None,
+            "daily": _block(d_days.get((ex, sym), empty), cals.get(("d", ex), empty)),
+            "m15": _block(m_days.get((ex, sym), empty), cals.get(("m", ex), empty), int(m_bars.get((ex, sym), 0))),
             "m1": None,
         })
-    return sorted(rows, key=lambda x: (x["exchange"], x["symbol"]))
+    return rows
 
 
 def symbols(source="backtest", refresh=False):
