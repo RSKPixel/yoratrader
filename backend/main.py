@@ -29,6 +29,7 @@ import pairs
 import xsmr
 import xsmom
 import qmom
+import v2gap
 import connors
 import xsmrwatch
 import connorswatch
@@ -664,6 +665,36 @@ def backtest_portfolio_day(day: str = Query(..., pattern=r"^\d{4}-\d{2}-\d{2}$")
         return {"status": "success", "trades": module.day_trades(variant, dataset, _date.fromisoformat(day))}
     except Exception as error:
         print("Portfolio day failed:", error)
+        return {"status": "error", "message": str(error)}
+
+
+def _v2gap_args(dataset, side, stop, max_open, slippage):
+    if dataset not in v2gap.DATASETS or side not in v2gap.SIDES or stop not in v2gap.STOPS:
+        raise HTTPException(status_code=400, detail="unknown dataset, side or stop")
+    return dict(dataset=dataset, side=side, stop=stop, max_open=max_open, slippage=slippage / 100)
+
+
+@app.get("/api/v2/backtest/gap")
+def v2_backtest_gap(dataset: str = Query("fno"), side: str = Query("long"), stop: str = Query("none"),
+                    max_open: int = Query(5, ge=0, le=v2gap.MAX_OPEN), slippage: float = Query(0.02, ge=0, le=1)):
+    """Buy on gap (v2 page): the stored trades sized by capital and max open, as fractions of capital."""
+    args = _v2gap_args(dataset, side, stop, max_open, slippage)
+    try:
+        return {"status": "success", **v2gap.results(**args)}
+    except Exception as error:
+        print("v2 gap backtest failed:", error)
+        return {"status": "error", "message": str(error)}
+
+
+@app.get("/api/v2/backtest/gap/month")
+def v2_backtest_gap_month(month: str = Query(..., pattern=r"^\d{4}-\d{2}$"), dataset: str = Query("fno"),
+                          side: str = Query("long"), stop: str = Query("none"),
+                          max_open: int = Query(5, ge=0, le=v2gap.MAX_OPEN), slippage: float = Query(0.02, ge=0, le=1)):
+    args = _v2gap_args(dataset, side, stop, max_open, slippage)
+    try:
+        return {"status": "success", "trades": v2gap.month_trades(month, **args)}
+    except Exception as error:
+        print("v2 gap month failed:", error)
         return {"status": "error", "message": str(error)}
 
 

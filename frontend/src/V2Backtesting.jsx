@@ -1,5 +1,6 @@
 import { useState } from "react";
 import V2BacktestParams, { useBacktestParams } from "./V2BacktestParams";
+import V2BuyOnGap from "./V2BuyOnGap";
 
 // v2 Backtesting: a sub nav of every model with a backtest, grouped by where it comes from. Each
 // model's page is blank for now; they move over from the classic app one by one.
@@ -213,6 +214,7 @@ export default function V2Backtesting({ model, onSelect }) {
         <div className="mt-4">
           <V2BacktestParams params={params} onChange={setParams} />
         </div>
+        {m.id === "buy-on-gap" && <V2BuyOnGap params={params} />}
       </section>
     </div>
   );
