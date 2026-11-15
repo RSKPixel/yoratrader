@@ -302,12 +302,12 @@ export default function V2BuyOnGap({ params }) {
             traded on {s.days_traded} of {s.days} days (intraday: capital sits idle on the rest)
           </p>
 
-          <Panel title="Equity" right="cumulative, fixed capital, not compounded · accent = net, grey = gross">
-            <V2EquityChart points={data.equity} format={chartFormat} />
-          </Panel>
-
           <Panel title="Net by month" right="click a month for its trades">
             <MonthGrid years={data.years} months={data.months} value={value} onOpen={setMonth} />
+          </Panel>
+
+          <Panel title="Equity" right="cumulative, fixed capital, not compounded · accent = net, grey = gross">
+            <V2EquityChart points={data.equity} format={chartFormat} />
           </Panel>
         </>
       )}
