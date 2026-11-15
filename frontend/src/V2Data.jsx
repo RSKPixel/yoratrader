@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Card } from "./V2BacktestView";
 import { inputStyle, Segmented } from "./V2Controls";
 import V2CandleChart from "./V2CandleChart";
@@ -25,6 +25,65 @@ const UNIVERSE_LABEL = { fno: "F&O", stocks: "Nifty 50", indices: "Index", nse: 
 
 const n = (v) => (v == null ? "—" : v.toLocaleString("en-IN"));
 const compact = (v) => (v >= 1e7 ? `${(v / 1e7).toFixed(2)} Cr` : v >= 1e5 ? `${(v / 1e5).toFixed(1)} L` : n(v));
+
+// Live futures: fetch the latest candles from Kite (the classic app's EOD / iData downloads) for the
+// symbols shown, poll the job, and count again when it's done.
+function Downloads({ symbols, onDone }) {
+  const [job, setJob] = useState(null); // { kind, id, state }
+  const timer = useRef(null);
+  useEffect(() => () => clearInterval(timer.current), []);
+  const start = (kind) => {
+    const endpoint = kind === "eod" ? "/api/eod" : "/api/idata";
+    setJob({ kind, state: { status: "running", done: 0, total: symbols.length } });
+    fetch(endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ symbols }) })
+      .then((r) => r.json())
+      .then((p) => {
+        if (p.status !== "success" || !p.job_id) {
+          setJob({ kind, state: { status: "error", message: p.message || p.detail || "Could not start the download" } });
+          return;
+        }
+        clearInterval(timer.current);
+        timer.current = setInterval(() => {
+          fetch(`/api/eod/${p.job_id}`)
+            .then((r) => r.json())
+            .then((state) => {
+              setJob({ kind, id: p.job_id, state });
+              if (state.status !== "running") {
+                clearInterval(timer.current);
+                if (state.status === "completed") onDone();
+              }
+            })
+            .catch(() => {});
+        }, 1000);
+      })
+      .catch(() => setJob({ kind, state: { status: "error", message: "Could not reach the API" } }));
+  };
+  const running = job?.state?.status === "running";
+  const st = job?.state;
+  const label = job?.kind === "eod" ? "EOD" : "15 min";
+  const btn = "rounded-md border px-3 py-1.5 text-sm transition-colors hover:bg-[var(--surface-2)] disabled:opacity-50";
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <button type="button" className={btn} style={{ borderColor: "var(--border)" }} disabled={running || !symbols.length} onClick={() => start("eod")}
+        title="Fetch the latest daily candles from Kite for the symbols shown">
+        Download EOD
+      </button>
+      <button type="button" className={btn} style={{ borderColor: "var(--border)" }} disabled={running || !symbols.length} onClick={() => start("idata")}
+        title="Fetch the latest 15-minute candles from Kite for the symbols shown">
+        Download 15 min
+      </button>
+      <span className="text-xs tabular-nums" style={{ color: st?.status === "error" ? "var(--negative)" : "var(--muted)" }}>
+        {!st
+          ? `${symbols.length} symbols shown`
+          : st.status === "running"
+          ? `${label}: ${st.done ?? 0}/${st.total ?? symbols.length}${st.symbol ? ` · ${st.symbol}` : ""} · ${(st.candles ?? 0).toLocaleString("en-IN")} candles saved`
+          : st.status === "completed"
+          ? `${label} done: ${(st.candles ?? 0).toLocaleString("en-IN")} candles saved${st.errors?.length ? ` · ${st.errors.length} failed` : ""}`
+          : `${label} failed: ${st.message || "unknown error"} (is Kite logged in?)`}
+      </span>
+    </div>
+  );
+}
 
 function Missing({ v }) {
   if (!v) return <span style={{ color: "var(--faint)" }}>0</span>;
@@ -60,12 +119,15 @@ export default function V2Data() {
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
   const [chart, setChart] = useState(null);
+  const [reload, setReload] = useState(0);
 
   useEffect(() => {
     const controller = new AbortController();
-    setData(null);
-    setUniverse("all");
-    fetch(`/api/v2/data/symbols?source=${source}`, { signal: controller.signal })
+    if (!reload) {
+      setData(null);
+      setUniverse("all");
+    }
+    fetch(`/api/v2/data/symbols?source=${source}${reload ? "&refresh=true" : ""}`, { signal: controller.signal })
       .then((r) => r.json())
       .then((p) => {
         if (p.status !== "success") setError(p.message || p.detail || "Could not load the data summary");
@@ -76,7 +138,8 @@ export default function V2Data() {
       })
       .catch((e) => e.name !== "AbortError" && setError("Could not reach the API"));
     return () => controller.abort();
-  }, [source]);
+  }, [source, reload]);
+  useEffect(() => setReload(0), [source]);
 
   const columns = COLUMNS.filter((c) => !(c.backtestOnly && source !== "backtest"));
   const rows = useMemo(() => {
@@ -190,6 +253,7 @@ export default function V2Data() {
               {rows.length} of {data.symbols.length} · click a header to sort
             </span>
           </div>
+          {source === "live" && <Downloads symbols={rows.map((r) => r.symbol)} onDone={() => setReload((n) => n + 1)} />}
 
           <div className="overflow-auto rounded-lg border" style={{ borderColor: "var(--border)", background: "var(--surface)" }}>
             <table className="w-full min-w-[1150px] text-xs tabular-nums">

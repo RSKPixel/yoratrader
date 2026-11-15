@@ -951,12 +951,12 @@ def v2_paper_xsmr(pairs: int = Query(5, ge=1, le=5), stop: str = Query("none"), 
 
 
 @app.get("/api/v2/data/symbols")
-def v2_data_symbols(source: str = Query("backtest")):
+def v2_data_symbols(source: str = Query("backtest"), refresh: bool = Query(False)):
     """Every stored symbol with its daily / 15m / 1m coverage (v2 Data page)."""
     if source not in ("backtest", "live"):
         raise HTTPException(status_code=400, detail="unknown source")
     try:
-        return {"status": "success", **v2data.symbols(source)}
+        return {"status": "success", **v2data.symbols(source, refresh)}
     except Exception as error:
         print("v2 data symbols failed:", error)
         return {"status": "error", "message": str(error)}

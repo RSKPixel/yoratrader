@@ -121,7 +121,10 @@ def _live():
     return sorted(rows, key=lambda x: (x["exchange"], x["symbol"]))
 
 
-def symbols(source="backtest"):
+def symbols(source="backtest", refresh=False):
+    if refresh:  # after a download: count again now
+        with _lock:
+            _cache.pop(("symbols", source), None)
     rows = _cached(("symbols", source), _backtest if source == "backtest" else _live)
     tot = lambda key, field: sum((r[key] or {}).get(field, 0) or 0 for r in rows)
     return {"source": source, "symbols": rows,
