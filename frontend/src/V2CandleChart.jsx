@@ -87,12 +87,12 @@ export default function V2CandleChart({ row, source, onClose }) {
   const fmt = (v) => (v == null ? "—" : v.toLocaleString("en-IN", { maximumFractionDigits: 2 }));
   const when = (t) => (typeof t === "number" ? new Date(t * 1000).toISOString().slice(0, 16).replace("T", " ") : t);
   return (
-    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/50 p-2" onClick={onClose}>
       <div
         role="dialog"
         aria-modal="true"
         aria-label={`${row.symbol} chart`}
-        className="flex h-[85vh] w-[85vw] flex-col overflow-hidden rounded-lg border"
+        className="flex h-[95vh] w-[95vw] flex-col overflow-hidden rounded-lg border"
         style={{ borderColor: "var(--border)", background: "var(--surface)" }}
         onClick={(e) => e.stopPropagation()}
       >
