@@ -149,7 +149,7 @@ export default function V2Settings({ theme, onTheme, onClose, initialTab = "gene
         role="dialog"
         aria-modal="true"
         aria-label="Settings"
-        className="flex h-[95vh] w-full max-w-3xl flex-col overflow-hidden rounded-lg border"
+        className="flex h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-lg border"
         style={{ borderColor: "var(--border)", background: "var(--bg)" }}
         onClick={(e) => e.stopPropagation()}
       >
