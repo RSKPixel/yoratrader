@@ -11,7 +11,7 @@ from db import store_intraday
 load_dotenv(Path(__file__).resolve().parent / ".env", override=True)
 
 INTERVAL = "15minute"
-MAX_DAYS = 7
+NO_EXPIRY_DAYS = 30  # a contract without a known previous expiry: the last 30 days
 
 
 def download_intraday(symbols, on_progress=None, today_only=False, exchange=None):
@@ -32,19 +32,20 @@ def download_intraday(symbols, on_progress=None, today_only=False, exchange=None
 
     kite = kite_auth.trading_client()
     today = date.today()
-    floor = today - timedelta(days=MAX_DAYS)
     candles = 0
     errors = []
     total = len(rows)
 
     for index, row in enumerate(rows):
         report(status="running", done=index, total=total, symbol=row["name"], candles=candles, errors=list(errors))
-        # Shorter of: previous expiry -> today, or the last 7 days.
-        from_day = floor
+        # From the previous expiry to today (Kite has 15m candles only for the current contract, and
+        # continuous isn't allowed for intraday intervals), else the last NO_EXPIRY_DAYS.
         if today_only:
             from_day = today
         elif row.get("previous_expiry"):
-            from_day = max(floor, date.fromisoformat(row["previous_expiry"]))
+            from_day = date.fromisoformat(row["previous_expiry"])
+        else:
+            from_day = today - timedelta(days=NO_EXPIRY_DAYS)
         to_time = datetime.combine(today, datetime.max.time()).replace(microsecond=0)
 
         try:

@@ -33,9 +33,13 @@ function Downloads({ symbols, onDone }) {
   const timer = useRef(null);
   useEffect(() => () => clearInterval(timer.current), []);
   const start = (kind) => {
-    const endpoint = kind === "eod" ? "/api/eod" : "/api/idata";
+    const endpoint = kind === "idata" ? "/api/idata" : "/api/eod";
     setJob({ kind, state: { status: "running", done: 0, total: symbols.length } });
-    fetch(endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ symbols }) })
+    fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ symbols, full: kind === "full" }),
+    })
       .then((r) => r.json())
       .then((p) => {
         if (p.status !== "success" || !p.job_id) {
@@ -60,16 +64,20 @@ function Downloads({ symbols, onDone }) {
   };
   const running = job?.state?.status === "running";
   const st = job?.state;
-  const label = job?.kind === "eod" ? "EOD" : "15 min";
+  const label = job?.kind === "eod" ? "EOD" : job?.kind === "full" ? "Full history" : "15 min";
   const btn = "rounded-md border px-3 py-1.5 text-sm transition-colors hover:bg-[var(--surface-2)] disabled:opacity-50";
   return (
     <div className="flex flex-wrap items-center gap-2">
       <button type="button" className={btn} style={{ borderColor: "var(--border)" }} disabled={running || !symbols.length} onClick={() => start("eod")}
-        title="Fetch the latest daily candles from Kite for the symbols shown">
+        title="The last 30 days of continuous daily candles from Kite, for the symbols shown">
         Download EOD
       </button>
+      <button type="button" className={btn} style={{ borderColor: "var(--border)" }} disabled={running || !symbols.length} onClick={() => start("full")}
+        title="Every continuous daily candle Kite has (from about Oct 2010), for the symbols shown; fills any gaps. ~3 requests a symbol, about 5 minutes for all.">
+        Download full history
+      </button>
       <button type="button" className={btn} style={{ borderColor: "var(--border)" }} disabled={running || !symbols.length} onClick={() => start("idata")}
-        title="Fetch the latest 15-minute candles from Kite for the symbols shown">
+        title="15-minute candles from the previous expiry to today (Kite has intraday only for the current contract), for the symbols shown">
         Download 15 min
       </button>
       <span className="text-xs tabular-nums" style={{ color: st?.status === "error" ? "var(--negative)" : "var(--muted)" }}>

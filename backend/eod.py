@@ -11,7 +11,15 @@ from db import store_eod
 load_dotenv(Path(__file__).resolve().parent / ".env", override=True)
 
 
-def download_eod(symbols, on_progress=None):
+RECENT_DAYS = 30  # the regular download: the last 30 days, continuous
+FULL_FROM = date(2010, 1, 1)  # full history: Kite's continuous daily futures start around Oct 2010
+CHUNK_DAYS = 1900  # Kite allows at most 2000 days per historical request
+
+
+def download_eod(symbols, on_progress=None, full=False):
+    """Continuous daily candles (with OI) for the futures named: the last RECENT_DAYS, or with
+    full=True everything from FULL_FROM in CHUNK_DAYS pieces. Stored rows are upserted, so a full
+    download fills any gaps and a regular one tops up the latest days."""
     wanted = {symbol.upper() for symbol in symbols}
     rows = [row for row in list_contracts("ALL") if row["name"].upper() in wanted]
 
@@ -38,23 +46,25 @@ def download_eod(symbols, on_progress=None):
             candles=candles,
             errors=list(errors),
         )
-        # Pull from the previous expiry to today; without one, fall back to the last 30 days.
-        if row.get("previous_expiry"):
-            from_date = row["previous_expiry"]
-        else:
-            from_date = (today - timedelta(days=30)).isoformat()
-        to_date = today.isoformat()
-
+        start = FULL_FROM if full else today - timedelta(days=RECENT_DAYS)
+        windows = []
+        while start <= today:
+            end = min(today, start + timedelta(days=CHUNK_DAYS - 1))
+            windows.append((start, end))
+            start = end + timedelta(days=1)
         try:
-            bars = kite.historical_data(
-                row["instrument_token"],
-                from_date=from_date,
-                to_date=to_date,
-                interval="day",
-                continuous=True,
-                oi=True,
-            )
-            candles += store_eod(row["exchange"], row["name"], bars or [])
+            for i, (a, b) in enumerate(windows):
+                bars = kite.historical_data(
+                    row["instrument_token"],
+                    from_date=a.isoformat(),
+                    to_date=b.isoformat(),
+                    interval="day",
+                    continuous=True,
+                    oi=True,
+                )
+                candles += store_eod(row["exchange"], row["name"], bars or [])
+                if i < len(windows) - 1:
+                    time.sleep(0.35)
         except Exception as error:
             print(f"Error downloading EOD for {row['name']}:", error)
             errors.append(f"{row['name']}: {error}")

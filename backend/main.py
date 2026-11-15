@@ -306,6 +306,7 @@ async def events_ws(websocket: WebSocket):
 
 class EodRequest(BaseModel):
     symbols: list[str]
+    full: bool = False  # EOD only: continuous daily history from 2010 instead of the last 30 days
 
 
 @app.post("/api/eod")
@@ -360,7 +361,7 @@ def eod(body: EodRequest):
 
     def run():
         try:
-            download_eod(body.symbols, on_progress)
+            download_eod(body.symbols, on_progress, full=body.full)
         except Exception as error:
             print("Error downloading EOD:", error)
             state = {
