@@ -144,19 +144,28 @@ export default function V2Settings({ theme, onTheme, onClose, initialTab = "gene
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-2" onClick={onClose}>
       <div
         role="dialog"
         aria-modal="true"
         aria-label="Settings"
-        className="flex h-[80vh] w-full max-w-3xl flex-col overflow-hidden rounded-lg border"
+        className="flex h-[95vh] w-full max-w-3xl flex-col overflow-hidden rounded-lg border"
         style={{ borderColor: "var(--border)", background: "var(--bg)" }}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between border-b px-4 py-2.5" style={{ borderColor: "var(--border)", background: "var(--surface)" }}>
           <h2 className="text-base font-semibold">Settings</h2>
-          <button type="button" onClick={onClose} className={button} style={{ borderColor: "var(--border)" }}>
-            Close
+          <button
+            type="button"
+            onClick={onClose}
+            className="grid h-7 w-7 place-items-center rounded-md transition-colors hover:bg-[var(--surface-2)]"
+            style={{ color: "var(--muted)" }}
+            aria-label="Close settings"
+            title="Close (Esc)"
+          >
+            <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+              <path d="M6 6l12 12M18 6L6 18" />
+            </svg>
           </button>
         </div>
         <div className="border-b px-4 pt-2" style={{ borderColor: "var(--border)" }}>
