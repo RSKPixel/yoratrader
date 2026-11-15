@@ -60,3 +60,17 @@ body {
   color: var(--text);
   font-family: "IBM Plex Sans", sans-serif;
 }
+
+/* v2 tables: highlight the row under the pointer (the month grid's cells keep their own colours). */
+.v2 table tbody tr {
+  transition: background-color 120ms ease;
+}
+.v2 table tbody tr:hover {
+  background: var(--surface-2);
+}
+.v2 table.border-separate tbody tr:hover {
+  background: transparent;
+}
+.v2 table.border-separate tbody tr:hover td:first-child {
+  color: var(--accent);
+}
