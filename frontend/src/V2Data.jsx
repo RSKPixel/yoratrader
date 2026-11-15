@@ -141,7 +141,12 @@ const COLUMNS = [
   { key: "symbol", h: "Symbol", sort: (r) => r.symbol },
   { key: "universes", h: "In", sort: (r) => r.universes.join(",") },
   { key: "lot", h: "Lot", sort: (r) => r.lot_size ?? -1 },
-  { key: "close", h: "Last close", sort: (r) => r.last_close ?? -1 },
+  { key: "open", h: "Open", sort: (r) => r.last?.open ?? -1, group: "Last" },
+  { key: "high", h: "High", sort: (r) => r.last?.high ?? -1, group: "Last" },
+  { key: "low", h: "Low", sort: (r) => r.last?.low ?? -1, group: "Last" },
+  { key: "close", h: "Close", sort: (r) => r.last?.close ?? -1, group: "Last" },
+  { key: "date", h: "Date", sort: (r) => r.last_day || "", group: "Last" },
+  { key: "oi", h: "OI / Vol", sort: (r) => r.last?.oi ?? r.last?.volume ?? -1, group: "Last" },
   { key: "d_bars", h: "Daily", sort: (r) => r.daily.bars, group: "Daily" },
   { key: "d_span", h: "From → to", sort: (r) => r.daily.first || "", group: "Daily" },
   { key: "d_gaps", h: "Gaps", sort: (r) => r.daily.gap_days || 0, group: "Daily" },
@@ -221,8 +226,26 @@ export default function V2Data() {
         );
       case "lot":
         return n(r.lot_size);
-      case "close":
-        return r.last_close == null ? "—" : <span title={r.last_day}>{n(r.last_close)}</span>;
+      case "open":
+        return n(r.last?.open);
+      case "high":
+        return n(r.last?.high);
+      case "low":
+        return n(r.last?.low);
+      case "close": {
+        const up = r.last && r.last.close >= r.last.open;
+        return r.last?.close == null ? "—" : <span className="font-medium" style={{ color: up ? "var(--positive)" : "var(--negative)" }}>{n(r.last.close)}</span>;
+      }
+      case "date":
+        return <span style={{ color: "var(--muted)" }}>{r.last_day || "—"}</span>;
+      case "oi":
+        return r.last?.oi ? (
+          <span title={`Open interest · volume ${n(r.last.volume)}`}>{compact(r.last.oi)}</span>
+        ) : (
+          <span title="Volume (no open interest for this data)" style={{ color: "var(--muted)" }}>
+            {r.last?.volume ? compact(r.last.volume) : "—"}
+          </span>
+        );
       case "d_bars":
         return n(r.daily.bars);
       case "d_span":
@@ -311,7 +334,7 @@ export default function V2Data() {
           {source === "live" && <Downloads symbols={rows.map((r) => r.symbol)} onDone={() => setReload((n) => n + 1)} />}
 
           <div className="overflow-auto rounded-lg border" style={{ borderColor: "var(--border)", background: "var(--surface)" }}>
-            <table className="w-full min-w-[1150px] text-xs tabular-nums">
+            <table className="w-full min-w-[1500px] text-xs tabular-nums">
               <thead className="sticky top-0 text-left" style={{ background: "var(--surface)", color: "var(--faint)" }}>
                 <tr>
                   {columns.map((c) => (

@@ -75,6 +75,17 @@ def _per_symbol(frame, keys):
     return out
 
 
+def _last_candle(lr):
+    """The latest daily candle: OHLC, volume and (live futures) open interest."""
+    if lr is None:
+        return {"last_day": None, "last_close": None, "last": None}
+    num = lambda k: round(float(lr[k]), 2) if k in lr and pd.notna(lr[k]) else None
+    whole = lambda k: int(lr[k]) if k in lr and pd.notna(lr[k]) else None
+    return {"last_day": _iso(lr["last_day"]), "last_close": num("last_close"),
+            "last": {"open": num("open"), "high": num("high"), "low": num("low"), "close": num("last_close"),
+                     "volume": whole("volume"), "oi": whole("oi")}}
+
+
 def _iso(v):
     return v.isoformat() if v is not None and not pd.isna(v) else None
 
@@ -92,8 +103,8 @@ def _backtest():
         syms = pd.read_sql("SELECT symbol, array_agg(DISTINCT dataset ORDER BY dataset) AS universes, max(name) AS name "
                            "FROM bt_symbols GROUP BY symbol", conn)
         daily = pd.read_sql("SELECT symbol, day FROM bt_daily", conn)
-        last = pd.read_sql("SELECT DISTINCT ON (symbol) symbol, day AS last_day, close AS last_close FROM bt_daily "
-                           "ORDER BY symbol, day DESC", conn)
+        last = pd.read_sql("SELECT DISTINCT ON (symbol) symbol, day AS last_day, open, high, low, close AS last_close, volume "
+                           "FROM bt_daily ORDER BY symbol, day DESC", conn)
         m15 = pd.read_sql(f"SELECT symbol, (datetime AT TIME ZONE '{IST}')::date AS day, count(*) AS n FROM bt_15m GROUP BY 1, 2", conn)
         m1 = pd.read_sql("SELECT symbol, count(*) AS o_days, min(day) AS o_first, max(day) AS o_last FROM bt_1m GROUP BY symbol", conn)
     # calendars: days at least half the usual number of symbols traded (special sessions drop out)
@@ -110,8 +121,7 @@ def _backtest():
         o = m1.loc[sym] if sym in m1.index else None
         rows.append({
             "symbol": sym, "name": r.name, "universes": list(r.universes), "lot_size": lots.get(("NSE", INDEX_FUTURES.get(sym, sym))),
-            "last_day": _iso(lr["last_day"]) if lr is not None else None,
-            "last_close": round(float(lr["last_close"]), 2) if lr is not None and pd.notna(lr["last_close"]) else None,
+            **_last_candle(lr),
             "daily": _block(d_days.get(sym, np.array([], dtype="datetime64[D]")), cal_d),
             "m15": _block(m_days.get(sym, np.array([], dtype="datetime64[D]")), cal_m, int(m_bars.get(sym, 0))),
             "m1": {"days": int(o["o_days"]) if o is not None else 0, "first": _iso(o["o_first"]) if o is not None else None,
@@ -123,8 +133,8 @@ def _backtest():
 def _live():
     with connect() as conn:
         eod = pd.read_sql("SELECT exchange, symbol, datetime AS day FROM eod", conn)
-        last = pd.read_sql("SELECT DISTINCT ON (exchange, symbol) exchange, symbol, datetime AS last_day, close AS last_close FROM eod "
-                           "ORDER BY exchange, symbol, datetime DESC", conn)
+        last = pd.read_sql("SELECT DISTINCT ON (exchange, symbol) exchange, symbol, datetime AS last_day, open, high, low, "
+                           "close AS last_close, volume, oi FROM eod ORDER BY exchange, symbol, datetime DESC", conn)
         m15 = pd.read_sql(f"SELECT exchange, symbol, (datetime AT TIME ZONE '{IST}')::date AS day, count(*) AS n FROM intraday_15m GROUP BY 1, 2, 3", conn)
     cals = {}
     for kind, frame in (("d", eod), ("m", m15)):
@@ -140,8 +150,7 @@ def _live():
         lr = last.loc[(ex, sym)] if (ex, sym) in last.index else None
         rows.append({
             "symbol": sym, "exchange": ex, "universes": [ex.lower()], "lot_size": lots.get((ex, sym)),
-            "last_day": _iso(lr["last_day"]) if lr is not None else None,
-            "last_close": round(float(lr["last_close"]), 2) if lr is not None and pd.notna(lr["last_close"]) else None,
+            **_last_candle(lr),
             "daily": _block(d_days.get((ex, sym), empty), cals.get(("d", ex), empty)),
             "m15": _block(m_days.get((ex, sym), empty), cals.get(("m", ex), empty), int(m_bars.get((ex, sym), 0))),
             "m1": None,
