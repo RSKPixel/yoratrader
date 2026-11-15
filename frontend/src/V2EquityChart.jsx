@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { createChart, LineSeries } from "lightweight-charts";
+import { createChart, LineSeries, LineStyle } from "lightweight-charts";
 
 // Cumulative net and gross on the v2 theme; values are fractions of capital in %, shown via `format`.
 
@@ -38,6 +38,8 @@ export default function V2EquityChart({ points, format }) {
     const net = chart.addSeries(LineSeries, { color: c.net, lineWidth: 2, priceLineVisible: false });
     gross.setData(points.map((p) => ({ time: p.date, value: p.gross })));
     net.setData(points.map((p) => ({ time: p.date, value: p.net })));
+    // break-even: the zero line, so a curve below it reads at a glance
+    net.createPriceLine({ price: 0, color: c.text, lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: "" });
     chart.timeScale().fitContent();
     return () => chart.remove();
   }, [points, format, theme]);
