@@ -31,18 +31,11 @@ function pageFromPath() {
 }
 
 function Logo() {
+  // The classic wordmark, unchanged: YORA + TRADER in gold.
   return (
-    <a href="/v2/dashboard" className="flex items-center gap-2.5" aria-label="YoraTrader home">
-      <span
-        className="grid h-8 w-8 place-items-center rounded-lg text-sm font-bold"
-        style={{ background: "var(--accent)", color: "var(--accent-ink)" }}
-        aria-hidden="true"
-      >
-        Y
-      </span>
-      <span className="text-base font-semibold tracking-[0.16em]">
-        YORA<span style={{ color: "var(--accent)" }}>TRADER</span>
-      </span>
+    <a href="/v2/dashboard" className="text-xl font-bold tracking-[0.18em]" aria-label="YoraTrader home">
+      <span style={{ color: "var(--brand)" }}>YORA</span>
+      <span style={{ color: "var(--brand-gold)" }}>TRADER</span>
     </a>
   );
 }

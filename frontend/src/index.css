@@ -21,6 +21,8 @@ body {
 /* v2: theme tokens. Dark is the new palette (ink + teal); light is its daytime counterpart. */
 .v2[data-theme="dark"] {
   color-scheme: dark;
+  --brand: #f3efe6;
+  --brand-gold: #e2c08a;
   --bg: #0a0e13;
   --surface: #111821;
   --surface-2: #17202b;
@@ -37,6 +39,8 @@ body {
 }
 .v2[data-theme="light"] {
   color-scheme: light;
+  --brand: #0f1720;
+  --brand-gold: #a8823f;
   --bg: #f5f7fa;
   --surface: #ffffff;
   --surface-2: #eef2f6;
