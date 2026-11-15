@@ -7,28 +7,28 @@ export const BACKTEST_GROUPS = [
   {
     title: "YoraTrader",
     source: "Our own model",
-    models: [{ id: "kbdt", label: "Key Breakout Dow Theory", style: "Positional" }],
+    models: [{ id: "kbdt", short: "KB", label: "Key Breakout Dow Theory", style: "Positional" }],
   },
   {
     title: "Ernest Chan",
     source: "Algorithmic Trading (Wiley, 2013)",
     models: [
-      { id: "buy-on-gap", label: "Buy on gap", style: "Intraday" },
-      { id: "gap-momentum", label: "Opening gap momentum", style: "Intraday" },
-      { id: "xs-mean-reversion", label: "Cross-sectional mean reversion", style: "Intraday" },
-      { id: "pairs", label: "Pairs trading", style: "Positional" },
-      { id: "xs-momentum", label: "Cross-sectional momentum", style: "Positional" },
+      { id: "buy-on-gap", short: "BG", label: "Buy on gap", style: "Intraday" },
+      { id: "gap-momentum", short: "GM", label: "Opening gap momentum", style: "Intraday" },
+      { id: "xs-mean-reversion", short: "XR", label: "Cross-sectional mean reversion", style: "Intraday" },
+      { id: "pairs", short: "PT", label: "Pairs trading", style: "Positional" },
+      { id: "xs-momentum", short: "XM", label: "Cross-sectional momentum", style: "Positional" },
     ],
   },
   {
     title: "Gray & Vogel",
     source: "Quantitative Momentum (Wiley, 2016)",
-    models: [{ id: "quant-momentum", label: "Quantitative momentum", style: "Positional" }],
+    models: [{ id: "quant-momentum", short: "QM", label: "Quantitative momentum", style: "Positional" }],
   },
   {
     title: "Larry Connors",
     source: "How Markets Really Work (2nd ed., 2012)",
-    models: [{ id: "short-term-reversion", label: "Short-term mean reversion", style: "Positional" }],
+    models: [{ id: "short-term-reversion", short: "SR", label: "Short-term mean reversion", style: "Positional" }],
   },
 ];
 
@@ -55,11 +55,6 @@ function StyleTag({ style, active }) {
 }
 
 const NAV_KEY = "yt-v2-backtest-nav";
-
-function initials(label) {
-  const words = label.replace(/[^A-Za-z ]/g, " ").split(/\s+/).filter(Boolean);
-  return (words.length > 1 ? words[0][0] + words[1][0] : words[0].slice(0, 2)).toUpperCase();
-}
 
 function Chevron({ left }) {
   return (
@@ -108,7 +103,7 @@ function SubNav({ current, onSelect, open, onToggle }) {
                   className="grid h-8 w-8 place-items-center rounded-md text-[0.6875rem] font-semibold transition-colors hover:bg-[var(--surface-2)]"
                   style={active ? { background: "var(--accent-soft)", color: "var(--accent)" } : { color: "var(--muted)" }}
                 >
-                  {initials(m.label)}
+                  {m.short}
                 </a>
               );
             })}
