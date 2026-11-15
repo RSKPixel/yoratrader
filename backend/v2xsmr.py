@@ -2,9 +2,10 @@
 the stocks that lagged the cross-section at the open and short the ones that led, sized to the page's
 common parameters. Capital is the gross exposure: half long, half short.
 
-- Max open N: the N // 2 furthest below the day's average move are bought and the N // 2 furthest
-  above shorted (at least 1 + 1), equal rupees: each position is 1 / (2 x per side) of capital.
-- As per model (max_open 0): the book, linear weights on every priced stock.
+- Pairs k (k + k) within Max open N (2k <= N): the k furthest below the day's average move are bought
+  and the k furthest above shorted. Each position is capital / N, as on every v2 page (slots not
+  used stay in cash), so 3 + 3 at max open 10 puts 60% of capital to work.
+- As per model (max_open 0): the book, linear weights on every priced stock, fully invested.
 
 Versions as on the classic page: intraday (in at the entry, out at 15:15; entry 09:15 is the book,
 09:16 / 09:30 / 09:45 enter later; 09:15 can take Buy on gap's 1σ stop) or daily (15:15 to the next
@@ -48,8 +49,11 @@ def _cached(key, build):
         return value
 
 
-def per_side(max_open):
-    return None if not max_open else max(1, max_open // 2)
+def per_side(max_open, pairs):
+    """Stocks per side: the chosen k (at most max_open // 2), or None for the book (every stock)."""
+    if not max_open:
+        return None
+    return max(1, min(int(pairs or 1), max_open // 2 or 1))
 
 
 def _variant(version, entry, stop):
@@ -86,9 +90,14 @@ def _rows(dataset, version, entry, stop, top):
     return _cached(("rows", dataset, version, entry, stop, top), build)
 
 
-def _sized(dataset, version, entry, stop, max_open, slippage):
-    t, days = _rows(dataset, version, entry, stop, per_side(max_open))
+def _sized(dataset, version, entry, stop, max_open, pairs, slippage):
+    k = per_side(max_open, pairs)
+    t, days = _rows(dataset, version, entry, stop, k)
     t = t.copy()
+    if k:  # the stored book is fully invested (0.5 / k a position): scale to capital / max_open each
+        scale = 2 * k / max(max_open, 2 * k)
+        for col in ("w", "ret_w", "traded"):
+            t[col] = t[col] * scale
     cps = xsmr.cost_per_side(slippage)
     size = t["w"].abs()
     t["side"] = np.where(t["w"] > 0, "long", "short")
@@ -101,15 +110,15 @@ def _sized(dataset, version, entry, stop, max_open, slippage):
     return t, days
 
 
-def results(dataset="fno", version="intraday", entry="0915", stop="none", max_open=6, slippage=0.0002):
-    t, days = _sized(dataset, version, entry, stop, max_open, slippage)
+def results(dataset="fno", version="intraday", entry="0915", stop="none", max_open=6, pairs=3, slippage=0.0002):
+    t, days = _sized(dataset, version, entry, stop, max_open, pairs, slippage)
     extra = {}
     if len(t):
         g = t.groupby("day")
         extra = {"avg_positions": round(float(g.size().mean()), 1),
                  "long_net_pct": round(float(100 * t.loc[t["side"] == "long", "book_net"].sum()), 3),
                  "short_net_pct": round(float(100 * t.loc[t["side"] == "short", "book_net"].sum()), 3),
-                 "per_side": per_side(max_open),
+                 "per_side": per_side(max_open, pairs),
                  "stopped_pct": round(float(100 * t["stopped"].astype(bool).mean()), 1)}
     out = v2common.build_results(t, days, slippage, extra)
     if out.get("summary"):  # "trades" here are stock-days; the book trades every day it's live
@@ -117,8 +126,8 @@ def results(dataset="fno", version="intraday", entry="0915", stop="none", max_op
     return out
 
 
-def month_trades(month, dataset="fno", version="intraday", entry="0915", stop="none", max_open=6, slippage=0.0002):
-    t, _ = _sized(dataset, version, entry, stop, max_open, slippage)
+def month_trades(month, dataset="fno", version="intraday", entry="0915", stop="none", max_open=6, pairs=3, slippage=0.0002):
+    t, _ = _sized(dataset, version, entry, stop, max_open, pairs, slippage)
     t = t[t["day"].dt.strftime("%Y-%m") == month].sort_values(["day", "book_net"], ascending=[True, False])
     return [{"day": r.day.date().isoformat(), "symbol": r.symbol, "side": r.side, "signal_pct": round(100 * float(r.sig), 2),
              "entry": round(float(r.entry), 2), "exit": round(float(r.exit), 2), "stopped": bool(r.stopped),
@@ -132,7 +141,7 @@ def warm():
     """Load the F&O prices (~40 s) and the default book in the background, so the first visit is quick."""
     def go():
         try:
-            results("fno", "intraday", "0915", "none", 6)
+            results("fno", "intraday", "0915", "none", 6, 3)
         except Exception as error:
             print("v2 xsmr warm-up failed:", error)
     threading.Thread(target=go, daemon=True, name="v2xsmr-warm").start()

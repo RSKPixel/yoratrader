@@ -29,16 +29,25 @@ export default function V2Xsmr({ params }) {
   const [stop, setStop] = useState("none");
   const [slippage, setSlippage] = useState(0.02);
   const [month, setMonth] = useState(null);
+  const [pairs, setPairs] = useState(3);
 
   const stopAllowed = version === "intraday" && entry === "0915";
-  const query = `dataset=${params.universe}&version=${version}&entry=${entry}&stop=${stopAllowed ? stop : "none"}&slippage=${slippage}&max_open=${params.maxOpen}`;
+  // k long + k short, within Max open (2k <= max open); As per model is the book (every stock).
+  const maxPairs = Math.min(5, Math.floor(params.maxOpen / 2));
+  const k = params.maxOpen ? Math.max(1, Math.min(pairs, maxPairs || 1)) : null;
+  const pairOptions = [1, 2, 3, 4, 5].map((n) => [
+    n,
+    `${n}+${n}`,
+    !params.maxOpen || 2 * n > params.maxOpen,
+    !params.maxOpen ? "As per model: every stock (the book)" : 2 * n > params.maxOpen ? `Needs Max open ${2 * n} or more` : undefined,
+  ]);
+  const query = `dataset=${params.universe}&version=${version}&entry=${entry}&stop=${stopAllowed ? stop : "none"}&slippage=${slippage}&max_open=${params.maxOpen}&pairs=${k || 1}`;
   const { data, error, loading } = useBacktest(`/api/v2/backtest/xsmr?${query}`);
   const value = useMemo(() => makeValue(params.show, params.capital), [params.show, params.capital]);
   const chartFormat = useCallback((v) => value(v, 1), [value]);
   const closeMonth = useCallback(() => setMonth(null), []);
   const s = data?.summary;
   const capital = params.capital;
-  const perSide = params.maxOpen ? Math.max(1, Math.floor(params.maxOpen / 2)) : null;
 
   const columns = [
     { h: "Stock", cell: (t) => <span className="font-medium">{t.symbol}</span> },
@@ -61,6 +70,12 @@ export default function V2Xsmr({ params }) {
   return (
     <div className="mt-4 flex flex-col gap-4">
       <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
+        <Field
+          label="Pairs"
+          hint="Long-short: k long + k short, each capital ÷ Max open (unused slots stay in cash). Only the ones that fit in Max open are enabled."
+        >
+          <Segmented label="Pairs" options={pairOptions} value={k} onChange={setPairs} />
+        </Field>
         <Field label="Version" hint="Intraday: signal = previous close → open, held to 15:15 (the book). Daily: signal 15:15 → 15:15, held to the next 15:15.">
           <Segmented label="Version" options={VERSIONS} value={version} onChange={setVersion} />
         </Field>
@@ -84,12 +99,6 @@ export default function V2Xsmr({ params }) {
         )}
       </div>
 
-      <p className="text-xs" style={{ color: "var(--muted)" }}>
-        Long-short: capital is the gross exposure, half long and half short.{" "}
-        {perSide
-          ? `Max open ${params.maxOpen} → ${perSide} long + ${perSide} short, ${formatRs(capital / (2 * perSide))} each.`
-          : "As per model: linear weights on every stock, in proportion to its move."}
-      </p>
       {error && <p className="text-sm" style={{ color: "var(--negative)" }}>{error}</p>}
 
       {s && (

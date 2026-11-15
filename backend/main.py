@@ -733,19 +733,19 @@ def v2_backtest_kbdt_month(month: str = Query(..., pattern=r"^\d{4}-\d{2}$"), da
         return {"status": "error", "message": str(error)}
 
 
-def _v2xsmr_args(dataset, version, entry, stop, max_open, slippage):
+def _v2xsmr_args(dataset, version, entry, stop, max_open, pairs, slippage):
     if dataset not in v2xsmr.DATASETS or version not in ("intraday", "daily") or entry not in v2xsmr.ENTRIES \
             or stop not in ("none", "1sd"):
         raise HTTPException(status_code=400, detail="unknown dataset, version, entry or stop")
-    return dict(dataset=dataset, version=version, entry=entry, stop=stop, max_open=max_open, slippage=slippage / 100)
+    return dict(dataset=dataset, version=version, entry=entry, stop=stop, max_open=max_open, pairs=pairs, slippage=slippage / 100)
 
 
 @app.get("/api/v2/backtest/xsmr")
 def v2_backtest_xsmr(dataset: str = Query("fno"), version: str = Query("intraday"), entry: str = Query("0915"),
                      stop: str = Query("none"), max_open: int = Query(6, ge=0, le=v2xsmr.MAX_OPEN),
-                     slippage: float = Query(0.02, ge=0, le=1)):
-    """Cross-sectional mean reversion (v2 page): N/2 long + N/2 short (or every stock), as fractions of capital."""
-    args = _v2xsmr_args(dataset, version, entry, stop, max_open, slippage)
+                     pairs: int = Query(3, ge=1, le=5), slippage: float = Query(0.02, ge=0, le=1)):
+    """Cross-sectional mean reversion (v2 page): k long + k short within max open (or every stock), as fractions of capital."""
+    args = _v2xsmr_args(dataset, version, entry, stop, max_open, pairs, slippage)
     try:
         return {"status": "success", **v2xsmr.results(**args)}
     except Exception as error:
@@ -756,8 +756,9 @@ def v2_backtest_xsmr(dataset: str = Query("fno"), version: str = Query("intraday
 @app.get("/api/v2/backtest/xsmr/month")
 def v2_backtest_xsmr_month(month: str = Query(..., pattern=r"^\d{4}-\d{2}$"), dataset: str = Query("fno"),
                            version: str = Query("intraday"), entry: str = Query("0915"), stop: str = Query("none"),
-                           max_open: int = Query(6, ge=0, le=v2xsmr.MAX_OPEN), slippage: float = Query(0.02, ge=0, le=1)):
-    args = _v2xsmr_args(dataset, version, entry, stop, max_open, slippage)
+                           max_open: int = Query(6, ge=0, le=v2xsmr.MAX_OPEN), pairs: int = Query(3, ge=1, le=5),
+                           slippage: float = Query(0.02, ge=0, le=1)):
+    args = _v2xsmr_args(dataset, version, entry, stop, max_open, pairs, slippage)
     try:
         return {"status": "success", "trades": v2xsmr.month_trades(month, **args)}
     except Exception as error:
