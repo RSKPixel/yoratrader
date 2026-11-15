@@ -9,7 +9,7 @@ import V2Qmom from "./V2Qmom";
 import V2Connors from "./V2Connors";
 
 // v2 Backtesting: a sub nav of every model with a backtest, grouped by where it comes from. Each
-// model's page is blank for now; they move over from the classic app one by one.
+// model has its own page below the shared parameters.
 
 export const BACKTEST_GROUPS = [
   {

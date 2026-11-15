@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { inputStyle } from "./V2Controls";
 
 // Kite in v2: a status button for the top nav (green = connected, red = not) that opens a modal with
-// everything the classic Kite panel had: the connection, the daily access token (log in, paste the
+// everything about Kite: the connection, the daily access token (log in, paste the
 // request token) and the API credentials. The same panel sits in Settings.
 
 const STATUS_EVENT = "kite-status-changed";

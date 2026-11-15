@@ -23,8 +23,26 @@ window.fetch = async (input, init) => {
   return response;
 };
 
-const inputClass =
-  "w-full rounded-md border border-[#2c313a] bg-[#111316] px-3 py-2 text-sm text-[#e7e4dc] outline-none focus:border-[#e2c08a]/60";
+// The sign-in screen uses the v2 theme the browser last chose (dark by default).
+function savedTheme() {
+  try {
+    const t = localStorage.getItem("yt-v2-theme");
+    if (t === "light" || t === "dark") return t;
+  } catch {
+    // storage blocked
+  }
+  return window.matchMedia?.("(prefers-color-scheme: light)").matches ? "light" : "dark";
+}
+
+const field = { borderColor: "var(--border)", background: "var(--surface-2)", color: "var(--text)" };
+
+function Shell({ children }) {
+  return (
+    <div className="v2 flex h-full items-center justify-center px-4" data-theme={savedTheme()}>
+      {children}
+    </div>
+  );
+}
 
 function LoginPage({ onLogin }) {
   const [username, setUsername] = useState("");
@@ -55,52 +73,44 @@ function LoginPage({ onLogin }) {
     setBusy(false);
   };
 
+  const label = "mt-4 block text-[0.6875rem] font-semibold uppercase tracking-[0.14em]";
+  const input = "mt-1.5 w-full rounded-md border px-3 py-2 text-sm normal-case tracking-normal outline-none transition-colors focus:border-[var(--accent)]";
   return (
-    <div className="flex h-full items-center justify-center px-4">
-      <form
-        onSubmit={submit}
-        className="w-full max-w-sm rounded-md border border-[#2c313a] bg-[#181b20] p-6"
-      >
+    <Shell>
+      <form onSubmit={submit} className="w-full max-w-sm rounded-xl border p-7 shadow-xl" style={{ borderColor: "var(--border)", background: "var(--surface)" }}>
         <p className="text-center text-xl font-bold tracking-[0.18em]">
-          <span className="text-[#f3efe6]">YORA</span>
-          <span className="text-[#e2c08a]">TRADER</span>
+          <span style={{ color: "var(--brand)" }}>YORA</span>
+          <span style={{ color: "var(--brand-gold)" }}>TRADER</span>
         </p>
-        <p className="mt-1 text-center text-sm text-[#9b968c]">Sign in to continue</p>
+        <p className="mt-1.5 text-center text-sm" style={{ color: "var(--muted)" }}>
+          Sign in to continue
+        </p>
 
-        <label className="mt-6 block text-xs font-medium uppercase tracking-[0.14em] text-[#6f6a62]">
+        <label className={`${label} mt-7`} style={{ color: "var(--faint)" }}>
           User ID
-          <input
-            value={username}
-            onChange={(event) => setUsername(event.target.value)}
-            autoComplete="username"
-            autoFocus
-            required
-            className={`${inputClass} mt-1 normal-case tracking-normal`}
-          />
+          <input value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" autoFocus required className={input} style={field} />
         </label>
-        <label className="mt-4 block text-xs font-medium uppercase tracking-[0.14em] text-[#6f6a62]">
+        <label className={label} style={{ color: "var(--faint)" }}>
           Password
-          <input
-            type="password"
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            autoComplete="current-password"
-            required
-            className={`${inputClass} mt-1 normal-case tracking-normal`}
-          />
+          <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" required className={input} style={field} />
         </label>
 
-        {error && <p className="mt-4 font-mono text-xs text-[#f0b4b4]">{error}</p>}
+        {error && (
+          <p className="mt-4 rounded-md px-3 py-2 text-xs" style={{ background: "color-mix(in srgb, var(--negative) 12%, transparent)", color: "var(--negative)" }}>
+            {error}
+          </p>
+        )}
 
         <button
           type="submit"
           disabled={busy || !username.trim() || !password}
-          className="mt-6 w-full rounded-md border border-[#e2c08a]/60 px-3 py-2 text-sm text-[#e2c08a] hover:bg-white/5 disabled:opacity-40"
+          className="mt-6 w-full rounded-md px-3 py-2 text-sm font-medium transition-opacity disabled:opacity-40"
+          style={{ background: "var(--accent)", color: "var(--accent-ink)" }}
         >
           {busy ? "Signing in…" : "Sign in"}
         </button>
       </form>
-    </div>
+    </Shell>
   );
 }
 
@@ -122,7 +132,13 @@ export default function AuthGate({ children }) {
   };
 
   if (user === undefined) {
-    return <div className="flex h-full items-center justify-center text-sm text-[#6f6a62]">Loading…</div>;
+    return (
+      <Shell>
+        <span className="text-sm" style={{ color: "var(--faint)" }}>
+          Loading…
+        </span>
+      </Shell>
+    );
   }
   if (!user) return <LoginPage onLogin={setUser} />;
 

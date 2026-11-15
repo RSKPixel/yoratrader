@@ -14,8 +14,8 @@ body,
 
 body {
   margin: 0;
-  background: #101114;
-  color: #e7e4dc;
+  background: #0a0e13;
+  color: #e6edf3;
 }
 
 /* v2: theme tokens. Dark is the new palette (ink + teal); light is its daytime counterpart. */

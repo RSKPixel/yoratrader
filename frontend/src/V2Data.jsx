@@ -26,7 +26,7 @@ const UNIVERSE_LABEL = { fno: "F&O", stocks: "Nifty 50", indices: "Index", nse: 
 const n = (v) => (v == null ? "—" : v.toLocaleString("en-IN"));
 const compact = (v) => (v >= 1e7 ? `${(v / 1e7).toFixed(2)} Cr` : v >= 1e5 ? `${(v / 1e5).toFixed(1)} L` : n(v));
 
-// Live futures: fetch the latest candles from Kite (the classic app's EOD / iData downloads) for the
+// Live futures: fetch the latest candles from Kite (the EOD / iData download jobs) for the
 // symbols shown, poll the job, and count again when it's done.
 function Downloads({ symbols, onDone }) {
   const [job, setJob] = useState(null); // { kind, id, state }

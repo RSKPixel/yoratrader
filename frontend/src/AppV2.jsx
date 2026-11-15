@@ -7,8 +7,7 @@ import V2Data from "./V2Data";
 import { KiteButton } from "./V2Kite";
 import V2Dashboard from "./V2Dashboard";
 
-// YoraTrader v2: top navigation and one content area. Pages start blank and are moved over one by one;
-// the classic app stays at "/" until then. Pages live at /v2/<page>.
+// YoraTrader: top navigation and one content area. Pages live at /v2/<page> ("/" opens the dashboard).
 
 const PAGES = [
   { id: "dashboard", label: "Dashboard" },
@@ -53,7 +52,7 @@ function paperFromPath() {
 }
 
 function Logo() {
-  // The classic wordmark, unchanged: YORA + TRADER in gold.
+  // The wordmark: YORA + TRADER in gold.
   return (
     <a href="/v2/dashboard" className="text-xl font-bold tracking-[0.18em]" aria-label="YoraTrader home">
       <span style={{ color: "var(--brand)" }}>YORA</span>
@@ -149,9 +148,6 @@ export default function AppV2() {
             ))}
           </nav>
           <div className="ml-auto flex items-center gap-2 lg:ml-3 lg:border-l lg:pl-4" style={{ borderColor: "var(--border)" }}>
-            <a href="/classic" className="hidden text-xs sm:inline" style={{ color: "var(--faint)" }} title="The classic interface, for the pages not moved to v2 yet">
-              Classic
-            </a>
             <span className="hidden text-sm sm:inline" style={{ color: "var(--muted)" }}>
               {displayName(user)}
             </span>
