@@ -108,7 +108,7 @@ export default function V2BacktestParams({ params, onChange, universes = ["fno"]
       <Field label="Universe" hint="The stocks or indices the model trades; each model offers the ones it has">
         <Segmented
           label="Universe"
-          options={universes.map((u) => [u, UNIVERSES[u]])}
+          options={Object.entries(UNIVERSES).map(([u, text]) => [u, text, !universes.includes(u), universes.includes(u) ? undefined : "Not available for this model"])}
           value={params.universe}
           onChange={(universe) => onChange({ universe })}
         />

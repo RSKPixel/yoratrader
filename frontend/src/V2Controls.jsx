@@ -3,16 +3,22 @@
 export function Segmented({ options, value, onChange, label }) {
   return (
     <div role="group" aria-label={label} className="inline-flex rounded-md border p-0.5" style={{ borderColor: "var(--border)", background: "var(--surface-2)" }}>
-      {options.map(([v, text]) => {
-        const active = v === value;
+      {options.map(([v, text, disabled, hint]) => {
+        const active = v === value && !disabled;
         return (
           <button
             key={String(v)}
             type="button"
-            onClick={() => onChange(v)}
+            onClick={() => !disabled && onChange(v)}
             aria-pressed={active}
-            className="rounded px-2.5 py-1 text-sm transition-colors"
-            style={active ? { background: "var(--surface)", color: "var(--text)", boxShadow: "0 1px 2px rgba(0,0,0,0.15)" } : { color: "var(--muted)" }}
+            disabled={disabled}
+            title={hint}
+            className="rounded px-2.5 py-1 text-sm transition-colors disabled:cursor-not-allowed"
+            style={
+              active
+                ? { background: "var(--surface)", color: "var(--text)", boxShadow: "0 1px 2px rgba(0,0,0,0.15)" }
+                : { color: disabled ? "var(--faint)" : "var(--muted)", opacity: disabled ? 0.45 : 1 }
+            }
           >
             {text}
           </button>
