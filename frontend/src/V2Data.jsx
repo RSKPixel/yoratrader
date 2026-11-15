@@ -140,6 +140,7 @@ const COLUMNS = [
   { key: "chart", h: "" },
   { key: "symbol", h: "Symbol", sort: (r) => r.symbol },
   { key: "contract", h: "Contract", sort: (r) => r.contract || "" },
+  { key: "expiry", h: "Expiry", sort: (r) => r.expiry || "" },
   { key: "universes", h: "In", sort: (r) => r.universes.join(",") },
   { key: "lot", h: "Lot", sort: (r) => r.lot_size ?? -1 },
   { key: "open", h: "Open", sort: (r) => r.last?.open ?? -1, group: "Last" },
@@ -244,9 +245,18 @@ export default function V2Data() {
         return r.last?.volume ? <span title={n(r.last.volume)}>{compact(r.last.volume)}</span> : "—";
       case "oi":
         return r.last?.oi ? <span title={n(r.last.oi)}>{compact(r.last.oi)}</span> : <span style={{ color: "var(--faint)" }}>—</span>;
+      case "expiry": {
+        if (!r.expiry) return <span style={{ color: "var(--faint)" }}>—</span>;
+        const days = Math.round((new Date(`${r.expiry}T00:00:00`) - new Date(new Date().toDateString())) / 86400000);
+        return (
+          <span title={`${days} calendar day${days === 1 ? "" : "s"} to expiry`} style={{ color: days <= 3 ? "var(--warning)" : "var(--muted)" }}>
+            {r.expiry}
+          </span>
+        );
+      }
       case "contract":
         return r.contract ? (
-          <span className="font-mono text-[0.6875rem]" style={{ color: "var(--muted)" }} title={r.expiry ? `Expires ${r.expiry}` : undefined}>
+          <span className="font-mono text-[0.6875rem]" style={{ color: "var(--muted)" }}>
             {r.contract}
           </span>
         ) : (
@@ -340,7 +350,7 @@ export default function V2Data() {
           {source === "live" && <Downloads symbols={rows.map((r) => r.symbol)} onDone={() => setReload((n) => n + 1)} />}
 
           <div className="overflow-auto rounded-lg border" style={{ borderColor: "var(--border)", background: "var(--surface)" }}>
-            <table className="w-full min-w-[1680px] text-xs tabular-nums">
+            <table className="w-full min-w-[1780px] text-xs tabular-nums">
               <thead className="sticky top-0 text-left" style={{ background: "var(--surface)", color: "var(--faint)" }}>
                 <tr>
                   {columns.map((c) => (
