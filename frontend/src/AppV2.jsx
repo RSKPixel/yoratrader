@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { displayName, useAuth } from "./AuthGate";
 import V2Backtesting, { DEFAULT_BACKTEST, findBacktest } from "./V2Backtesting";
 import V2Paper, { DEFAULT_PAPER, findPaper } from "./V2Paper";
+import V2Settings from "./V2Settings";
 
 // YoraTrader v2: top navigation and one content area. Pages start blank and are moved over one by one;
 // the classic app stays at "/" until then. Pages live at /v2/<page>.
@@ -162,6 +163,9 @@ export default function AppV2() {
             ))}
           </nav>
           <div className="ml-auto flex items-center gap-2 lg:ml-3 lg:border-l lg:pl-4" style={{ borderColor: "var(--border)" }}>
+            <a href="/classic" className="hidden text-xs sm:inline" style={{ color: "var(--faint)" }} title="The classic interface, for the pages not moved to v2 yet">
+              Classic
+            </a>
             <span className="hidden text-sm sm:inline" style={{ color: "var(--muted)" }}>
               {displayName(user)}
             </span>
@@ -207,6 +211,10 @@ export default function AppV2() {
       ) : page === "paper" ? (
         <main className="flex min-h-0 min-w-0 flex-1">
           <V2Paper model={paper} onSelect={selectPaper} />
+        </main>
+      ) : page === "settings" ? (
+        <main className="min-h-0 flex-1 overflow-auto px-4 py-6 md:px-6">
+          <V2Settings />
         </main>
       ) : (
         <main className="min-h-0 flex-1 overflow-auto px-4 py-6 md:px-6">
