@@ -86,6 +86,21 @@ def _last_candle(lr):
                      "volume": whole("volume"), "oi": whole("oi")}}
 
 
+def _contracts():
+    """{(exchange, name): (tradingsymbol, expiry)}: the current futures contract per underlying."""
+    try:
+        from contracts import list_contracts
+        return {(r["exchange"], r["name"]): (r["tradingsymbol"], r.get("expiry")) for r in list_contracts("ALL")}
+    except Exception as error:  # the contract list needs the instruments table; the page works without it
+        print("Data page contracts failed:", error)
+        return {}
+
+
+def _contract(contracts, exchange, name):
+    c = contracts.get((exchange, name))
+    return {"contract": c[0], "expiry": str(c[1]) if c and c[1] else None} if c else {"contract": None, "expiry": None}
+
+
 def _iso(v):
     return v.isoformat() if v is not None and not pd.isna(v) else None
 
@@ -114,6 +129,7 @@ def _backtest():
     last = last.set_index("symbol")
     m1 = m1.set_index("symbol")
     lots = stored_lot_sizes()
+    contracts = _contracts()
     rows = []
     for r in syms.itertuples():
         sym = r.symbol
@@ -121,7 +137,7 @@ def _backtest():
         o = m1.loc[sym] if sym in m1.index else None
         rows.append({
             "symbol": sym, "name": r.name, "universes": list(r.universes), "lot_size": lots.get(("NSE", INDEX_FUTURES.get(sym, sym))),
-            **_last_candle(lr),
+            **_last_candle(lr), **_contract(contracts, "NSE", INDEX_FUTURES.get(sym, sym)),
             "daily": _block(d_days.get(sym, np.array([], dtype="datetime64[D]")), cal_d),
             "m15": _block(m_days.get(sym, np.array([], dtype="datetime64[D]")), cal_m, int(m_bars.get(sym, 0))),
             "m1": {"days": int(o["o_days"]) if o is not None else 0, "first": _iso(o["o_first"]) if o is not None else None,
@@ -144,13 +160,14 @@ def _live():
     m_bars = m15.groupby(["exchange", "symbol"])["n"].sum()
     last = last.set_index(["exchange", "symbol"])
     lots = stored_lot_sizes()
+    contracts = _contracts()
     empty = np.array([], dtype="datetime64[D]")
     rows = []
     for ex, sym in sorted(set(d_days) | set(m_days)):
         lr = last.loc[(ex, sym)] if (ex, sym) in last.index else None
         rows.append({
             "symbol": sym, "exchange": ex, "universes": [ex.lower()], "lot_size": lots.get((ex, sym)),
-            **_last_candle(lr),
+            **_last_candle(lr), **_contract(contracts, ex, sym),
             "daily": _block(d_days.get((ex, sym), empty), cals.get(("d", ex), empty)),
             "m15": _block(m_days.get((ex, sym), empty), cals.get(("m", ex), empty), int(m_bars.get((ex, sym), 0))),
             "m1": None,

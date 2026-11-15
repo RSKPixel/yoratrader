@@ -139,6 +139,7 @@ function Missing({ v }) {
 const COLUMNS = [
   { key: "chart", h: "" },
   { key: "symbol", h: "Symbol", sort: (r) => r.symbol },
+  { key: "contract", h: "Contract", sort: (r) => r.contract || "" },
   { key: "universes", h: "In", sort: (r) => r.universes.join(",") },
   { key: "lot", h: "Lot", sort: (r) => r.lot_size ?? -1 },
   { key: "open", h: "Open", sort: (r) => r.last?.open ?? -1, group: "Last" },
@@ -146,7 +147,8 @@ const COLUMNS = [
   { key: "low", h: "Low", sort: (r) => r.last?.low ?? -1, group: "Last" },
   { key: "close", h: "Close", sort: (r) => r.last?.close ?? -1, group: "Last" },
   { key: "date", h: "Date", sort: (r) => r.last_day || "", group: "Last" },
-  { key: "oi", h: "OI / Vol", sort: (r) => r.last?.oi ?? r.last?.volume ?? -1, group: "Last" },
+  { key: "volume", h: "Volume", sort: (r) => r.last?.volume ?? -1, group: "Last" },
+  { key: "oi", h: "OI", sort: (r) => r.last?.oi ?? -1, group: "Last" },
   { key: "d_bars", h: "Daily", sort: (r) => r.daily.bars, group: "Daily" },
   { key: "d_span", h: "From → to", sort: (r) => r.daily.first || "", group: "Daily" },
   { key: "d_gaps", h: "Gaps", sort: (r) => r.daily.gap_days || 0, group: "Daily" },
@@ -198,7 +200,7 @@ export default function V2Data() {
     const col = COLUMNS.find((c) => c.key === sort.key);
     return data.symbols
       .filter((r) => universe === "all" || r.universes.includes(universe))
-      .filter((r) => !q || r.symbol.toUpperCase().includes(q) || (r.name || "").toUpperCase().includes(q))
+      .filter((r) => !q || r.symbol.toUpperCase().includes(q) || (r.name || "").toUpperCase().includes(q) || (r.contract || "").includes(q))
       .filter((r) => !gapsOnly || r.daily.missing > 0 || r.m15.missing > 0)
       .filter((r) => !longGapsOnly || r.daily.gaps?.length || r.m15.gaps?.length)
       .sort((a, b) => {
@@ -238,13 +240,17 @@ export default function V2Data() {
       }
       case "date":
         return <span style={{ color: "var(--muted)" }}>{r.last_day || "—"}</span>;
+      case "volume":
+        return r.last?.volume ? <span title={n(r.last.volume)}>{compact(r.last.volume)}</span> : "—";
       case "oi":
-        return r.last?.oi ? (
-          <span title={`Open interest · volume ${n(r.last.volume)}`}>{compact(r.last.oi)}</span>
-        ) : (
-          <span title="Volume (no open interest for this data)" style={{ color: "var(--muted)" }}>
-            {r.last?.volume ? compact(r.last.volume) : "—"}
+        return r.last?.oi ? <span title={n(r.last.oi)}>{compact(r.last.oi)}</span> : <span style={{ color: "var(--faint)" }}>—</span>;
+      case "contract":
+        return r.contract ? (
+          <span className="font-mono text-[0.6875rem]" style={{ color: "var(--muted)" }} title={r.expiry ? `Expires ${r.expiry}` : undefined}>
+            {r.contract}
           </span>
+        ) : (
+          <span style={{ color: "var(--faint)" }} title="No current futures contract">—</span>
         );
       case "d_bars":
         return n(r.daily.bars);
@@ -334,7 +340,7 @@ export default function V2Data() {
           {source === "live" && <Downloads symbols={rows.map((r) => r.symbol)} onDone={() => setReload((n) => n + 1)} />}
 
           <div className="overflow-auto rounded-lg border" style={{ borderColor: "var(--border)", background: "var(--surface)" }}>
-            <table className="w-full min-w-[1500px] text-xs tabular-nums">
+            <table className="w-full min-w-[1680px] text-xs tabular-nums">
               <thead className="sticky top-0 text-left" style={{ background: "var(--surface)", color: "var(--faint)" }}>
                 <tr>
                   {columns.map((c) => (
