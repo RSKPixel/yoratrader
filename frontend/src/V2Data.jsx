@@ -31,7 +31,40 @@ const compact = (v) => (v >= 1e7 ? `${(v / 1e7).toFixed(2)} Cr` : v >= 1e5 ? `${
 function Downloads({ symbols, onDone }) {
   const [job, setJob] = useState(null); // { kind, id, state }
   const timer = useRef(null);
-  useEffect(() => () => clearInterval(timer.current), []);
+  const poll = (id, kind) => {
+    clearInterval(timer.current);
+    timer.current = setInterval(() => {
+      fetch(`/api/eod/${id}`)
+        .then((r) => r.json())
+        .then((state) => {
+          setJob({ kind, id, state });
+          if (state.status !== "running") {
+            clearInterval(timer.current);
+            if (state.status === "completed") onDone();
+          }
+        })
+        .catch(() => {});
+    }, 1000);
+  };
+  useEffect(() => {
+    // The download runs on the server: coming back to the page picks its progress up again.
+    fetch("/api/v2/data/job")
+      .then((r) => r.json())
+      .then((p) => {
+        const j = p.job;
+        if (!j?.state) return;
+        const recent = Date.now() / 1000 - (j.started_at || 0) < 6 * 3600;
+        if (j.state.status === "running") {
+          setJob({ kind: j.kind, id: j.id, state: j.state });
+          poll(j.id, j.kind);
+        } else if (recent) {
+          setJob({ kind: j.kind, id: j.id, state: j.state });
+        }
+      })
+      .catch(() => {});
+    return () => clearInterval(timer.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const start = (kind) => {
     const endpoint = kind === "idata" ? "/api/idata" : "/api/eod";
     setJob({ kind, state: { status: "running", done: 0, total: symbols.length } });
@@ -46,19 +79,7 @@ function Downloads({ symbols, onDone }) {
           setJob({ kind, state: { status: "error", message: p.message || p.detail || "Could not start the download" } });
           return;
         }
-        clearInterval(timer.current);
-        timer.current = setInterval(() => {
-          fetch(`/api/eod/${p.job_id}`)
-            .then((r) => r.json())
-            .then((state) => {
-              setJob({ kind, id: p.job_id, state });
-              if (state.status !== "running") {
-                clearInterval(timer.current);
-                if (state.status === "completed") onDone();
-              }
-            })
-            .catch(() => {});
-        }, 1000);
+        poll(p.job_id, kind);
       })
       .catch(() => setJob({ kind, state: { status: "error", message: "Could not reach the API" } }));
   };
@@ -86,7 +107,7 @@ function Downloads({ symbols, onDone }) {
           : st.status === "running"
           ? `${label}: ${st.done ?? 0}/${st.total ?? symbols.length}${st.symbol ? ` · ${st.symbol}` : ""} · ${(st.candles ?? 0).toLocaleString("en-IN")} candles saved`
           : st.status === "completed"
-          ? `${label} done: ${(st.candles ?? 0).toLocaleString("en-IN")} candles saved${st.errors?.length ? ` · ${st.errors.length} failed` : ""}`
+          ? `${label} done: ${(st.candles ?? 0).toLocaleString("en-IN")} candles saved${st.errors?.length ? ` · ${st.errors.length} failed (${st.errors.slice(0, 3).map((e) => e.split(":")[0]).join(", ")}${st.errors.length > 3 ? ", …" : ""})` : ""}`
           : `${label} failed: ${st.message || "unknown error"} (is Kite logged in?)`}
       </span>
     </div>

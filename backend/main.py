@@ -3,6 +3,7 @@ import asyncio
 import json
 import os
 import threading
+import time
 import uuid
 
 import uvicorn
@@ -304,6 +305,10 @@ async def events_ws(websocket: WebSocket):
         print(f"WebSocket unregistered {client}")
 
 
+# The latest live-futures download (the Data page resumes its progress line from it).
+data_job = {"id": None, "kind": None, "started_at": None}
+
+
 class EodRequest(BaseModel):
     symbols: list[str]
     full: bool = False  # EOD only: continuous daily history from 2010 instead of the last 30 days
@@ -312,6 +317,7 @@ class EodRequest(BaseModel):
 @app.post("/api/eod")
 def eod(body: EodRequest):
     job_id = uuid.uuid4().hex
+    data_job.update(id=job_id, kind="full" if body.full else "eod", started_at=int(time.time()))
     total = len(body.symbols)
     jobs[job_id] = {
         "status": "running",
@@ -391,6 +397,7 @@ def eod(body: EodRequest):
 @app.post("/api/idata")
 def idata(body: EodRequest):
     job_id = uuid.uuid4().hex
+    data_job.update(id=job_id, kind="idata", started_at=int(time.time()))
     total = len(body.symbols)
     jobs[job_id] = {"status": "running", "done": 0, "total": total, "symbol": "", "candles": 0, "errors": []}
     ws_hub.notify(
@@ -951,6 +958,13 @@ def v2_paper_xsmr(pairs: int = Query(5, ge=1, le=5), stop: str = Query("none"), 
     except Exception as error:
         print("v2 xsmr paper failed:", error)
         return {"status": "error", "message": str(error)}
+
+
+@app.get("/api/v2/data/job")
+def v2_data_job():
+    """The latest live-futures download and its state (so the page can show it after you come back)."""
+    job = jobs.get(data_job["id"]) if data_job["id"] else None
+    return {"status": "success", "job": {**data_job, "state": job} if job else None}
 
 
 @app.get("/api/v2/data/symbols")

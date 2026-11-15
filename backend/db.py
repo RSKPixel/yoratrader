@@ -155,6 +155,9 @@ def store_eod(exchange, symbol, bars):
         )
         for bar in bars
     ]
+    # Kite's continuous series can repeat a date (around a contract roll); one upsert can't touch a
+    # row twice, so keep the last candle per date.
+    records = list({r[2]: r for r in records}.values())
     with connect() as conn:
         with conn.cursor() as cursor:
             cursor.execute(
@@ -213,6 +216,7 @@ def store_intraday(exchange, symbol, bars):
         )
         for bar in bars
     ]
+    records = list({r[2]: r for r in records}.values())  # one candle per timestamp (see store_eod)
     with connect() as conn:
         with conn.cursor() as cursor:
             cursor.execute(
