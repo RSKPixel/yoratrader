@@ -121,7 +121,7 @@ export default function V2BacktestParams({ params, onChange, universes = ["fno"]
         label="Max open"
         hint={
           step > 1
-            ? "Long-short: as many shorts as longs, so this moves in 2s (N/2 long + N/2 short), capital ÷ N each. As per model: the model's own sizing."
+            ? "Long-short: as many shorts as longs, so this moves in 2s; Pairs picks how many of them are used. Capital ÷ N each. As per model: the model's own sizing."
             : "At most this many positions at once, capital ÷ N each. As per model: each model's own sizing."
         }
       >
@@ -144,7 +144,7 @@ export default function V2BacktestParams({ params, onChange, universes = ["fno"]
             <span className="font-medium tabular-nums" style={{ color: "var(--text)" }}>
               {formatRs(per)}
             </span>{" "}
-            per position · {step > 1 ? `${params.maxOpen / 2} long + ${params.maxOpen / 2} short` : `${params.maxOpen} max`}
+            per position · {params.maxOpen} max
           </>
         ) : (
           "Sized as per the model"
