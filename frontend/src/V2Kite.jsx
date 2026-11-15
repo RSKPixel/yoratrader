@@ -119,19 +119,9 @@ function AccessToken({ onConnected }) {
   };
   return (
     <Section title="Daily access token">
-      <ol className="list-decimal space-y-1 pl-4 text-sm" style={{ color: "var(--muted)" }}>
-        <li>
-          <a href="/api/kite/login" target="_blank" rel="noreferrer" className="font-medium hover:underline" style={{ color: "var(--accent)" }}>
-            Open Kite login
-          </a>{" "}
-          and sign in. If the app's redirect URL points at <span className="font-mono text-xs">/api/kite/callback</span>, that's all: it
-          connects by itself.
-        </li>
-        <li>
-          Otherwise copy the <span className="font-mono text-xs">request_token</span> (or the whole redirect URL) and paste it below.
-        </li>
-        <li>The access token is valid until about 6 AM IST tomorrow: log in before 09:05 each trading day.</li>
-      </ol>
+      <a href="/api/kite/login" target="_blank" rel="noreferrer" className={`${button} inline-block`} style={primary}>
+        Kite Login
+      </a>
       <form onSubmit={submit} className="mt-3 flex flex-wrap gap-2">
         <input
           value={input}
