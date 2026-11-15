@@ -9,28 +9,28 @@ export const BACKTEST_GROUPS = [
   {
     title: "YoraTrader",
     source: "Our own model",
-    models: [{ id: "kbdt", short: "KB", label: "Key Breakout Dow Theory", style: "Positional" }],
+    models: [{ id: "kbdt", universes: ["indices", "stocks"], short: "KB", label: "Key Breakout Dow Theory", style: "Positional" }],
   },
   {
     title: "Ernest Chan",
     source: "Algorithmic Trading (Wiley, 2013)",
     models: [
-      { id: "buy-on-gap", short: "BG", label: "Buy on gap", style: "Intraday" },
-      { id: "gap-momentum", short: "GM", label: "Opening gap momentum", style: "Intraday" },
-      { id: "xs-mean-reversion", short: "XR", label: "Cross-sectional mean reversion", style: "Intraday" },
-      { id: "pairs", short: "PT", label: "Pairs trading", style: "Positional" },
-      { id: "xs-momentum", short: "XM", label: "Cross-sectional momentum", style: "Positional" },
+      { id: "buy-on-gap", universes: ["fno", "stocks", "indices"], short: "BG", label: "Buy on gap", style: "Intraday" },
+      { id: "gap-momentum", universes: ["indices", "fno"], short: "GM", label: "Opening gap momentum", style: "Intraday" },
+      { id: "xs-mean-reversion", universes: ["fno", "stocks"], short: "XR", label: "Cross-sectional mean reversion", style: "Intraday" },
+      { id: "pairs", universes: ["fno"], short: "PT", label: "Pairs trading", style: "Positional" },
+      { id: "xs-momentum", universes: ["fno", "stocks"], short: "XM", label: "Cross-sectional momentum", style: "Positional" },
     ],
   },
   {
     title: "Gray & Vogel",
     source: "Quantitative Momentum (Wiley, 2016)",
-    models: [{ id: "quant-momentum", short: "QM", label: "Quantitative momentum", style: "Positional" }],
+    models: [{ id: "quant-momentum", universes: ["fno", "stocks"], short: "QM", label: "Quantitative momentum", style: "Positional" }],
   },
   {
     title: "Larry Connors",
     source: "How Markets Really Work (2nd ed., 2012)",
-    models: [{ id: "short-term-reversion", short: "SR", label: "Short-term mean reversion", style: "Positional" }],
+    models: [{ id: "short-term-reversion", universes: ["fno", "stocks"], short: "SR", label: "Short-term mean reversion", style: "Positional" }],
   },
 ];
 
@@ -186,6 +186,9 @@ export default function V2Backtesting({ model, onSelect }) {
   const m = findBacktest(model) || findBacktest(DEFAULT_BACKTEST);
   const [open, setOpen] = useState(initialOpen);
   const [params, setParams] = useBacktestParams();
+  // The universe is shared too; a model without the chosen one shows its first (the choice is kept).
+  const universe = m.universes.includes(params.universe) ? params.universe : m.universes[0];
+  const modelParams = { ...params, universe };
   const toggle = () => {
     setOpen((was) => {
       try {
@@ -212,9 +215,9 @@ export default function V2Backtesting({ model, onSelect }) {
           <StyleTag style={m.style} />
         </div>
         <div className="mt-4">
-          <V2BacktestParams params={params} onChange={setParams} />
+          <V2BacktestParams params={modelParams} onChange={setParams} universes={m.universes} />
         </div>
-        {m.id === "buy-on-gap" && <V2BuyOnGap params={params} />}
+        {m.id === "buy-on-gap" && <V2BuyOnGap params={modelParams} />}
       </section>
     </div>
   );

@@ -5,11 +5,6 @@ import V2EquityChart from "./V2EquityChart";
 // Buy on gap (Chan, Algorithmic Trading ch. 4) on v2: the stored backtest trades sized by the common
 // parameters (capital, max open, % or ₹). The API returns fractions of capital in %.
 
-const DATASETS = [
-  ["fno", "F&O stocks"],
-  ["stocks", "Nifty 50 stocks"],
-  ["indices", "Indices"],
-];
 const SIDES = [
   ["long", "Long (book)"],
   ["both", "Long & short"],
@@ -231,7 +226,7 @@ function MonthTrades({ month, query, value, capital, onClose }) {
 }
 
 export default function V2BuyOnGap({ params }) {
-  const [dataset, setDataset] = useState("fno");
+  const dataset = params.universe;
   const [side, setSide] = useState("long");
   const [stop, setStop] = useState("none");
   const [slippage, setSlippage] = useState(0.02);
@@ -266,9 +261,6 @@ export default function V2BuyOnGap({ params }) {
   return (
     <div className="mt-4 flex flex-col gap-4">
       <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
-        <Field label="Universe">
-          <Segmented label="Universe" options={DATASETS} value={dataset} onChange={setDataset} />
-        </Field>
         <Field label="Side" hint="Long: buy gaps down (the book). Long & short: also short the mirror image.">
           <Segmented label="Side" options={SIDES} value={side} onChange={setSide} />
         </Field>

@@ -5,7 +5,8 @@ import { Field, formatRs, inputStyle, Segmented } from "./V2Controls";
 // capital or rupees. Kept across models and remembered per browser.
 
 const KEY = "yt-v2-backtest-params";
-export const DEFAULT_PARAMS = { capital: 1000000, maxOpen: 5, show: "rs" };
+export const DEFAULT_PARAMS = { capital: 1000000, maxOpen: 5, show: "rs", universe: "fno" };
+export const UNIVERSES = { fno: "F&O stocks", stocks: "Nifty 50 stocks", indices: "Indices" };
 const CAPITAL_PICKS = [500000, 1000000, 2500000, 5000000, 10000000];
 const MAX_OPEN = 10;
 
@@ -100,10 +101,18 @@ function MaxOpenStepper({ value, onChange }) {
   );
 }
 
-export default function V2BacktestParams({ params, onChange }) {
+export default function V2BacktestParams({ params, onChange, universes = ["fno"] }) {
   const per = params.maxOpen ? params.capital / params.maxOpen : null;
   return (
     <div className="flex flex-wrap items-end gap-x-8 gap-y-4 rounded-lg border px-4 py-3" style={{ borderColor: "var(--border)", background: "var(--surface)" }}>
+      <Field label="Universe" hint="The stocks or indices the model trades; each model offers the ones it has">
+        <Segmented
+          label="Universe"
+          options={universes.map((u) => [u, UNIVERSES[u]])}
+          value={params.universe}
+          onChange={(universe) => onChange({ universe })}
+        />
+      </Field>
       <Field label="Capital" hint="The value of the positions held (not margin: futures margin is roughly a fifth of it)">
         <CapitalInput value={params.capital} onChange={(capital) => onChange({ capital })} />
       </Field>
