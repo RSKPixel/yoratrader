@@ -38,7 +38,8 @@ function pathParts() {
 
 function pageFromPath() {
   const id = pathParts()[0];
-  return PAGES.some((p) => p.id === id) ? id : "dashboard";
+  // Settings is a dialog over the page, not a page of its own
+  return id !== "settings" && PAGES.some((p) => p.id === id) ? id : "dashboard";
 }
 
 function backtestFromPath() {
@@ -83,6 +84,7 @@ export default function AppV2() {
   const [theme, setTheme] = useState(initialTheme);
   const [page, setPage] = useState(pageFromPath);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(() => pathParts()[0] === "settings");
   const [backtest, setBacktest] = useState(backtestFromPath);
   const [paper, setPaper] = useState(paperFromPath);
 
@@ -125,6 +127,10 @@ export default function AppV2() {
 
   const select = (id) => {
     setMenuOpen(false);
+    if (id === "settings") {
+      setSettingsOpen(true);
+      return;
+    }
     if (id === page) return;
     window.history.pushState(null, "", id === "backtesting" ? `/v2/backtesting/${backtest}` : id === "paper" ? `/v2/paper/${paper}` : `/v2/${id}`);
     setPage(id);
@@ -133,12 +139,13 @@ export default function AppV2() {
   const current = PAGES.find((p) => p.id === page);
   return (
     <div className="v2 flex h-full flex-col overflow-hidden" data-theme={theme}>
+      {settingsOpen && <V2Settings theme={theme} onTheme={setTheme} onClose={() => setSettingsOpen(false)} />}
       <header className="shrink-0 border-b" style={{ borderColor: "var(--border)", background: "var(--surface)" }}>
         <div className="flex h-14 items-center gap-4 px-4 md:px-6">
           <Logo />
           <nav className="ml-auto hidden items-center gap-1 lg:flex" aria-label="Main">
             {PAGES.map((p) => (
-              <NavLink key={p.id} page={p} active={p.id === page} onSelect={select} />
+              <NavLink key={p.id} page={p} active={p.id === "settings" ? settingsOpen : p.id === page} onSelect={select} />
             ))}
           </nav>
           <div className="ml-auto flex items-center gap-2 lg:ml-3 lg:border-l lg:pl-4" style={{ borderColor: "var(--border)" }}>
@@ -174,7 +181,7 @@ export default function AppV2() {
         {menuOpen && (
           <nav className="flex flex-col gap-1 border-t px-4 py-2 lg:hidden" style={{ borderColor: "var(--border)" }} aria-label="Main">
             {PAGES.map((p) => (
-              <NavLink key={p.id} page={p} active={p.id === page} onSelect={select} />
+              <NavLink key={p.id} page={p} active={p.id === "settings" ? settingsOpen : p.id === page} onSelect={select} />
             ))}
             <span className="px-3 py-1.5 text-sm sm:hidden" style={{ color: "var(--faint)" }}>
               {displayName(user)}
@@ -198,10 +205,6 @@ export default function AppV2() {
       ) : page === "data" ? (
         <main className="min-h-0 flex-1 overflow-auto px-4 py-6 md:px-6">
           <V2Data />
-        </main>
-      ) : page === "settings" ? (
-        <main className="min-h-0 flex-1 overflow-auto px-4 py-6 md:px-6">
-          <V2Settings theme={theme} onTheme={setTheme} />
         </main>
       ) : (
         <main className="min-h-0 flex-1 overflow-auto px-4 py-6 md:px-6">
