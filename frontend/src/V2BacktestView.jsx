@@ -48,7 +48,11 @@ export function Panel({ title, right, children }) {
 export function SummaryCards({ s, value }) {
   return (
     <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 xl:grid-cols-8">
-      <Card label="Trades" value={s.trades.toLocaleString("en-IN")} hint={`Closed trades · results count on the exit day`} />
+      <Card
+        label={s.trades_label || "Trades"}
+        value={s.trades.toLocaleString("en-IN")}
+        hint={s.trades_label ? `${s.trades_label}: one stock on one day · ${s.days_traded} trading days` : "Closed trades · results count on the exit day"}
+      />
       <Card label="Win rate" value={`${s.win_rate}%`} hint={`After costs. Before costs: ${s.win_rate_gross}%`} />
       <Card label="Gross" value={value(s.gross_pct)} color={tone(s.gross_pct)} hint="Before costs" />
       <Card label="Costs" value={value(-s.cost_pct)} color="var(--negative)" hint={`Charges + slippage (${s.cost_per_side_bps} bps a side); ${value(-s.avg_cost_pct, 3)} a trade`} />
@@ -130,8 +134,9 @@ export function MonthGrid({ years, months, value, onOpen }) {
 }
 
 // columns: [{ h: "Header", cell: (row) => node, style?: (row) => style, title?: (row) => text }]
-export function MonthTradesModal({ month, url, columns, value, note, onClose, minWidth = 960 }) {
+export function MonthTradesModal({ month, url, columns, value, note, onClose, minWidth = 960, groupByDay = false }) {
   const [rows, setRows] = useState(null);
+  const [openDays, setOpenDays] = useState({});
   useEffect(() => {
     const controller = new AbortController();
     setRows(null);
@@ -184,15 +189,55 @@ export function MonthTradesModal({ month, url, columns, value, note, onClose, mi
               </tr>
             </thead>
             <tbody>
-              {rows?.map((t, i) => (
-                <tr key={i} className="border-t" style={{ borderColor: "var(--border)" }}>
-                  {columns.map((c) => (
-                    <td key={c.h} className="px-3 py-1.5" style={c.style?.(t)} title={c.title?.(t)}>
-                      {c.cell(t)}
-                    </td>
+              {groupByDay
+                ? Object.entries(
+                    (rows || []).reduce((acc, t) => {
+                      (acc[t.day] ||= []).push(t);
+                      return acc;
+                    }, {}),
+                  ).map(([day, list]) => {
+                    const net = list.reduce((a, t) => a + t.book_net_pct, 0);
+                    const open = openDays[day];
+                    return [
+                      <tr key={day} className="border-t" style={{ borderColor: "var(--border)", background: "var(--surface-2)" }}>
+                        <td colSpan={columns.length} className="px-3 py-1.5">
+                          <button
+                            type="button"
+                            onClick={() => setOpenDays((d) => ({ ...d, [day]: !open }))}
+                            className="flex w-full items-center gap-3 text-left"
+                            aria-expanded={!!open}
+                          >
+                            <span style={{ color: "var(--faint)" }}>{open ? "▾" : "▸"}</span>
+                            <span className="font-medium">{day}</span>
+                            <span style={{ color: "var(--muted)" }}>{list.length} positions</span>
+                            <span className="ml-auto font-medium" style={{ color: tone(net) }}>
+                              {value(net, 3)}
+                            </span>
+                          </button>
+                        </td>
+                      </tr>,
+                      ...(open
+                        ? list.map((t, i) => (
+                            <tr key={`${day}-${i}`} className="border-t" style={{ borderColor: "var(--border)" }}>
+                              {columns.map((c) => (
+                                <td key={c.h} className="px-3 py-1.5" style={c.style?.(t)} title={c.title?.(t)}>
+                                  {c.cell(t)}
+                                </td>
+                              ))}
+                            </tr>
+                          ))
+                        : []),
+                    ];
+                  })
+                : rows?.map((t, i) => (
+                    <tr key={i} className="border-t" style={{ borderColor: "var(--border)" }}>
+                      {columns.map((c) => (
+                        <td key={c.h} className="px-3 py-1.5" style={c.style?.(t)} title={c.title?.(t)}>
+                          {c.cell(t)}
+                        </td>
+                      ))}
+                    </tr>
                   ))}
-                </tr>
-              ))}
             </tbody>
           </table>
         </div>

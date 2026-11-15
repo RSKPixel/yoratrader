@@ -219,11 +219,12 @@ ENTRY_COLS = {"intraday-0915": "open915", "intraday-0915-1sd": "open915", "intra
               "intraday-0945": "open945"}
 
 
-def _book(p, variant):
+def _book(p, variant, top=False):
     """Signal, weights, entry and exit prices per day and stock for one variant.
     Intraday: signal previous official close -> 09:15 open; position entry -> 15:15 the same day.
     Daily: signal 15:15(t-1) -> 15:15(t); position 15:15(t) -> 15:15(t+1), rebalanced daily.
-    With a stop: the same positions; the exit is the stop price where the day's range reached it."""
+    With a stop: the same positions; the exit is the stop price where the day's range reached it.
+    top: per-side count instead of the variant's take (None = linear weights on every stock)."""
     variant, take = parse_variant(variant)
     if variant == "daily":
         px = p["px1515"]
@@ -234,7 +235,7 @@ def _book(p, variant):
         entry, exit_ = p[ENTRY_COLS[variant]], p["px1515"]
     pos = exit_ / entry - 1
     ok = sig.notna() & pos.notna() & (sig.abs() <= MAX_MOVE) & (pos.abs() <= MAX_MOVE)
-    w = _weights(sig.where(ok), TAKES[take]).fillna(0.0)
+    w = _weights(sig.where(ok), TAKES[take] if top is False else top).fillna(0.0)
     stopped = pd.DataFrame(False, index=w.index, columns=w.columns)
     stop = None
     if VARIANTS[variant].get("stop"):

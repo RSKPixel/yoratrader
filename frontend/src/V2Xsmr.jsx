@@ -1,0 +1,124 @@
+import { useCallback, useMemo, useState } from "react";
+import { Field, formatRs, Segmented } from "./V2Controls";
+import V2EquityChart from "./V2EquityChart";
+import { makeValue, MonthGrid, MonthTradesModal, Panel, SummaryCards, tone } from "./V2BacktestView";
+import { SLIPPAGE, useBacktest } from "./V2BuyOnGap";
+
+// Cross-sectional mean reversion (Chan, Algorithmic Trading ch. 4) on v2: long the stocks that lagged
+// at the open, short the ones that led. Capital = gross exposure (half long, half short); Max open N =
+// N/2 long + N/2 short; As per model = linear weights on every stock.
+
+const VERSIONS = [
+  ["intraday", "Intraday (book)"],
+  ["daily", "Daily"],
+];
+const ENTRIES = [
+  ["0915", "09:15 (book)"],
+  ["0916", "09:16"],
+  ["0930", "09:30"],
+  ["0945", "09:45"],
+];
+const STOPS = [
+  ["none", "None (book)"],
+  ["1sd", "1σ"],
+];
+
+export default function V2Xsmr({ params }) {
+  const [version, setVersion] = useState("intraday");
+  const [entry, setEntry] = useState("0915");
+  const [stop, setStop] = useState("none");
+  const [slippage, setSlippage] = useState(0.02);
+  const [month, setMonth] = useState(null);
+
+  const stopAllowed = version === "intraday" && entry === "0915";
+  const query = `dataset=${params.universe}&version=${version}&entry=${entry}&stop=${stopAllowed ? stop : "none"}&slippage=${slippage}&max_open=${params.maxOpen}`;
+  const { data, error, loading } = useBacktest(`/api/v2/backtest/xsmr?${query}`);
+  const value = useMemo(() => makeValue(params.show, params.capital), [params.show, params.capital]);
+  const chartFormat = useCallback((v) => value(v, 1), [value]);
+  const closeMonth = useCallback(() => setMonth(null), []);
+  const s = data?.summary;
+  const capital = params.capital;
+  const perSide = params.maxOpen ? Math.max(1, Math.floor(params.maxOpen / 2)) : null;
+
+  const columns = [
+    { h: "Stock", cell: (t) => <span className="font-medium">{t.symbol}</span> },
+    { h: "Side", cell: (t) => t.side, style: (t) => ({ color: t.side === "long" ? "var(--positive)" : "var(--negative)" }) },
+    { h: "Signal", cell: (t) => `${t.signal_pct > 0 ? "+" : ""}${t.signal_pct.toFixed(2)}%`, style: () => ({ color: "var(--muted)" }), title: () => "The move the model fades (open vs previous close)" },
+    { h: "Entry", cell: (t) => t.entry },
+    {
+      h: "Qty",
+      cell: (t) => Math.round(((t.weight_pct / 100) * capital) / t.entry).toLocaleString("en-IN"),
+      title: (t) => `${t.weight_pct}% of ${formatRs(capital)} ÷ ${t.entry}`,
+    },
+    { h: "Exit", cell: (t) => (t.stopped ? `${t.exit} · stop` : t.exit), style: (t) => ({ color: t.stopped ? "var(--negative)" : undefined }) },
+    { h: "Return", cell: (t) => `${t.ret_pct.toFixed(2)}%`, style: (t) => ({ color: tone(t.ret_pct) }) },
+    { h: "Net", cell: (t) => `${t.net_pct.toFixed(2)}%`, style: (t) => ({ color: tone(t.net_pct) }) },
+    { h: "Size", cell: (t) => value(t.weight_pct), style: () => ({ color: "var(--muted)" }) },
+    { h: "Cost", cell: (t) => value(-t.book_cost_pct, 3), style: () => ({ color: "var(--negative)" }) },
+    { h: "Net result", cell: (t) => <span className="font-medium">{value(t.book_net_pct, 3)}</span>, style: (t) => ({ color: tone(t.book_net_pct) }) },
+  ];
+
+  return (
+    <div className="mt-4 flex flex-col gap-4">
+      <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
+        <Field label="Version" hint="Intraday: signal = previous close → open, held to 15:15 (the book). Daily: signal 15:15 → 15:15, held to the next 15:15.">
+          <Segmented label="Version" options={VERSIONS} value={version} onChange={setVersion} />
+        </Field>
+        {version === "intraday" && (
+          <Field label="Entry" hint="The book enters at the 09:15 auction price; later entries keep the same signal">
+            <Segmented label="Entry" options={ENTRIES} value={entry} onChange={setEntry} />
+          </Field>
+        )}
+        {stopAllowed && (
+          <Field label="Stop" hint="Not in the book. 1σ: Buy on gap's stop, one 90-day standard deviation from the entry, on the 15m candles to 15:15.">
+            <Segmented label="Stop" options={STOPS} value={stop} onChange={setStop} />
+          </Field>
+        )}
+        <Field label="Slippage" hint="Per side, on top of NSE futures charges">
+          <Segmented label="Slippage" options={SLIPPAGE} value={slippage} onChange={setSlippage} />
+        </Field>
+        {loading && (
+          <span className="pb-1.5 text-xs" style={{ color: "var(--faint)" }}>
+            Loading…
+          </span>
+        )}
+      </div>
+
+      <p className="text-xs" style={{ color: "var(--muted)" }}>
+        Long-short: capital is the gross exposure, half long and half short.{" "}
+        {perSide
+          ? `Max open ${params.maxOpen} → ${perSide} long + ${perSide} short, ${formatRs(capital / (2 * perSide))} each.`
+          : "As per model: linear weights on every stock, in proportion to its move."}
+      </p>
+      {error && <p className="text-sm" style={{ color: "var(--negative)" }}>{error}</p>}
+
+      {s && (
+        <>
+          <SummaryCards s={s} value={value} />
+          <p className="-mt-1 text-xs" style={{ color: "var(--muted)" }}>
+            {s.from} → {s.to} · {value(s.net_year_pct)} net a year · Sharpe {s.sharpe ?? "—"} · {s.green_years}/{s.years} green years ·
+            ~{s.avg_positions} positions a day · long {value(s.long_net_pct)}, short {value(s.short_net_pct)}
+            {s.stopped_pct ? ` · ${s.stopped_pct}% stopped` : ""}
+          </p>
+          <Panel title="Net by month" right="click a month for its days and positions">
+            <MonthGrid years={data.years} months={data.months} value={value} onOpen={setMonth} />
+          </Panel>
+          <Panel title="Equity" right="cumulative, fixed capital, not compounded · accent = net, grey = gross">
+            <V2EquityChart points={data.equity} format={chartFormat} />
+          </Panel>
+        </>
+      )}
+      {month && (
+        <MonthTradesModal
+          month={month}
+          url={`/api/v2/backtest/xsmr/month?month=${month}&${query}`}
+          columns={columns}
+          value={value}
+          note={version === "daily" ? "each day's book, 15:15 to the next 15:15" : `in at ${entry.slice(0, 2)}:${entry.slice(2)}, out at 15:15${stop === "1sd" && stopAllowed ? " or the stop" : ""}`}
+          onClose={closeMonth}
+          groupByDay
+        />
+      )}
+    </div>
+  );
+}

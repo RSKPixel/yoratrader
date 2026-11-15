@@ -31,6 +31,7 @@ import xsmom
 import qmom
 import v2gap
 import v2kbdt
+import v2xsmr
 import connors
 import xsmrwatch
 import connorswatch
@@ -47,6 +48,7 @@ async def startup():
     # only in production: dev shares the database and would record everything twice.
     if os.environ.get("APP_ENV") == "production" or os.environ.get("GAP_SCHEDULER") == "1":
         gapwatch.start_scheduler()
+    v2xsmr.warm()  # the cross-sectional page's 15m prices (~40 s), so the first visit is quick
 
 
 def _cors_origins():
@@ -728,6 +730,38 @@ def v2_backtest_kbdt_month(month: str = Query(..., pattern=r"^\d{4}-\d{2}$"), da
         return {"status": "success", "trades": v2kbdt.month_trades(month, **args)}
     except Exception as error:
         print("v2 KBDT month failed:", error)
+        return {"status": "error", "message": str(error)}
+
+
+def _v2xsmr_args(dataset, version, entry, stop, max_open, slippage):
+    if dataset not in v2xsmr.DATASETS or version not in ("intraday", "daily") or entry not in v2xsmr.ENTRIES \
+            or stop not in ("none", "1sd"):
+        raise HTTPException(status_code=400, detail="unknown dataset, version, entry or stop")
+    return dict(dataset=dataset, version=version, entry=entry, stop=stop, max_open=max_open, slippage=slippage / 100)
+
+
+@app.get("/api/v2/backtest/xsmr")
+def v2_backtest_xsmr(dataset: str = Query("fno"), version: str = Query("intraday"), entry: str = Query("0915"),
+                     stop: str = Query("none"), max_open: int = Query(6, ge=0, le=v2xsmr.MAX_OPEN),
+                     slippage: float = Query(0.02, ge=0, le=1)):
+    """Cross-sectional mean reversion (v2 page): N/2 long + N/2 short (or every stock), as fractions of capital."""
+    args = _v2xsmr_args(dataset, version, entry, stop, max_open, slippage)
+    try:
+        return {"status": "success", **v2xsmr.results(**args)}
+    except Exception as error:
+        print("v2 xsmr backtest failed:", error)
+        return {"status": "error", "message": str(error)}
+
+
+@app.get("/api/v2/backtest/xsmr/month")
+def v2_backtest_xsmr_month(month: str = Query(..., pattern=r"^\d{4}-\d{2}$"), dataset: str = Query("fno"),
+                           version: str = Query("intraday"), entry: str = Query("0915"), stop: str = Query("none"),
+                           max_open: int = Query(6, ge=0, le=v2xsmr.MAX_OPEN), slippage: float = Query(0.02, ge=0, le=1)):
+    args = _v2xsmr_args(dataset, version, entry, stop, max_open, slippage)
+    try:
+        return {"status": "success", "trades": v2xsmr.month_trades(month, **args)}
+    except Exception as error:
+        print("v2 xsmr month failed:", error)
         return {"status": "error", "message": str(error)}
 
 
