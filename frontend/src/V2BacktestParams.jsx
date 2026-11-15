@@ -108,8 +108,10 @@ function MaxOpenStepper({ value, onChange, step: by = 1 }) {
   );
 }
 
-export default function V2BacktestParams({ params, onChange, universes = ["fno"], step = 1 }) {
-  const per = params.maxOpen ? params.capital / params.maxOpen : null;
+export default function V2BacktestParams({ params, onChange, universes = ["fno"], step = 1, fixedMaxOpen = null }) {
+  // fixedMaxOpen: a paper trader that records a set number of slots (shown, not changeable)
+  const maxOpen = fixedMaxOpen || params.maxOpen;
+  const per = maxOpen ? params.capital / maxOpen : null;
   return (
     <div className="flex flex-wrap items-end gap-x-8 gap-y-4 rounded-lg border px-4 py-3" style={{ borderColor: "var(--border)", background: "var(--surface)" }}>
       <Field label="Universe" hint="The stocks or indices the model trades; each model offers the ones it has">
@@ -131,7 +133,13 @@ export default function V2BacktestParams({ params, onChange, universes = ["fno"]
             : "At most this many positions at once, capital ÷ N each. As per model: each model's own sizing."
         }
       >
-        <MaxOpenStepper value={params.maxOpen} onChange={(maxOpen) => onChange({ maxOpen })} step={step} />
+        {fixedMaxOpen ? (
+          <span className="py-1.5 text-sm" style={{ color: "var(--muted)" }} title="The paper trader records this many slots; it can't be changed after the fact">
+            {fixedMaxOpen} (as recorded)
+          </span>
+        ) : (
+          <MaxOpenStepper value={params.maxOpen} onChange={(maxOpen) => onChange({ maxOpen })} step={step} />
+        )}
       </Field>
       <Field label="Show" hint="Results as % of capital or in rupees">
         <Segmented
@@ -150,7 +158,7 @@ export default function V2BacktestParams({ params, onChange, universes = ["fno"]
             <span className="font-medium tabular-nums" style={{ color: "var(--text)" }}>
               {formatRs(per)}
             </span>{" "}
-            per position · {params.maxOpen} max
+            per position · {maxOpen} max
           </>
         ) : (
           "Sized as per the model"

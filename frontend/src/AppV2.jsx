@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { displayName, useAuth } from "./AuthGate";
 import V2Backtesting, { DEFAULT_BACKTEST, findBacktest } from "./V2Backtesting";
+import V2Paper, { DEFAULT_PAPER, findPaper } from "./V2Paper";
 
 // YoraTrader v2: top navigation and one content area. Pages start blank and are moved over one by one;
 // the classic app stays at "/" until then. Pages live at /v2/<page>.
@@ -38,6 +39,11 @@ function pageFromPath() {
 function backtestFromPath() {
   const id = pathParts()[1];
   return findBacktest(id) ? id : DEFAULT_BACKTEST;
+}
+
+function paperFromPath() {
+  const id = pathParts()[1];
+  return pathParts()[0] === "paper" && findPaper(id) ? id : DEFAULT_PAPER;
 }
 
 function Logo() {
@@ -98,6 +104,7 @@ export default function AppV2() {
   const [page, setPage] = useState(pageFromPath);
   const [menuOpen, setMenuOpen] = useState(false);
   const [backtest, setBacktest] = useState(backtestFromPath);
+  const [paper, setPaper] = useState(paperFromPath);
 
   useEffect(() => {
     try {
@@ -111,15 +118,23 @@ export default function AppV2() {
     const onPop = () => {
       setPage(pageFromPath());
       setBacktest(backtestFromPath());
+      setPaper(paperFromPath());
     };
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
   }, []);
 
   useEffect(() => {
-    const sub = page === "backtesting" ? `${findBacktest(backtest)?.label} · ` : "";
+    const sub = page === "backtesting" ? `${findBacktest(backtest)?.label} · ` : page === "paper" ? `${findPaper(paper)?.label} · ` : "";
     document.title = `${sub}${PAGES.find((p) => p.id === page)?.label} · YoraTrader`;
-  }, [page, backtest]);
+  }, [page, backtest, paper]);
+
+  const selectPaper = (id) => {
+    if (id === paper && page === "paper") return;
+    window.history.pushState(null, "", `/v2/paper/${id}`);
+    setPage("paper");
+    setPaper(id);
+  };
 
   const selectBacktest = (id) => {
     if (id === backtest && page === "backtesting") return;
@@ -131,7 +146,7 @@ export default function AppV2() {
   const select = (id) => {
     setMenuOpen(false);
     if (id === page) return;
-    window.history.pushState(null, "", id === "backtesting" ? `/v2/backtesting/${backtest}` : `/v2/${id}`);
+    window.history.pushState(null, "", id === "backtesting" ? `/v2/backtesting/${backtest}` : id === "paper" ? `/v2/paper/${paper}` : `/v2/${id}`);
     setPage(id);
   };
 
@@ -188,6 +203,10 @@ export default function AppV2() {
       {page === "backtesting" ? (
         <main className="flex min-h-0 min-w-0 flex-1">
           <V2Backtesting model={backtest} onSelect={selectBacktest} />
+        </main>
+      ) : page === "paper" ? (
+        <main className="flex min-h-0 min-w-0 flex-1">
+          <V2Paper model={paper} onSelect={selectPaper} />
         </main>
       ) : (
         <main className="min-h-0 flex-1 overflow-auto px-4 py-6 md:px-6">

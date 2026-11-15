@@ -36,6 +36,7 @@ import v2pairs
 import v2xsmom
 import v2qmom
 import v2connors
+import v2paper
 import connors
 import xsmrwatch
 import connorswatch
@@ -919,6 +920,32 @@ def v2_backtest_connors_month(month: str = Query(..., pattern=r"^\d{4}-\d{2}$"),
         return {"status": "success", "trades": v2connors.month_trades(month, **args)}
     except Exception as error:
         print("v2 connors month failed:", error)
+        return {"status": "error", "message": str(error)}
+
+
+@app.get("/api/v2/paper/gap")
+def v2_paper_gap(side: str = Query("long"), stop: str = Query("none"), max_open: int = Query(5, ge=0, le=10),
+                 slippage: float = Query(0.02, ge=0, le=1)):
+    """Buy/Sell on gap paper trading (v2 page): the recorded picks sized by capital and max open."""
+    if side not in ("long", "both") or stop not in ("none", "1sd"):
+        raise HTTPException(status_code=400, detail="unknown side or stop")
+    try:
+        return {"status": "success", **v2paper.gap(side, stop, max_open, slippage / 100)}
+    except Exception as error:
+        print("v2 gap paper failed:", error)
+        return {"status": "error", "message": str(error)}
+
+
+@app.get("/api/v2/paper/xsmr")
+def v2_paper_xsmr(pairs: int = Query(5, ge=1, le=5), stop: str = Query("none"), max_open: int = Query(10, ge=0, le=10),
+                  slippage: float = Query(0.02, ge=0, le=1)):
+    """Cross-sectional mean reversion paper trading (v2 page): the recorded 5 + 5, k + k of them by capital and max open."""
+    if stop not in ("none", "1sd"):
+        raise HTTPException(status_code=400, detail="unknown stop")
+    try:
+        return {"status": "success", **v2paper.xsmr_(pairs, stop, max_open, slippage / 100)}
+    except Exception as error:
+        print("v2 xsmr paper failed:", error)
         return {"status": "error", "message": str(error)}
 
 
