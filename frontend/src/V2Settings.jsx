@@ -153,14 +153,14 @@ export default function V2Settings({ theme, onTheme, onClose, initialTab = "gene
         style={{ borderColor: "var(--border)", background: "var(--bg)" }}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="border-b px-4 pt-3" style={{ borderColor: "var(--border)" }}>
-          <div className="flex items-center justify-between">
-            <h2 className="text-base font-semibold">Settings</h2>
-            <button type="button" onClick={onClose} className={button} style={{ borderColor: "var(--border)" }}>
-              Close
-            </button>
-          </div>
-          <div className="mt-2 flex items-end gap-1" role="tablist" aria-label="Settings sections">
+        <div className="flex items-center justify-between border-b px-4 py-2.5" style={{ borderColor: "var(--border)", background: "var(--surface)" }}>
+          <h2 className="text-base font-semibold">Settings</h2>
+          <button type="button" onClick={onClose} className={button} style={{ borderColor: "var(--border)" }}>
+            Close
+          </button>
+        </div>
+        <div className="border-b px-4 pt-2" style={{ borderColor: "var(--border)" }}>
+          <div className="flex items-end gap-1" role="tablist" aria-label="Settings sections">
             {TABS.map(([id, label]) => {
               const active = id === tab;
               return (
