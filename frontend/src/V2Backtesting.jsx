@@ -15,7 +15,7 @@ export const BACKTEST_GROUPS = [
     title: "Ernest Chan",
     source: "Algorithmic Trading (Wiley, 2013)",
     models: [
-      { id: "buy-on-gap", universes: ["fno", "stocks", "indices"], short: "BG", label: "Buy on gap", style: "Intraday" },
+      { id: "buy-on-gap", universes: ["fno", "stocks", "indices"], short: "BG", label: "Buy/sell on gap", style: "Intraday" },
       { id: "gap-momentum", universes: ["indices", "fno"], short: "GM", label: "Opening gap momentum", style: "Intraday" },
       { id: "xs-mean-reversion", universes: ["fno", "stocks"], short: "XR", label: "Cross-sectional mean reversion", style: "Intraday" },
       { id: "pairs", universes: ["fno"], short: "PT", label: "Pairs trading", style: "Positional" },
