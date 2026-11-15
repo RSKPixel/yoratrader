@@ -38,6 +38,7 @@ import v2qmom
 import v2connors
 import v2paper
 import v2data
+import v2dashboard
 import connors
 import xsmrwatch
 import connorswatch
@@ -55,6 +56,7 @@ async def startup():
     if os.environ.get("APP_ENV") == "production" or os.environ.get("GAP_SCHEDULER") == "1":
         gapwatch.start_scheduler()
     v2xsmr.warm()  # the cross-sectional page's 15m prices (~40 s), so the first visit is quick
+    v2dashboard.models()  # the dashboard's strategy table, built in the background
 
 
 def _cors_origins():
@@ -971,6 +973,26 @@ def v2_data_candles(symbol: str = Query(..., min_length=1, max_length=40), inter
         return {"status": "success", "candles": v2data.candles(symbol, interval, source, exchange, days)}
     except Exception as error:
         print("v2 data candles failed:", error)
+        return {"status": "error", "message": str(error)}
+
+
+@app.get("/api/v2/dashboard")
+def v2_dashboard():
+    """Today at a glance: market status, Kite, the scheduler's steps, indices, paper trading, data freshness."""
+    try:
+        return {"status": "success", **v2dashboard.overview()}
+    except Exception as error:
+        print("v2 dashboard failed:", error)
+        return {"status": "error", "message": str(error)}
+
+
+@app.get("/api/v2/dashboard/models")
+def v2_dashboard_models():
+    """Every backtest at its default settings (built in the background, cached)."""
+    try:
+        return {"status": "success", **v2dashboard.models()}
+    except Exception as error:
+        print("v2 dashboard models failed:", error)
         return {"status": "error", "message": str(error)}
 
 
