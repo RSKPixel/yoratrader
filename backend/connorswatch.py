@@ -1,5 +1,5 @@
 """Short-term mean reversion paper trading (Connors & Sen; the backtest page's defaults): 2-day RSI
-below 10 in an F&O stock above its 200-day average, hold 5 trading days, at most N open (3 by
+below 10 in an F&O stock (or a Nifty 50 one: the universe setting) above its 200-day average, hold 5 trading days, at most N open (3 by
 default; set from the paper page, read at each run), equal capital each, no stop. Each trade stores
 the slot count it was bought under, so it counts 1/N of its net in the book.
 
@@ -32,6 +32,20 @@ from db import connect
 MAX_OPEN, HOLD = 3, 5  # MAX_OPEN: the default; max_open() is what the scheduler uses
 MAX_OPEN_LIMIT = 10
 MAX_OPEN_KEY = "CONNORS_PAPER_MAX_OPEN"
+UNIVERSE_KEY = "CONNORS_PAPER_UNIVERSE"
+UNIVERSES = connors.DATASETS  # "fno" (F&O stocks, the default) or "stocks" (Nifty 50, all in F&O)
+
+
+def universe():
+    u = db.get_settings([UNIVERSE_KEY]).get(UNIVERSE_KEY, "fno")
+    return u if u in UNIVERSES else "fno"
+
+
+def set_universe(u):
+    if u not in UNIVERSES:
+        raise ValueError(f"Universe must be one of {', '.join(UNIVERSES)}.")
+    db.set_settings({UNIVERSE_KEY: u})
+    return u
 
 
 def max_open():
@@ -73,6 +87,7 @@ def _ensure_tables(cursor):
             note TEXT
         );
         ALTER TABLE connors_paper ADD COLUMN IF NOT EXISTS slots INTEGER NOT NULL DEFAULT 3;
+        ALTER TABLE connors_paper_days ADD COLUMN IF NOT EXISTS universe TEXT;
         """
     )
 
@@ -142,7 +157,8 @@ def record(force=False):
     with connect() as conn, conn.cursor() as cursor:
         to_sell = [(s, b, f) for s, b, f in open_rows if _trading_days_between(cursor, b, today) + 1 >= HOLD and s in prices]
     held = {s for s, _, _ in open_rows} - {s for s, _, _ in to_sell}
-    live = connors.live_signals(prices, today)
+    uni = universe()
+    live = connors.live_signals(prices, today, uni)
     signals = [x for x in live["stocks"] if x["signal"] and x["symbol"] not in held]
     slots = max_open()
     buys = signals[:max(0, slots - len(held))]
@@ -164,12 +180,12 @@ def record(force=False):
                                    "ON CONFLICT (symbol, buy_day) DO NOTHING", rows)
         late = stamp.time() > clock(15, 20)
         cursor.execute(
-            "INSERT INTO connors_paper_days (day, recorded_at, rankable, above_average, signals, bought, sold, note) "
-            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT (day) DO UPDATE SET recorded_at = EXCLUDED.recorded_at, "
+            "INSERT INTO connors_paper_days (day, recorded_at, rankable, above_average, signals, bought, sold, note, universe) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT (day) DO UPDATE SET recorded_at = EXCLUDED.recorded_at, "
             "rankable = EXCLUDED.rankable, above_average = EXCLUDED.above_average, signals = EXCLUDED.signals, "
-            "bought = EXCLUDED.bought, sold = EXCLUDED.sold, note = EXCLUDED.note",
+            "bought = EXCLUDED.bought, sold = EXCLUDED.sold, note = EXCLUDED.note, universe = EXCLUDED.universe",
             (today, stamp, live["rankable"], len(live["stocks"]), sum(x["signal"] for x in live["stocks"]), len(rows),
-             len(to_sell), f"prices taken at {stamp.time():%H:%M:%S}" + (" (late)" if late else "")))
+             len(to_sell), f"prices taken at {stamp.time():%H:%M:%S}" + (" (late)" if late else ""), uni))
         conn.commit()
     return {"recorded": True, "sold": len(to_sell), "bought": [b["symbol"] for b in buys], "signals": len(signals)}
 
@@ -185,7 +201,7 @@ def paper(slippage=0.0002):
         cursor.execute("SELECT symbol, buy_day, buy_at, rsi, buy, fut, fut_buy, sell_day, sell_at, sell, fut_sell, slots "
                        "FROM connors_paper ORDER BY buy_day DESC, symbol")
         trades = cursor.fetchall()
-        cursor.execute("SELECT day, recorded_at, rankable, above_average, signals, bought, sold, note "
+        cursor.execute("SELECT day, recorded_at, rankable, above_average, signals, bought, sold, note, universe "
                        "FROM connors_paper_days ORDER BY day DESC LIMIT 60")
         days = cursor.fetchall()
         today = gapwatch._now().date()
@@ -216,7 +232,8 @@ def paper(slippage=0.0002):
                "fut_book_net_pct": round(sum(t["fut_net_pct"] / t["slots"] for t in out_closed if "fut_net_pct" in t), 2) if fnets else None,
                "cost_per_side_bps": round(10000 * cost, 2)}
     return {"open": out_open, "closed": out_closed, "summary": summary, "max_open": n, "max_open_limit": MAX_OPEN_LIMIT, "hold": HOLD,
+            "universe": universe(), "universes": list(UNIVERSES),
             "backtest_variant": backtest_variant(n),
             "days": [{"day": d.isoformat(), "recorded_at": r.astimezone(backtest.IST).strftime("%H:%M:%S"), "rankable": rk,
-                      "above_average": aa, "signals": sg, "bought": bo, "sold": so, "note": nt}
-                     for d, r, rk, aa, sg, bo, so, nt in days]}
+                      "above_average": aa, "signals": sg, "bought": bo, "sold": so, "note": nt, "universe": un}
+                     for d, r, rk, aa, sg, bo, so, nt, un in days]}

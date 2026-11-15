@@ -1,3 +1,4 @@
+import { useCallback, useEffect, useState } from "react";
 import V2BacktestParams, { useBacktestParams } from "./V2BacktestParams";
 import V2PaperConnors from "./V2PaperConnors";
 import V2PaperGap from "./V2PaperGap";
@@ -19,9 +20,41 @@ export const PAPER_GROUPS = [
   {
     title: "Larry Connors",
     source: "How Markets Really Work (2nd ed., 2012)",
-    models: [{ id: "short-term-reversion", short: "SR", label: "Short-term mean reversion", style: "Positional", liveMaxOpen: true }],
+    models: [{ id: "short-term-reversion", short: "SR", label: "Short-term mean reversion", style: "Positional", live: "/api/connors/paper" }],
   },
 ];
+
+// A paper trader's live settings (universe, max open) on the server: read, and saved on change.
+function useLiveSettings(base) {
+  const [settings, setSettings] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [version, setVersion] = useState(0);
+  useEffect(() => {
+    if (!base) return;
+    fetch(`${base}/settings`)
+      .then((r) => r.json())
+      .then((p) => (p.status === "success" ? setSettings(p) : setError(p.message || p.detail || "Could not load the settings")))
+      .catch(() => setError("Could not reach the API"));
+  }, [base, version]);
+  const save = useCallback(
+    async (what, payload) => {
+      setSaving(true);
+      setError("");
+      try {
+        const r = await fetch(`${base}/${what}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+        const body = await r.json().catch(() => ({}));
+        if (!r.ok) setError(body.detail || `Could not save (${r.status})`);
+        else setVersion((v) => v + 1);
+      } catch (e) {
+        setError(String(e?.message || e));
+      }
+      setSaving(false);
+    },
+    [base],
+  );
+  return { settings, saving, error, version, save };
+}
 
 const ALL = PAPER_GROUPS.flatMap((g) => g.models.map((m) => ({ ...m, group: g })));
 export const DEFAULT_PAPER = ALL[0].id;
@@ -33,7 +66,20 @@ export default function V2Paper({ model, onSelect }) {
   const [params, setParams] = useBacktestParams(`paper-${m.id}`, { universe: "fno", maxOpen: m.step > 1 ? 10 : 5 });
   const step = m.step || 1;
   const maxOpen = params.maxOpen && step > 1 ? Math.min(10, Math.ceil(params.maxOpen / step) * step) : params.maxOpen;
-  const modelParams = { ...params, universe: "fno", maxOpen };
+  const liveSettings = useLiveSettings(m.live);
+  const ls = m.live && liveSettings.settings;
+  const live = ls
+    ? {
+        universe: ls.universe,
+        universes: ls.universes,
+        maxOpen: ls.max_open,
+        limit: ls.max_open_limit,
+        saving: liveSettings.saving,
+        onUniverse: (universe) => liveSettings.save("universe", { universe }),
+        onMaxOpen: (n) => liveSettings.save("max_open", { max_open: n }),
+      }
+    : null;
+  const modelParams = { ...params, universe: ls ? ls.universe : "fno", maxOpen: ls ? ls.max_open : maxOpen };
   return (
     <div className="relative flex min-h-0 min-w-0 flex-1">
       <SideNav groups={PAPER_GROUPS} base="/v2/paper" title="Paper trading" current={m.id} onSelect={select} open={open} onToggle={toggle} />
@@ -46,11 +92,16 @@ export default function V2Paper({ model, onSelect }) {
           <StyleTag style={m.style} />
         </div>
         <div className="mt-4">
-          <V2BacktestParams params={modelParams} onChange={setParams} universes={["fno"]} step={step} hideMaxOpen={!!m.liveMaxOpen} />
+          {(!m.live || ls) && <V2BacktestParams params={modelParams} onChange={setParams} universes={["fno"]} step={step} live={live} />}
+          {liveSettings.error && (
+            <p className="mt-2 text-sm" style={{ color: "var(--negative)" }}>
+              {liveSettings.error}
+            </p>
+          )}
         </div>
         {m.id === "buy-on-gap" && <V2PaperGap params={modelParams} />}
         {m.id === "xs-mean-reversion" && <V2PaperXsmr params={modelParams} />}
-        {m.id === "short-term-reversion" && <V2PaperConnors params={modelParams} />}
+        {m.id === "short-term-reversion" && <V2PaperConnors params={modelParams} version={liveSettings.version} />}
       </section>
     </div>
   );

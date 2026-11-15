@@ -127,42 +127,51 @@ export function LiveMaxOpen({ value, onChange, saving, limit = MAX_OPEN }) {
   );
 }
 
-export default function V2BacktestParams({ params, onChange, universes = ["fno"], step = 1, fixedMaxOpen = null, hideMaxOpen = false }) {
-  // fixedMaxOpen: a paper trader that records a set number of slots (shown, not changeable).
-  // hideMaxOpen: the page sets max open itself (a paper trader whose slot count is a live setting).
-  const maxOpen = fixedMaxOpen || params.maxOpen;
+export default function V2BacktestParams({ params, onChange, universes = ["fno"], step = 1, live = null }) {
+  // live: a paper trader whose universe and max open are server settings the scheduler reads
+  // ({ universe, universes, maxOpen, limit, saving, onUniverse, onMaxOpen }); changes apply from its next run.
+  const maxOpen = live ? live.maxOpen : params.maxOpen;
   const per = maxOpen ? params.capital / maxOpen : null;
   return (
     <div className="flex flex-wrap items-end gap-x-8 gap-y-4 rounded-lg border px-4 py-3" style={{ borderColor: "var(--border)", background: "var(--surface)" }}>
-      <Field label="Universe" hint="The stocks or indices the model trades; each model offers the ones it has">
-        <Segmented
-          label="Universe"
-          options={Object.entries(UNIVERSES).map(([u, text]) => [u, text, !universes.includes(u), universes.includes(u) ? undefined : "Not available for this model"])}
-          value={params.universe}
-          onChange={(universe) => onChange({ universe })}
-        />
-      </Field>
+      {live ? (
+        <Field label="Universe" hint="The stocks the scheduler looks for signals in, saved on the server: it applies from the next run. Open positions are still sold as usual.">
+          <Segmented
+            label="Universe"
+            options={Object.entries(UNIVERSES).map(([u, text]) => [u, text, live.saving || !live.universes.includes(u), live.universes.includes(u) ? undefined : "Not available for this model"])}
+            value={live.universe}
+            onChange={(u) => u !== live.universe && live.onUniverse(u)}
+          />
+        </Field>
+      ) : (
+        <Field label="Universe" hint="The stocks or indices the model trades; each model offers the ones it has">
+          <Segmented
+            label="Universe"
+            options={Object.entries(UNIVERSES).map(([u, text]) => [u, text, !universes.includes(u), universes.includes(u) ? undefined : "Not available for this model"])}
+            value={params.universe}
+            onChange={(universe) => onChange({ universe })}
+          />
+        </Field>
+      )}
       <Field label="Capital" hint="The value of the positions held (not margin: futures margin is roughly a fifth of it)">
         <CapitalInput value={params.capital} onChange={(capital) => onChange({ capital })} />
       </Field>
-      {!hideMaxOpen && (
       <Field
         label="Max open"
         hint={
-          step > 1
+          live
+            ? "How many positions the scheduler may hold, saved on the server: it applies from the next run. Open positions keep the size they were bought at (1 / the max open then); lowering it only stops new buys until enough are sold."
+            : step > 1
             ? "Long-short: as many shorts as longs, so this moves in 2s; Pairs picks how many of them are used. Capital ÷ N each. As per model: the model's own sizing."
             : "At most this many positions at once, capital ÷ N each. As per model: each model's own sizing."
         }
       >
-        {fixedMaxOpen ? (
-          <span className="py-1.5 text-sm" style={{ color: "var(--muted)" }} title="The paper trader records this many slots; it can't be changed after the fact">
-            {fixedMaxOpen} (as recorded)
-          </span>
+        {live ? (
+          <LiveMaxOpen value={live.maxOpen} onChange={live.onMaxOpen} saving={live.saving} limit={live.limit} />
         ) : (
           <MaxOpenStepper value={params.maxOpen} onChange={(maxOpen) => onChange({ maxOpen })} step={step} />
         )}
       </Field>
-      )}
       <Field label="Show" hint="Results as % of capital or in rupees">
         <Segmented
           label="Show results as"

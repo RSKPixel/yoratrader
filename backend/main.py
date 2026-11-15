@@ -1094,6 +1094,26 @@ class ConnorsMaxOpenRequest(BaseModel):
     max_open: int
 
 
+class ConnorsUniverseRequest(BaseModel):
+    universe: str
+
+
+@app.get("/api/connors/paper/settings")
+def connors_paper_settings():
+    """The 15:15 run's live settings: universe and max open."""
+    return {"status": "success", "universe": connorswatch.universe(), "universes": list(connorswatch.UNIVERSES),
+            "max_open": connorswatch.max_open(), "max_open_limit": connorswatch.MAX_OPEN_LIMIT}
+
+
+@app.post("/api/connors/paper/universe")
+def connors_paper_universe(req: ConnorsUniverseRequest):
+    """Short-term mean reversion paper trading: the stocks the 15:15 run looks for signals in (from the next run)."""
+    try:
+        return {"status": "success", "universe": connorswatch.set_universe(req.universe)}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
 @app.post("/api/connors/paper/max_open")
 def connors_paper_max_open(req: ConnorsMaxOpenRequest):
     """Short-term mean reversion paper trading: how many positions the 15:15 run may hold (from the next run)."""
