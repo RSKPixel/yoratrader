@@ -153,9 +153,14 @@ export default function V2Settings({ theme, onTheme, onClose, initialTab = "gene
         style={{ borderColor: "var(--border)", background: "var(--bg)" }}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between border-b px-4 pt-3" style={{ borderColor: "var(--border)" }}>
-          <div className="flex items-end gap-1" role="tablist" aria-label="Settings sections">
-            <h2 className="mr-4 pb-2.5 text-base font-semibold">Settings</h2>
+        <div className="border-b px-4 pt-3" style={{ borderColor: "var(--border)" }}>
+          <div className="flex items-center justify-between">
+            <h2 className="text-base font-semibold">Settings</h2>
+            <button type="button" onClick={onClose} className={button} style={{ borderColor: "var(--border)" }}>
+              Close
+            </button>
+          </div>
+          <div className="mt-2 flex items-end gap-1" role="tablist" aria-label="Settings sections">
             {TABS.map(([id, label]) => {
               const active = id === tab;
               return (
@@ -173,9 +178,6 @@ export default function V2Settings({ theme, onTheme, onClose, initialTab = "gene
               );
             })}
           </div>
-          <button type="button" onClick={onClose} className={`${button} mb-2`} style={{ borderColor: "var(--border)" }}>
-            Close
-          </button>
         </div>
         <div className="min-h-0 flex-1 overflow-auto p-4" role="tabpanel">
           {tab === "general" && <General theme={theme} onTheme={onTheme} />}
