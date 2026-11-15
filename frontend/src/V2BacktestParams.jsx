@@ -92,9 +92,9 @@ function MaxOpenStepper({ value, onChange }) {
         aria-pressed={book}
         className="rounded-md border px-2 py-1 text-xs transition-colors hover:bg-[var(--surface-2)]"
         style={book ? { borderColor: "var(--accent)", color: "var(--accent)" } : { borderColor: "var(--border)", color: "var(--muted)" }}
-        title="Each model's own sizing, as in its book, instead of a fixed number of positions"
+        title="Each model's own sizing instead of a fixed number of positions"
       >
-        Book
+        As per model
       </button>
     </div>
   );
@@ -107,7 +107,7 @@ export default function V2BacktestParams({ params, onChange }) {
       <Field label="Capital" hint="The value of the positions held (not margin: futures margin is roughly a fifth of it)">
         <CapitalInput value={params.capital} onChange={(capital) => onChange({ capital })} />
       </Field>
-      <Field label="Max open" hint="At most this many positions at once, capital ÷ N each. Book: each model's own sizing.">
+      <Field label="Max open" hint="At most this many positions at once, capital ÷ N each. As per model: each model's own sizing.">
         <MaxOpenStepper value={params.maxOpen} onChange={(maxOpen) => onChange({ maxOpen })} />
       </Field>
       <Field label="Show" hint="Results as % of capital or in rupees">
@@ -130,7 +130,7 @@ export default function V2BacktestParams({ params, onChange }) {
             per position · {params.maxOpen} max
           </>
         ) : (
-          "Sized as in the book"
+          "Sized as per the model"
         )}
       </div>
     </div>
