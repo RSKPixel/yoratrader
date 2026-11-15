@@ -17,3 +17,42 @@ body {
   background: #101114;
   color: #e7e4dc;
 }
+
+/* v2: theme tokens. Dark is the new palette (ink + teal); light is its daytime counterpart. */
+.v2[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0a0e13;
+  --surface: #111821;
+  --surface-2: #17202b;
+  --border: #223041;
+  --text: #e6edf3;
+  --muted: #8a98a9;
+  --faint: #5b6878;
+  --accent: #2dd4bf;
+  --accent-ink: #04201c;
+  --accent-soft: rgba(45, 212, 191, 0.12);
+  --positive: #34d399;
+  --negative: #f87171;
+  --warning: #fbbf24;
+}
+.v2[data-theme="light"] {
+  color-scheme: light;
+  --bg: #f5f7fa;
+  --surface: #ffffff;
+  --surface-2: #eef2f6;
+  --border: #dde3ea;
+  --text: #0f1720;
+  --muted: #566273;
+  --faint: #8794a4;
+  --accent: #0f766e;
+  --accent-ink: #ffffff;
+  --accent-soft: rgba(15, 118, 110, 0.1);
+  --positive: #047857;
+  --negative: #b91c1c;
+  --warning: #b45309;
+}
+.v2 {
+  background: var(--bg);
+  color: var(--text);
+  font-family: "IBM Plex Sans", sans-serif;
+}

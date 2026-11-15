@@ -568,6 +568,9 @@ export default function App() {
           <span className="text-[#e2c08a]">TRADER</span>
         </span>
         <div className="ml-auto flex items-center gap-3 text-sm">
+          <a href="/v2/dashboard" className="text-xs text-[#9b968c] hover:text-[#e7e4dc]" title="The new interface, being built page by page">
+            v2
+          </a>
           <span className="text-xs text-[#9b968c]">{displayName(user)}</span>
           <button
             type="button"
