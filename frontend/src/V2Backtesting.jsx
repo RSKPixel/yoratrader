@@ -121,7 +121,7 @@ function SubNav({ current, onSelect, open, onToggle }) {
         aria-label="Close the model list"
       />
       <nav
-        className="absolute inset-y-0 left-0 z-20 flex w-64 shrink-0 flex-col overflow-y-auto border-r md:static md:z-auto"
+        className="absolute inset-y-0 left-0 z-20 flex w-80 shrink-0 flex-col overflow-y-auto border-r md:static md:z-auto"
         style={{ borderColor: "var(--border)", background: "var(--surface)" }}
         aria-label="Backtests"
       >
