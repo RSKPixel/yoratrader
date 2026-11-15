@@ -131,7 +131,7 @@ function MonthGrid({ years, months, value, onOpen }) {
   );
 }
 
-function MonthTrades({ month, query, value, onClose }) {
+function MonthTrades({ month, query, value, capital, onClose }) {
   const [rows, setRows] = useState(null);
   useEffect(() => {
     const controller = new AbortController();
@@ -173,10 +173,10 @@ function MonthTrades({ month, query, value, onClose }) {
           </button>
         </div>
         <div className="overflow-auto">
-          <table className="w-full min-w-[900px] text-xs tabular-nums">
+          <table className="w-full min-w-[960px] text-xs tabular-nums">
             <thead className="sticky top-0 text-left" style={{ background: "var(--surface)", color: "var(--faint)" }}>
               <tr>
-                {["Day", "Stock", "Side", "Gap", "Entry", "Stop", "Exit", "Reason", "Return", "Net", "Size", "Cost", "Net result"].map((h) => (
+                {["Day", "Stock", "Side", "Gap", "Entry", "Qty", "Stop", "Exit", "Reason", "Return", "Net", "Size", "Cost", "Net result"].map((h) => (
                   <th key={h} className="px-3 py-2 font-medium">
                     {h}
                   </th>
@@ -195,6 +195,9 @@ function MonthTrades({ month, query, value, onClose }) {
                     {t.gap_pct.toFixed(2)}%
                   </td>
                   <td className="px-3 py-1.5">{t.entry}</td>
+                  <td className="px-3 py-1.5" title={`${t.weight_pct}% of ${formatRs(capital)} ÷ ${t.entry}`}>
+                    {Math.round(((t.weight_pct / 100) * capital) / t.entry).toLocaleString("en-IN")}
+                  </td>
                   <td className="px-3 py-1.5" style={{ color: "var(--muted)" }}>
                     {t.stop}
                   </td>
@@ -311,7 +314,7 @@ export default function V2BuyOnGap({ params }) {
           </Panel>
         </>
       )}
-      {month && <MonthTrades month={month} query={query} value={value} onClose={closeMonth} />}
+      {month && <MonthTrades month={month} query={query} value={value} capital={params.capital} onClose={closeMonth} />}
     </div>
   );
 }
