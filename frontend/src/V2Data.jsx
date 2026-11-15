@@ -137,6 +137,7 @@ function Missing({ v }) {
 }
 
 const COLUMNS = [
+  { key: "chart", h: "" },
   { key: "symbol", h: "Symbol", sort: (r) => r.symbol },
   { key: "universes", h: "In", sort: (r) => r.universes.join(",") },
   { key: "lot", h: "Lot", sort: (r) => r.lot_size ?? -1 },
@@ -151,7 +152,6 @@ const COLUMNS = [
   { key: "m_gaps", h: "Gaps", sort: (r) => r.m15.gap_days || 0, group: "15 min" },
   { key: "m_miss", h: "Missing", sort: (r) => r.m15.missing, group: "15 min" },
   { key: "o_days", h: "1 min days", sort: (r) => r.m1?.days ?? -1, backtestOnly: true },
-  { key: "chart", h: "" },
 ];
 
 export default function V2Data() {
