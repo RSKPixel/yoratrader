@@ -1090,6 +1090,19 @@ def xsmr_paper(slippage: float = Query(0.02, ge=0, le=1), stop: bool = Query(Fal
         return {"status": "error", "message": str(error)}
 
 
+class ConnorsMaxOpenRequest(BaseModel):
+    max_open: int
+
+
+@app.post("/api/connors/paper/max_open")
+def connors_paper_max_open(req: ConnorsMaxOpenRequest):
+    """Short-term mean reversion paper trading: how many positions the 15:15 run may hold (from the next run)."""
+    try:
+        return {"status": "success", "max_open": connorswatch.set_max_open(req.max_open)}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
 @app.get("/api/connors/paper")
 def connors_paper(slippage: float = Query(0.02, ge=0, le=1)):
     """Short-term mean reversion paper trading: open positions, closed trades, days."""

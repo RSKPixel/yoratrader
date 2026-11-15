@@ -108,8 +108,28 @@ function MaxOpenStepper({ value, onChange, step: by = 1 }) {
   );
 }
 
-export default function V2BacktestParams({ params, onChange, universes = ["fno"], step = 1, fixedMaxOpen = null }) {
-  // fixedMaxOpen: a paper trader that records a set number of slots (shown, not changeable)
+export function LiveMaxOpen({ value, onChange, saving, limit = MAX_OPEN }) {
+  // A paper trader's own slot count, saved on the server (no "As per model")
+  const btn = "grid h-8 w-8 place-items-center text-base transition-colors hover:bg-[var(--surface)] disabled:opacity-40";
+  return (
+    <div className="flex items-center gap-2">
+      <div className="flex items-center overflow-hidden rounded-md border" style={inputStyle}>
+        <button type="button" className={btn} onClick={() => onChange(value - 1)} disabled={saving || value <= 1} aria-label="Fewer positions">
+          −
+        </button>
+        <span className="w-10 text-center text-sm tabular-nums">{value}</span>
+        <button type="button" className={btn} onClick={() => onChange(value + 1)} disabled={saving || value >= limit} aria-label="More positions">
+          +
+        </button>
+      </div>
+      {saving && <span className="text-xs" style={{ color: "var(--faint)" }}>Saving…</span>}
+    </div>
+  );
+}
+
+export default function V2BacktestParams({ params, onChange, universes = ["fno"], step = 1, fixedMaxOpen = null, hideMaxOpen = false }) {
+  // fixedMaxOpen: a paper trader that records a set number of slots (shown, not changeable).
+  // hideMaxOpen: the page sets max open itself (a paper trader whose slot count is a live setting).
   const maxOpen = fixedMaxOpen || params.maxOpen;
   const per = maxOpen ? params.capital / maxOpen : null;
   return (
@@ -125,6 +145,7 @@ export default function V2BacktestParams({ params, onChange, universes = ["fno"]
       <Field label="Capital" hint="The value of the positions held (not margin: futures margin is roughly a fifth of it)">
         <CapitalInput value={params.capital} onChange={(capital) => onChange({ capital })} />
       </Field>
+      {!hideMaxOpen && (
       <Field
         label="Max open"
         hint={
@@ -141,6 +162,7 @@ export default function V2BacktestParams({ params, onChange, universes = ["fno"]
           <MaxOpenStepper value={params.maxOpen} onChange={(maxOpen) => onChange({ maxOpen })} step={step} />
         )}
       </Field>
+      )}
       <Field label="Show" hint="Results as % of capital or in rupees">
         <Segmented
           label="Show results as"

@@ -19,7 +19,7 @@ export const PAPER_GROUPS = [
   {
     title: "Larry Connors",
     source: "How Markets Really Work (2nd ed., 2012)",
-    models: [{ id: "short-term-reversion", short: "SR", label: "Short-term mean reversion", style: "Positional", fixed: 3 }],
+    models: [{ id: "short-term-reversion", short: "SR", label: "Short-term mean reversion", style: "Positional", liveMaxOpen: true }],
   },
 ];
 
@@ -46,11 +46,11 @@ export default function V2Paper({ model, onSelect }) {
           <StyleTag style={m.style} />
         </div>
         <div className="mt-4">
-          <V2BacktestParams params={modelParams} onChange={setParams} universes={["fno"]} step={step} fixedMaxOpen={m.fixed || null} />
+          <V2BacktestParams params={modelParams} onChange={setParams} universes={["fno"]} step={step} hideMaxOpen={!!m.liveMaxOpen} />
         </div>
         {m.id === "buy-on-gap" && <V2PaperGap params={modelParams} />}
         {m.id === "xs-mean-reversion" && <V2PaperXsmr params={modelParams} />}
-        {m.id === "short-term-reversion" && <V2PaperConnors params={modelParams} maxOpen={m.fixed} />}
+        {m.id === "short-term-reversion" && <V2PaperConnors params={modelParams} />}
       </section>
     </div>
   );
