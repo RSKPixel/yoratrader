@@ -34,6 +34,7 @@ import v2kbdt
 import v2xsmr
 import v2pairs
 import v2xsmom
+import v2qmom
 import connors
 import xsmrwatch
 import connorswatch
@@ -853,6 +854,36 @@ def v2_backtest_gapmom_month(month: str = Query(..., pattern=r"^\d{4}-\d{2}$"), 
         return {"status": "success", "trades": v2gap.month_trades(month, **args, model="gapmom")}
     except Exception as error:
         print("v2 gapmom month failed:", error)
+        return {"status": "error", "message": str(error)}
+
+
+def _v2qmom_args(dataset, version, hedge, max_open, slippage):
+    if dataset not in v2qmom.DATASETS or version not in v2qmom.VERSIONS or hedge not in ("none", "nifty"):
+        raise HTTPException(status_code=400, detail="unknown dataset, version or hedge")
+    return dict(dataset=dataset, version=version, hedge=hedge, max_open=max_open, slippage=slippage / 100)
+
+
+@app.get("/api/v2/backtest/qmom")
+def v2_backtest_qmom(dataset: str = Query("fno"), version: str = Query("book"), hedge: str = Query("none"),
+                     max_open: int = Query(5, ge=0, le=v2qmom.MAX_OPEN), slippage: float = Query(0.02, ge=0, le=1)):
+    """Quantitative momentum (v2 page): holdings per rebalance period, sized by capital and max open."""
+    args = _v2qmom_args(dataset, version, hedge, max_open, slippage)
+    try:
+        return {"status": "success", **v2qmom.results(**args)}
+    except Exception as error:
+        print("v2 qmom backtest failed:", error)
+        return {"status": "error", "message": str(error)}
+
+
+@app.get("/api/v2/backtest/qmom/month")
+def v2_backtest_qmom_month(month: str = Query(..., pattern=r"^\d{4}-\d{2}$"), dataset: str = Query("fno"),
+                           version: str = Query("book"), hedge: str = Query("none"),
+                           max_open: int = Query(5, ge=0, le=v2qmom.MAX_OPEN), slippage: float = Query(0.02, ge=0, le=1)):
+    args = _v2qmom_args(dataset, version, hedge, max_open, slippage)
+    try:
+        return {"status": "success", "trades": v2qmom.month_trades(month, **args)}
+    except Exception as error:
+        print("v2 qmom month failed:", error)
         return {"status": "error", "message": str(error)}
 
 

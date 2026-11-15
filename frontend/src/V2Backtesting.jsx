@@ -5,6 +5,7 @@ import V2Kbdt from "./V2Kbdt";
 import V2Xsmr from "./V2Xsmr";
 import V2Pairs from "./V2Pairs";
 import V2Xsmom from "./V2Xsmom";
+import V2Qmom from "./V2Qmom";
 
 // v2 Backtesting: a sub nav of every model with a backtest, grouped by where it comes from. Each
 // model's page is blank for now; they move over from the classic app one by one.
@@ -230,6 +231,7 @@ export default function V2Backtesting({ model, onSelect }) {
         {m.id === "xs-mean-reversion" && <V2Xsmr params={modelParams} />}
         {m.id === "pairs" && <V2Pairs params={modelParams} />}
         {m.id === "xs-momentum" && <V2Xsmom params={modelParams} />}
+        {m.id === "quant-momentum" && <V2Qmom params={modelParams} />}
       </section>
     </div>
   );
