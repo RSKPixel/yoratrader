@@ -17,7 +17,7 @@ const nativeFetch = window.fetch.bind(window);
 window.fetch = async (input, init) => {
   const response = await nativeFetch(input, init);
   const url = typeof input === "string" ? input : input?.url || "";
-  if (response.status === 401 && url.includes("/api/") && !url.includes("/api/auth/login")) {
+  if (response.status === 401 && url.includes("/api/") && !url.includes("/api/auth/login") && !url.includes("/api/auth/totp")) {
     onUnauthorized();
   }
   return response;
@@ -44,28 +44,142 @@ function Shell({ children }) {
   );
 }
 
+const labelCls = "mt-4 block text-[0.6875rem] font-semibold uppercase tracking-[0.14em]";
+const inputCls = "mt-1.5 w-full rounded-md border px-3 py-2 text-sm normal-case tracking-normal outline-none transition-colors focus:border-[var(--accent)]";
+
+async function post(url, payload) {
+  const response = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+  const body = await response.json().catch(() => ({}));
+  return { ok: response.ok, status: response.status, body };
+}
+
+function Card({ subtitle, onSubmit, children }) {
+  return (
+    <Shell>
+      <form onSubmit={onSubmit} className="w-full max-w-sm rounded-xl border p-7 shadow-xl" style={{ borderColor: "var(--border)", background: "var(--surface)" }}>
+        <p className="text-center text-xl font-bold tracking-[0.18em]">
+          <span style={{ color: "var(--brand)" }}>YORA</span>
+          <span style={{ color: "var(--brand-gold)" }}>TRADER</span>
+        </p>
+        <p className="mt-1.5 text-center text-sm" style={{ color: "var(--muted)" }}>
+          {subtitle}
+        </p>
+        {children}
+      </form>
+    </Shell>
+  );
+}
+
+function ErrorBox({ error }) {
+  return error ? (
+    <p className="mt-4 rounded-md px-3 py-2 text-xs" style={{ background: "color-mix(in srgb, var(--negative) 12%, transparent)", color: "var(--negative)" }}>
+      {error}
+    </p>
+  ) : null;
+}
+
+function Submit({ busy, disabled, children }) {
+  return (
+    <button
+      type="submit"
+      disabled={busy || disabled}
+      className="mt-6 w-full rounded-md px-3 py-2 text-sm font-medium transition-opacity disabled:opacity-40"
+      style={{ background: "var(--accent)", color: "var(--accent-ink)" }}
+    >
+      {children}
+    </button>
+  );
+}
+
+function CodeStep({ step, onLogin, onBack }) {
+  // Second step: the 6-digit Google Authenticator code; the first time, scan the QR code before it.
+  const [code, setCode] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [showKey, setShowKey] = useState(false);
+
+  const submit = async (event) => {
+    event?.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      const r = await post("/api/auth/totp", { challenge: step.challenge, code });
+      if (r.ok) {
+        onLogin(r.body.user);
+        return;
+      }
+      if (r.status === 401 && /expired/i.test(r.body.detail || "")) {
+        onBack(r.body.detail);
+        return;
+      }
+      setError(r.body.detail || `Sign-in failed (${r.status})`);
+    } catch (err) {
+      setError(String(err?.message || err));
+    }
+    setCode("");
+    setBusy(false);
+  };
+
+  return (
+    <Card subtitle={step.enroll ? "Set up Google Authenticator" : "Two-step verification"} onSubmit={submit}>
+      {step.enroll && (
+        <div className="mt-6 flex flex-col items-center gap-3 text-center">
+          <p className="text-xs leading-relaxed" style={{ color: "var(--muted)" }}>
+            Open Google Authenticator, tap <b>+</b> → <b>Scan a QR code</b>, and scan this. You'll only do this once.
+          </p>
+          <div className="rounded-lg bg-white p-1" dangerouslySetInnerHTML={{ __html: step.qr_svg }} aria-label="Authenticator QR code" />
+          <button type="button" onClick={() => setShowKey((v) => !v)} className="text-xs underline" style={{ color: "var(--muted)" }}>
+            {showKey ? "Hide setup key" : "Can't scan? Enter a setup key"}
+          </button>
+          {showKey && (
+            <code className="rounded-md border px-2 py-1 text-xs tracking-[0.12em] break-all select-all" style={{ borderColor: "var(--border)", background: "var(--surface-2)" }}>
+              {step.secret.match(/.{1,4}/g).join(" ")}
+            </code>
+          )}
+        </div>
+      )}
+      <label className={`${labelCls} ${step.enroll ? "mt-5" : "mt-7"}`} style={{ color: "var(--faint)" }}>
+        {step.enroll ? "Code shown in the app" : "Authenticator code"}
+        <input
+          value={code}
+          onChange={(e) => {
+            const v = e.target.value.replace(/\D/g, "").slice(0, 6);
+            setCode(v);
+          }}
+          inputMode="numeric"
+          autoComplete="one-time-code"
+          placeholder="000000"
+          autoFocus
+          className={`${inputCls} text-center text-lg tabular-nums tracking-[0.5em]`}
+          style={field}
+        />
+      </label>
+      <ErrorBox error={error} />
+      <Submit busy={busy} disabled={code.length !== 6}>
+        {busy ? "Verifying…" : step.enroll ? "Confirm and sign in" : "Verify"}
+      </Submit>
+      <button type="button" onClick={() => onBack("")} className="mt-3 w-full text-center text-xs" style={{ color: "var(--muted)" }}>
+        ← Back
+      </button>
+    </Card>
+  );
+}
+
 function LoginPage({ onLogin }) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [step, setStep] = useState(null); // the password step's challenge: { challenge, enroll, qr_svg?, secret? }
 
   const submit = async (event) => {
     event.preventDefault();
     setBusy(true);
     setError("");
     try {
-      const response = await fetch("/api/auth/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username: username.trim(), password }),
-      });
-      const body = await response.json().catch(() => ({}));
-      if (response.ok) {
-        onLogin(body.user);
-        return;
-      }
-      setError(body.detail || `Login failed (${response.status})`);
+      const r = await post("/api/auth/login", { username: username.trim(), password });
+      if (r.ok) setStep(r.body);
+      else setError(r.body.detail || `Sign-in failed (${r.status})`);
     } catch (err) {
       setError(String(err?.message || err));
     }
@@ -73,44 +187,37 @@ function LoginPage({ onLogin }) {
     setBusy(false);
   };
 
-  const label = "mt-4 block text-[0.6875rem] font-semibold uppercase tracking-[0.14em]";
-  const input = "mt-1.5 w-full rounded-md border px-3 py-2 text-sm normal-case tracking-normal outline-none transition-colors focus:border-[var(--accent)]";
+  if (step) {
+    return (
+      <CodeStep
+        step={step}
+        onLogin={onLogin}
+        onBack={(message) => {
+          setStep(null);
+          setError(message);
+        }}
+      />
+    );
+  }
+
   return (
-    <Shell>
-      <form onSubmit={submit} className="w-full max-w-sm rounded-xl border p-7 shadow-xl" style={{ borderColor: "var(--border)", background: "var(--surface)" }}>
-        <p className="text-center text-xl font-bold tracking-[0.18em]">
-          <span style={{ color: "var(--brand)" }}>YORA</span>
-          <span style={{ color: "var(--brand-gold)" }}>TRADER</span>
-        </p>
-        <p className="mt-1.5 text-center text-sm" style={{ color: "var(--muted)" }}>
-          Sign in to continue
-        </p>
-
-        <label className={`${label} mt-7`} style={{ color: "var(--faint)" }}>
-          User ID
-          <input value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" autoFocus required className={input} style={field} />
-        </label>
-        <label className={label} style={{ color: "var(--faint)" }}>
-          Password
-          <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" required className={input} style={field} />
-        </label>
-
-        {error && (
-          <p className="mt-4 rounded-md px-3 py-2 text-xs" style={{ background: "color-mix(in srgb, var(--negative) 12%, transparent)", color: "var(--negative)" }}>
-            {error}
-          </p>
-        )}
-
-        <button
-          type="submit"
-          disabled={busy || !username.trim() || !password}
-          className="mt-6 w-full rounded-md px-3 py-2 text-sm font-medium transition-opacity disabled:opacity-40"
-          style={{ background: "var(--accent)", color: "var(--accent-ink)" }}
-        >
-          {busy ? "Signing in…" : "Sign in"}
-        </button>
-      </form>
-    </Shell>
+    <Card subtitle="Sign in to continue" onSubmit={submit}>
+      <label className={`${labelCls} mt-7`} style={{ color: "var(--faint)" }}>
+        User ID
+        <input value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" autoFocus required className={inputCls} style={field} />
+      </label>
+      <label className={labelCls} style={{ color: "var(--faint)" }}>
+        Password
+        <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" required className={inputCls} style={field} />
+      </label>
+      <ErrorBox error={error} />
+      <Submit busy={busy} disabled={!username.trim() || !password}>
+        {busy ? "Signing in…" : "Continue"}
+      </Submit>
+      <p className="mt-4 text-center text-[0.6875rem]" style={{ color: "var(--faint)" }}>
+        Sessions end daily at 06:00 IST
+      </p>
+    </Card>
   );
 }
 

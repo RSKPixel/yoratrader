@@ -75,7 +75,7 @@ function Profile() {
     setBusy("name");
     try {
       const body = await post("/api/auth/name", { display_name: name.trim() });
-      setUser(body.user);
+      setUser((u) => ({ ...u, ...body.user }));
       setName(body.user.display_name || "");
       setNameResult({ ok: true, message: "Saved." });
     } catch (error) {
@@ -114,6 +114,26 @@ function Profile() {
           </button>
           <Message result={nameResult} />
         </form>
+      </Section>
+      <Section title="Security">
+        <dl className="flex flex-col gap-2 text-sm">
+          <div className="flex justify-between gap-3">
+            <dt style={{ color: "var(--muted)" }}>Two-step verification</dt>
+            <dd style={{ color: "var(--positive)" }}>Google Authenticator · on</dd>
+          </div>
+          <div className="flex justify-between gap-3">
+            <dt style={{ color: "var(--muted)" }}>This session ends</dt>
+            <dd className="tabular-nums">
+              {user?.expires_at
+                ? new Date(user.expires_at).toLocaleString("en-IN", { timeZone: "Asia/Kolkata", weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false })
+                : "—"}{" "}
+              IST
+            </dd>
+          </div>
+        </dl>
+        <p className="mt-3 text-xs" style={{ color: "var(--faint)" }}>
+          Every session ends at 06:00 IST. Lost your phone? On the server run <code>manage_user.py --reset-2fa</code>; the next sign-in shows a new QR code.
+        </p>
       </Section>
       <Section title="Change password">
         <form onSubmit={savePassword} className="flex flex-col gap-2">

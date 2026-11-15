@@ -104,6 +104,11 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class TotpRequest(BaseModel):
+    challenge: str
+    code: str
+
+
 class NameRequest(BaseModel):
     display_name: str = ""
 
@@ -114,16 +119,32 @@ class PasswordRequest(BaseModel):
 
 
 @app.post("/api/auth/login")
-def auth_login(req: LoginRequest, response: Response):
+def auth_login(req: LoginRequest):
+    """Step 1: the password. Returns a challenge for the authenticator code (and a QR code the first time)."""
     try:
-        token = auth.login(req.username, req.password)
+        step = auth.login(req.username, req.password)
     except auth.LoginLocked as exc:
         raise HTTPException(status_code=429, detail=str(exc))
-    if not token:
+    if not step:
         if auth.user_count() == 0:
             raise HTTPException(status_code=401, detail="No user set up yet. Run backend/manage_user.py on the server.")
         raise HTTPException(status_code=401, detail="Incorrect user ID or password.")
-    response.set_cookie(value=token, max_age=auth.SESSION_DAYS * 86400, **auth.cookie_kwargs())
+    return step
+
+
+@app.post("/api/auth/totp")
+def auth_totp(req: TotpRequest, response: Response):
+    """Step 2: the 6-digit Google Authenticator code. Sets the session cookie (valid until the next 06:00 IST)."""
+    try:
+        issued = auth.verify_totp(req.challenge, req.code)
+    except auth.LoginLocked as exc:
+        raise HTTPException(status_code=429, detail=str(exc))
+    except PermissionError as exc:
+        raise HTTPException(status_code=401, detail=str(exc))
+    if not issued:
+        raise HTTPException(status_code=401, detail="Incorrect code. Check the time on your phone and try the current code.")
+    token, expires = issued
+    response.set_cookie(value=token, expires=expires, **auth.cookie_kwargs())
     return {"user": auth.session_user(token)}
 
 
