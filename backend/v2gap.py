@@ -18,6 +18,7 @@ import time
 import numpy as np
 import pandas as pd
 
+import v2common
 import xsmr
 from db import connect
 
@@ -76,45 +77,8 @@ def _sized(dataset, side, stop, max_open, slippage):
 
 def results(dataset="fno", side="long", stop="none", max_open=5, slippage=0.0002):
     t, days = _sized(dataset, side, stop, max_open, slippage)
-    if t.empty:
-        return {"summary": None}
-    daily = t.groupby("day")[["book_ret", "book_net", "book_cost"]].sum().reindex(days, fill_value=0.0)
-    eq = daily["book_net"].cumsum()
-    r = daily["book_net"]
-    wins, losses = t.loc[t["book_net"] > 0, "book_net"].sum(), -t.loc[t["book_net"] < 0, "book_net"].sum()
-    yearly = daily.groupby(daily.index.year)["book_net"].sum()
-    by_year = t.groupby(t["day"].dt.year)
-    by_month = t.groupby(t["day"].dt.strftime("%Y-%m"))
-    weekly = daily[["book_ret", "book_net"]].resample("W-FRI").sum().cumsum()
-    summary = {
-        "trades": int(len(t)), "days_traded": int(t["day"].nunique()), "days": int(len(days)),
-        "from": days[0].date().isoformat(), "to": days[-1].date().isoformat(),
-        "win_rate": round(float(100 * (t["net"] > 0).mean()), 1),
-        "win_rate_gross": round(float(100 * (t["ret"] > 0).mean()), 1),
-        "gross_pct": round(float(100 * t["book_ret"].sum()), 3),
-        "cost_pct": round(float(100 * t["book_cost"].sum()), 3),
-        "net_pct": round(float(100 * t["book_net"].sum()), 3),
-        "avg_cost_pct": round(float(100 * t["book_cost"].mean()), 4),
-        "avg_net_pct": round(float(100 * t["book_net"].mean()), 4),
-        "avg_trade_net_pct": round(float(100 * t["net"].mean()), 3),
-        "profit_factor": round(float(wins / losses), 2) if losses > 0 else None,
-        "max_dd_pct": round(float(100 * (eq - eq.cummax()).min()), 3),
-        "net_year_pct": round(float(100 * r.mean() * TRADING_DAYS), 2),
-        "sharpe": round(float(r.mean() / r.std() * np.sqrt(TRADING_DAYS)), 2) if r.std() else None,
-        "green_years": int((yearly > 0).sum()), "years": int(len(yearly)),
-        "avg_positions": round(float(t.groupby("day").size().mean()), 1),
-        "cost_per_side_bps": round(10000 * xsmr.cost_per_side(slippage), 2),
-    }
-    return {
-        "summary": summary,
-        "equity": [{"date": d.date().isoformat(), "gross": round(float(100 * g), 3), "net": round(float(100 * n), 3)}
-                   for d, g, n in zip(weekly.index, weekly["book_ret"], weekly["book_net"])],
-        "years": [{"year": int(y), "trades": int(len(g)), "win_rate": round(float(100 * (g["net"] > 0).mean()), 1),
-                   "net_pct": round(float(100 * g["book_net"].sum()), 3), "gross_pct": round(float(100 * g["book_ret"].sum()), 3)}
-                  for y, g in by_year],
-        "months": [{"month": m, "trades": int(len(g)), "win_rate": round(float(100 * (g["net"] > 0).mean()), 1),
-                    "net_pct": round(float(100 * g["book_net"].sum()), 3)} for m, g in by_month],
-    }
+    extra = {"avg_positions": round(float(t.groupby("day").size().mean()), 1)} if len(t) else {}
+    return v2common.build_results(t, days, slippage, extra)
 
 
 def month_trades(month, dataset="fno", side="long", stop="none", max_open=5, slippage=0.0002):

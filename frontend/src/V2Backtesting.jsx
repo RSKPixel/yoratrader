@@ -1,6 +1,7 @@
 import { useState } from "react";
 import V2BacktestParams, { useBacktestParams } from "./V2BacktestParams";
 import V2BuyOnGap from "./V2BuyOnGap";
+import V2Kbdt from "./V2Kbdt";
 
 // v2 Backtesting: a sub nav of every model with a backtest, grouped by where it comes from. Each
 // model's page is blank for now; they move over from the classic app one by one.
@@ -9,7 +10,7 @@ export const BACKTEST_GROUPS = [
   {
     title: "YoraTrader",
     source: "Our own model",
-    models: [{ id: "kbdt", universes: ["indices", "stocks"], short: "KB", label: "Key Breakout Dow Theory", style: "Positional" }],
+    models: [{ id: "kbdt", universes: ["indices", "stocks", "fno"], short: "KB", label: "Key Breakout Dow Theory", style: "Positional" }],
   },
   {
     title: "Ernest Chan",
@@ -218,6 +219,7 @@ export default function V2Backtesting({ model, onSelect }) {
           <V2BacktestParams params={modelParams} onChange={setParams} universes={m.universes} />
         </div>
         {m.id === "buy-on-gap" && <V2BuyOnGap params={modelParams} />}
+        {m.id === "kbdt" && <V2Kbdt params={modelParams} />}
       </section>
     </div>
   );

@@ -30,6 +30,7 @@ import xsmr
 import xsmom
 import qmom
 import v2gap
+import v2kbdt
 import connors
 import xsmrwatch
 import connorswatch
@@ -695,6 +696,38 @@ def v2_backtest_gap_month(month: str = Query(..., pattern=r"^\d{4}-\d{2}$"), dat
         return {"status": "success", "trades": v2gap.month_trades(month, **args)}
     except Exception as error:
         print("v2 gap month failed:", error)
+        return {"status": "error", "message": str(error)}
+
+
+def _v2kbdt_args(dataset, hold, stop_mode, stop_pct, max_open, slippage):
+    if dataset not in v2kbdt.DATASETS or hold not in v2kbdt.HOLDS or stop_mode not in v2kbdt.STOP_MODES \
+            or (stop_mode != "model" and stop_pct not in v2kbdt.STOP_PCTS):
+        raise HTTPException(status_code=400, detail="unknown dataset, hold or stop")
+    return dict(dataset=dataset, hold=hold, stop_mode=stop_mode, stop_pct=stop_pct, max_open=max_open, slippage=slippage / 100)
+
+
+@app.get("/api/v2/backtest/kbdt")
+def v2_backtest_kbdt(dataset: str = Query("indices"), hold: str = Query("5d"), stop_mode: str = Query("model"),
+                     stop_pct: float = Query(1.0), max_open: int = Query(5, ge=0, le=v2kbdt.MAX_OPEN),
+                     slippage: float = Query(0.02, ge=0, le=1)):
+    """Key Breakout Dow Theory (v2 page): the stored trades sized by capital and max open."""
+    args = _v2kbdt_args(dataset, hold, stop_mode, stop_pct, max_open, slippage)
+    try:
+        return {"status": "success", **v2kbdt.results(**args)}
+    except Exception as error:
+        print("v2 KBDT backtest failed:", error)
+        return {"status": "error", "message": str(error)}
+
+
+@app.get("/api/v2/backtest/kbdt/month")
+def v2_backtest_kbdt_month(month: str = Query(..., pattern=r"^\d{4}-\d{2}$"), dataset: str = Query("indices"),
+                           hold: str = Query("5d"), stop_mode: str = Query("model"), stop_pct: float = Query(1.0),
+                           max_open: int = Query(5, ge=0, le=v2kbdt.MAX_OPEN), slippage: float = Query(0.02, ge=0, le=1)):
+    args = _v2kbdt_args(dataset, hold, stop_mode, stop_pct, max_open, slippage)
+    try:
+        return {"status": "success", "trades": v2kbdt.month_trades(month, **args)}
+    except Exception as error:
+        print("v2 KBDT month failed:", error)
         return {"status": "error", "message": str(error)}
 
 

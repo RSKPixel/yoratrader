@@ -55,7 +55,8 @@ DAILY_LEAD = 120  # calendar days of daily bars before the first 15m day (SMA50 
 PAUSE = 0.35  # Kite historical API allows about 3 requests a second
 DATASETS = ("indices", "stocks", "fno")
 # "fno": every stock with a current NFO future (today's list, so also survivorship-biased).
-# Buy-on-gap only: the KBDT replay is too slow for ~180 symbols.
+# KBDT on "fno" is built by run_kbdt_backtest (the replay takes ~1.5 h the first time; replayed days
+# are stored, so later runs only replay new days). run_backtest still leaves it out.
 GAP_ONLY_DATASETS = ("fno",)
 # Downloaded as far back as Kite goes (daily from INDEX_DAILY_FROM, 15m from INDEX_15M_FROM).
 FULL_HISTORY_DATASETS = ("indices", "stocks", "fno")
@@ -539,8 +540,9 @@ def _epoch(ts):
     return orb._epoch_ist(ts)
 
 
-def _scan_one(item):
-    """Every KBDT variant and the buy-on-gap candidates for one symbol (runs in a worker process)."""
+def _scan_one(item, kbdt_only=False):
+    """Every KBDT variant and the buy-on-gap candidates for one symbol (runs in a worker process).
+    kbdt_only: KBDT on any dataset (also the "fno" one), no gap candidates."""
     dataset, symbol = item
     with connect() as conn:
         bars, daily = _load_dataset_symbol(conn, dataset, symbol)
@@ -555,11 +557,13 @@ def _scan_one(item):
     if dataset == "indices" and len(daily) > KBDT_WINDOW:
         first_day = min(first_15m, daily_days.iloc[KBDT_WINDOW])
     daily_ix = daily.set_index(pd.to_datetime(daily["datetime"]))
-    gap = {"gap": _gap_candidates(dataset, symbol, bars, daily)}
-    if dataset in GAPMOM_DATASETS:
-        gap["gapmom"] = _gap_candidates(dataset, symbol, bars, daily, "gapmom")
+    gap = {}
+    if not kbdt_only:
+        gap = {"gap": _gap_candidates(dataset, symbol, bars, daily)}
+        if dataset in GAPMOM_DATASETS:
+            gap["gapmom"] = _gap_candidates(dataset, symbol, bars, daily, "gapmom")
     for model, variants in VARIANTS.items():
-        if model != "kbdt" or dataset in GAP_ONLY_DATASETS:  # gap models are built in run_backtest
+        if model != "kbdt" or (dataset in GAP_ONLY_DATASETS and not kbdt_only):  # gap models are built in run_backtest
             continue
         signals = _kbdt_signals(symbol, first_day)
         early = {d: v for d, v in signals.items() if d < first_15m}
@@ -756,6 +760,36 @@ def _gap_rows(candidates, model="gap"):
                 rows.append((model, variant, *row))
                 busy[(dataset, row[1])] = row[-1]
     return rows
+
+
+def _scan_kbdt(item):
+    try:
+        dataset, symbol, _, rows, _ = _scan_one(item, kbdt_only=True)
+        print(f"KBDT {dataset} {symbol}: {len(rows)} trades", flush=True)
+        return rows
+    except Exception as error:  # one symbol's bad data mustn't stop the run
+        print(f"KBDT {item}: failed: {error}", flush=True)
+        return []
+
+
+def run_kbdt_backtest(dataset="fno", workers=10):
+    """KBDT only, on one dataset: replay any days not yet replayed (stored as they go), simulate every
+    KBDT variant, and replace that dataset's KBDT trades. Other models' trades are untouched."""
+    with connect() as conn, conn.cursor() as cursor:
+        _ensure_tables(cursor)
+        conn.commit()
+        cursor.execute("SELECT dataset, symbol FROM bt_symbols WHERE dataset = %s ORDER BY symbol", (dataset,))
+        items = cursor.fetchall()
+    with multiprocessing.get_context("spawn").Pool(workers) as pool:
+        rows = [r for found in pool.imap_unordered(_scan_kbdt, items) for r in found]
+    with connect() as conn, conn.cursor() as cursor:
+        cursor.execute("DELETE FROM bt_trades WHERE model = 'kbdt' AND dataset = %s", (dataset,))
+        execute_values(cursor, "INSERT INTO bt_trades (model, variant, dataset, symbol, date, side, entry_time, entry_label, "
+                               "entry, stop, target, exit, exit_reason, t1_hit, r, status, exit_date) VALUES %s "
+                               "ON CONFLICT DO NOTHING", rows, page_size=5000)
+        conn.commit()
+    _compare_cache.clear()
+    return len(rows)
 
 
 def run_backtest():
