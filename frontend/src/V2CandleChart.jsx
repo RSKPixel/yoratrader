@@ -92,7 +92,7 @@ export default function V2CandleChart({ row, source, onClose }) {
         role="dialog"
         aria-modal="true"
         aria-label={`${row.symbol} chart`}
-        className="flex w-full max-w-5xl flex-col overflow-hidden rounded-lg border"
+        className="flex h-[85vh] w-[85vw] flex-col overflow-hidden rounded-lg border"
         style={{ borderColor: "var(--border)", background: "var(--surface)" }}
         onClick={(e) => e.stopPropagation()}
       >
@@ -132,7 +132,7 @@ export default function V2CandleChart({ row, source, onClose }) {
           )}
           {interval !== "day" && " · times in IST"}
         </p>
-        <div ref={box} className="h-[26rem] w-full px-2 pb-3" />
+        <div ref={box} className="min-h-0 w-full flex-1 px-2 pb-3" />
       </div>
     </div>
   );
