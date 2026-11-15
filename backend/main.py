@@ -37,6 +37,7 @@ import v2xsmom
 import v2qmom
 import v2connors
 import v2paper
+import v2data
 import connors
 import xsmrwatch
 import connorswatch
@@ -946,6 +947,30 @@ def v2_paper_xsmr(pairs: int = Query(5, ge=1, le=5), stop: str = Query("none"), 
         return {"status": "success", **v2paper.xsmr_(pairs, stop, max_open, slippage / 100)}
     except Exception as error:
         print("v2 xsmr paper failed:", error)
+        return {"status": "error", "message": str(error)}
+
+
+@app.get("/api/v2/data/symbols")
+def v2_data_symbols(source: str = Query("backtest")):
+    """Every stored symbol with its daily / 15m / 1m coverage (v2 Data page)."""
+    if source not in ("backtest", "live"):
+        raise HTTPException(status_code=400, detail="unknown source")
+    try:
+        return {"status": "success", **v2data.symbols(source)}
+    except Exception as error:
+        print("v2 data symbols failed:", error)
+        return {"status": "error", "message": str(error)}
+
+
+@app.get("/api/v2/data/candles")
+def v2_data_candles(symbol: str = Query(..., min_length=1, max_length=40), interval: str = Query("day"),
+                    source: str = Query("backtest"), exchange: str = Query("NSE"), days: int = Query(365, ge=0, le=20000)):
+    if interval not in ("day", "15m") or source not in ("backtest", "live") or exchange not in ("NSE", "MCX"):
+        raise HTTPException(status_code=400, detail="unknown interval, source or exchange")
+    try:
+        return {"status": "success", "candles": v2data.candles(symbol, interval, source, exchange, days)}
+    except Exception as error:
+        print("v2 data candles failed:", error)
         return {"status": "error", "message": str(error)}
 
 

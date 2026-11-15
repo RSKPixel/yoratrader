@@ -3,6 +3,7 @@ import { displayName, useAuth } from "./AuthGate";
 import V2Backtesting, { DEFAULT_BACKTEST, findBacktest } from "./V2Backtesting";
 import V2Paper, { DEFAULT_PAPER, findPaper } from "./V2Paper";
 import V2Settings from "./V2Settings";
+import V2Data from "./V2Data";
 
 // YoraTrader v2: top navigation and one content area. Pages start blank and are moved over one by one;
 // the classic app stays at "/" until then. Pages live at /v2/<page>.
@@ -13,6 +14,7 @@ const PAGES = [
   { id: "paper", label: "Paper trading" },
   { id: "live", label: "Live" },
   { id: "reports", label: "Reports" },
+  { id: "data", label: "Data" },
   { id: "settings", label: "Settings" },
 ];
 
@@ -211,6 +213,10 @@ export default function AppV2() {
       ) : page === "paper" ? (
         <main className="flex min-h-0 min-w-0 flex-1">
           <V2Paper model={paper} onSelect={selectPaper} />
+        </main>
+      ) : page === "data" ? (
+        <main className="min-h-0 flex-1 overflow-auto px-4 py-6 md:px-6">
+          <V2Data />
         </main>
       ) : page === "settings" ? (
         <main className="min-h-0 flex-1 overflow-auto px-4 py-6 md:px-6">
