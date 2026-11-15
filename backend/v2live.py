@@ -69,9 +69,11 @@ def _trades(kite):
 def _holdings(kite):
     out = []
     for h in kite.holdings():
-        qty = (h.get("quantity") or 0) + (h.get("t1_quantity") or 0)
+        # Kite leaves pledged shares out of `quantity` (they're in collateral_quantity)
+        pledged = h.get("collateral_quantity") or 0
+        qty = (h.get("quantity") or 0) + (h.get("t1_quantity") or 0) + pledged
         avg, ltp, close = _f(h["average_price"]), _f(h["last_price"]), _f(h.get("close_price"))
-        out.append({"symbol": h["tradingsymbol"], "exchange": h["exchange"], "qty": qty, "t1": h.get("t1_quantity") or 0,
+        out.append({"symbol": h["tradingsymbol"], "exchange": h["exchange"], "qty": qty, "t1": h.get("t1_quantity") or 0, "pledged": pledged,
                     "avg": avg, "ltp": ltp, "invested": avg * qty, "value": ltp * qty, "pnl": _f(h["pnl"]),
                     "day_change": _f(h.get("day_change")), "day_change_pct": _f(h.get("day_change_percentage")),
                     "day_pnl": (ltp - close) * qty if close else None})

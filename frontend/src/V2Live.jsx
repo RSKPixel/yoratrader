@@ -179,7 +179,7 @@ function Holdings({ rows }) {
         rows={rows.map((h) => ({ ...h, key: `${h.exchange}:${h.symbol}` }))}
         columns={[
           { label: "Instrument", render: (h) => (<><span className="font-medium">{h.symbol}</span><span className="ml-1.5 text-xs" style={{ color: "var(--faint)" }}>{h.exchange}</span></>) },
-          { label: "Qty", right: true, render: (h) => (h.t1 ? `${h.qty} (T1 ${h.t1})` : h.qty) },
+          { label: "Qty", right: true, render: (h) => [h.qty, h.t1 ? `T1 ${h.t1}` : null, h.pledged ? (h.pledged === h.qty ? "pledged" : `${h.pledged} pledged`) : null].filter(Boolean).join(" · ") },
           { label: "Avg", right: true, render: (h) => price(h.avg) },
           { label: "LTP", right: true, render: (h) => price(h.ltp) },
           { label: "Invested", right: true, render: (h) => rs(h.invested) },
