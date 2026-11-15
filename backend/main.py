@@ -1,4 +1,4 @@
-from datetime import date as _date
+from datetime import date as _date, timezone
 import asyncio
 import json
 import os
@@ -144,7 +144,7 @@ def auth_totp(req: TotpRequest, response: Response):
     if not issued:
         raise HTTPException(status_code=401, detail="Incorrect code. Check the time on your phone and try the current code.")
     token, expires = issued
-    response.set_cookie(value=token, expires=expires, **auth.cookie_kwargs())
+    response.set_cookie(value=token, expires=expires.astimezone(timezone.utc), **auth.cookie_kwargs())
     return {"user": auth.session_user(token)}
 
 
