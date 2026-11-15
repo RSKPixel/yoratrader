@@ -828,6 +828,34 @@ def v2_backtest_xsmom_month(month: str = Query(..., pattern=r"^\d{4}-\d{2}$"), d
         return {"status": "error", "message": str(error)}
 
 
+@app.get("/api/v2/backtest/gapmom")
+def v2_backtest_gapmom(dataset: str = Query("indices"), side: str = Query("both"), stop: str = Query("none"),
+                       max_open: int = Query(5, ge=0, le=v2gap.MAX_OPEN), slippage: float = Query(0.02, ge=0, le=1)):
+    """Opening gap momentum (v2 page): the stored trades sized by capital and max open."""
+    if dataset not in v2gap.GAPMOM_DATASETS:
+        raise HTTPException(status_code=400, detail="unknown dataset")
+    args = _v2gap_args(dataset, side, stop, max_open, slippage)
+    try:
+        return {"status": "success", **v2gap.results(**args, model="gapmom")}
+    except Exception as error:
+        print("v2 gapmom backtest failed:", error)
+        return {"status": "error", "message": str(error)}
+
+
+@app.get("/api/v2/backtest/gapmom/month")
+def v2_backtest_gapmom_month(month: str = Query(..., pattern=r"^\d{4}-\d{2}$"), dataset: str = Query("indices"),
+                             side: str = Query("both"), stop: str = Query("none"),
+                             max_open: int = Query(5, ge=0, le=v2gap.MAX_OPEN), slippage: float = Query(0.02, ge=0, le=1)):
+    if dataset not in v2gap.GAPMOM_DATASETS:
+        raise HTTPException(status_code=400, detail="unknown dataset")
+    args = _v2gap_args(dataset, side, stop, max_open, slippage)
+    try:
+        return {"status": "success", "trades": v2gap.month_trades(month, **args, model="gapmom")}
+    except Exception as error:
+        print("v2 gapmom month failed:", error)
+        return {"status": "error", "message": str(error)}
+
+
 @app.get("/api/backtest/pairs/year")
 def backtest_pairs_year(year: int = Query(..., ge=2000, le=2100), variant: str = Query("bollinger"),
                         slippage: float = Query(0.02, ge=0, le=1)):

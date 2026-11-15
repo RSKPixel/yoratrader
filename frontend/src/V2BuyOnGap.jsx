@@ -10,6 +10,11 @@ const SIDES = [
   ["long", "Long (book)"],
   ["both", "Long & short"],
 ];
+// Opening gap momentum (Chan ch. 7) is the mirror image: follow the gap; the book trades both sides.
+const MOM_SIDES = [
+  ["both", "Long & short (book)"],
+  ["long", "Long only"],
+];
 const STOPS = [
   ["none", "None (book)"],
   ["1sd", "1σ"],
@@ -44,14 +49,16 @@ export function useBacktest(url) {
   return { data, error, loading };
 }
 
-export default function V2BuyOnGap({ params }) {
-  const [side, setSide] = useState("long");
+export default function V2BuyOnGap({ params, model = "gap" }) {
+  const mom = model === "gapmom";
+  const [side, setSide] = useState(mom ? "both" : "long");
   const [stop, setStop] = useState("none");
   const [slippage, setSlippage] = useState(0.02);
   const [month, setMonth] = useState(null);
 
   const query = `dataset=${params.universe}&side=${side}&stop=${stop}&slippage=${slippage}&max_open=${params.maxOpen}`;
-  const { data, error, loading } = useBacktest(`/api/v2/backtest/gap?${query}`);
+  const api = mom ? "/api/v2/backtest/gapmom" : "/api/v2/backtest/gap";
+  const { data, error, loading } = useBacktest(`${api}?${query}`);
   const value = useMemo(() => makeValue(params.show, params.capital), [params.show, params.capital]);
   const chartFormat = useCallback((v) => value(v, 1), [value]);
   const closeMonth = useCallback(() => setMonth(null), []);
@@ -82,8 +89,11 @@ export default function V2BuyOnGap({ params }) {
   return (
     <div className="mt-4 flex flex-col gap-4">
       <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
-        <Field label="Side" hint="Long: buy gaps down (the book). Long & short: also short the mirror image.">
-          <Segmented label="Side" options={SIDES} value={side} onChange={setSide} />
+        <Field
+          label="Side"
+          hint={mom ? "Long & short: buy opens above the previous high by 0.1σ, short opens below the previous low (the book)." : "Long: buy gaps down (the book). Long & short: also short the mirror image."}
+        >
+          <Segmented label="Side" options={mom ? MOM_SIDES : SIDES} value={side} onChange={setSide} />
         </Field>
         <Field label="Stop" hint="None: out at 15:15 (the book). 1σ: a stop one 90-day standard deviation from the entry.">
           <Segmented label="Stop" options={STOPS} value={stop} onChange={setStop} />
@@ -119,7 +129,7 @@ export default function V2BuyOnGap({ params }) {
       {month && (
         <MonthTradesModal
           month={month}
-          url={`/api/v2/backtest/gap/month?month=${month}&${query}`}
+          url={`${api}/month?month=${month}&${query}`}
           columns={columns}
           value={value}
           note="in at the 09:15 open, out at 15:15 (or the stop)"

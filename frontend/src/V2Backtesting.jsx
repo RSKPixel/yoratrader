@@ -225,6 +225,7 @@ export default function V2Backtesting({ model, onSelect }) {
           <V2BacktestParams params={modelParams} onChange={setParams} universes={m.universes} step={step} />
         </div>
         {m.id === "buy-on-gap" && <V2BuyOnGap params={modelParams} />}
+        {m.id === "gap-momentum" && <V2BuyOnGap params={modelParams} model="gapmom" key="gapmom" />}
         {m.id === "kbdt" && <V2Kbdt params={modelParams} />}
         {m.id === "xs-mean-reversion" && <V2Xsmr params={modelParams} />}
         {m.id === "pairs" && <V2Pairs params={modelParams} />}

@@ -7,6 +7,10 @@ Chan's rule, the 10 biggest qualifying gaps a day) re-sized to the page's common
 - As per model (max_open 0): the book, every pick (up to 10) with capital split equally among
   that day's buys.
 
+Also serves opening gap momentum (model "gapmom", Chan ch. 7: the mirror image, follow the gap: buy
+an open above the previous high by 0.1σ, short one below the previous low; no average filter, no
+ranking: as per model every qualifying stock or index trades, capital split across the day's trades).
+
 All returns are fractions of capital (the page turns them into rupees). A trade's cost is NSE futures
 charges + slippage on the buy and the sale (xsmr.cost_per_side), on its own value. Intraday: every
 trade is in at the 09:15 open and out by 15:15, so there is no overnight carry or futures roll.
@@ -31,9 +35,16 @@ CACHE_SECONDS = 1800
 _cache, _lock = {}, threading.Lock()
 
 
-def _trades(dataset, side, stop):
-    """The stored top-10 trades with each one's gap size (the ranking key)."""
-    key = (dataset, side, stop)
+GAPMOM_DATASETS = ("indices", "fno")
+
+
+def _stored_variant(model, side, stop):
+    return f"1sd-top10-{side}-{stop}-1d" if model == "gap" else f"0.1sd-all-{side}-{stop}-1d"
+
+
+def _trades(dataset, side, stop, model="gap"):
+    """The stored trades with each one's gap size (the ranking key)."""
+    key = (model, dataset, side, stop)
     with _lock:
         hit = _cache.get(key)
         if hit and time.time() - hit[0] < CACHE_SECONDS:
@@ -45,15 +56,18 @@ def _trades(dataset, side, stop):
             FROM bt_trades t
             LEFT JOIN LATERAL (SELECT low, high FROM bt_daily d WHERE d.symbol = t.symbol AND d.day < t.date
                                ORDER BY d.day DESC LIMIT 1) p ON true
-            WHERE t.model = 'gap' AND t.dataset = %s AND t.variant = %s AND t.status = 'closed'
+            WHERE t.model = %s AND t.dataset = %s AND t.variant = %s AND t.status = 'closed'
             """,
-            conn, params=[dataset, f"1sd-top10-{side}-{stop}-1d"])
+            conn, params=[model, dataset, _stored_variant(model, side, stop)])
         days = pd.read_sql("SELECT DISTINCT d.day FROM bt_daily d JOIN bt_symbols s ON s.symbol = d.symbol "
-                           "WHERE s.dataset = %s AND d.day >= (SELECT min(date) FROM bt_trades WHERE model = 'gap' "
-                           "AND dataset = %s) ORDER BY d.day", conn, params=[dataset, dataset])
+                           "WHERE s.dataset = %s AND d.day >= (SELECT min(date) FROM bt_trades WHERE model = %s "
+                           "AND dataset = %s) ORDER BY d.day", conn, params=[dataset, model, dataset])
     t["day"] = pd.to_datetime(t["day"])
     long = t["side"] == "long"
-    t["gap"] = np.where(long, 1 - t["entry"] / t["prev_low"], t["entry"] / t["prev_high"] - 1)
+    if model == "gap":  # fade: a long opened below the previous low, a short above the previous high
+        t["gap"] = np.where(long, 1 - t["entry"] / t["prev_low"], t["entry"] / t["prev_high"] - 1)
+    else:  # follow: a long opened above the previous high, a short below the previous low
+        t["gap"] = np.where(long, t["entry"] / t["prev_high"] - 1, 1 - t["entry"] / t["prev_low"])
     t["ret"] = np.where(long, 1, -1) * (t["exit"] / t["entry"] - 1)
     t = t.sort_values(["day", "gap"], ascending=[True, False]).reset_index(drop=True)
     t["rank"] = t.groupby("day").cumcount() + 1
@@ -63,9 +77,10 @@ def _trades(dataset, side, stop):
     return value
 
 
-def _sized(dataset, side, stop, max_open, slippage):
-    t, days = _trades(dataset, side, stop)
-    t = t[t["rank"] <= (max_open or MAX_OPEN)].copy()
+def _sized(dataset, side, stop, max_open, slippage, model="gap"):
+    t, days = _trades(dataset, side, stop, model)
+    cap = max_open or (MAX_OPEN if model == "gap" else None)  # gapmom's book takes every qualifier
+    t = (t[t["rank"] <= cap] if cap else t).copy()
     t["w"] = 1.0 / max_open if max_open else 1.0 / t.groupby("day")["day"].transform("size")
     t["cost"] = (1 + t["exit"] / t["entry"]) * xsmr.cost_per_side(slippage)
     t["net"] = t["ret"] - t["cost"]
@@ -75,14 +90,14 @@ def _sized(dataset, side, stop, max_open, slippage):
     return t, days
 
 
-def results(dataset="fno", side="long", stop="none", max_open=5, slippage=0.0002):
-    t, days = _sized(dataset, side, stop, max_open, slippage)
+def results(dataset="fno", side="long", stop="none", max_open=5, slippage=0.0002, model="gap"):
+    t, days = _sized(dataset, side, stop, max_open, slippage, model)
     extra = {"avg_positions": round(float(t.groupby("day").size().mean()), 1)} if len(t) else {}
     return v2common.build_results(t, days, slippage, extra)
 
 
-def month_trades(month, dataset="fno", side="long", stop="none", max_open=5, slippage=0.0002):
-    t, _ = _sized(dataset, side, stop, max_open, slippage)
+def month_trades(month, dataset="fno", side="long", stop="none", max_open=5, slippage=0.0002, model="gap"):
+    t, _ = _sized(dataset, side, stop, max_open, slippage, model)
     t = t[t["day"].dt.strftime("%Y-%m") == month]
     return [{"day": r.day.date().isoformat(), "symbol": r.symbol, "side": r.side, "rank": int(r.rank),
              "gap_pct": round(100 * float(r.gap), 2), "entry": round(float(r.entry), 2), "stop": round(float(r.stop), 2),
