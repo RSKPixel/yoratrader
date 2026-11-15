@@ -186,7 +186,7 @@ export default function AppV2() {
       </header>
 
       {page === "backtesting" ? (
-        <main className="flex min-h-0 flex-1">
+        <main className="flex min-h-0 min-w-0 flex-1">
           <V2Backtesting model={backtest} onSelect={selectBacktest} />
         </main>
       ) : (

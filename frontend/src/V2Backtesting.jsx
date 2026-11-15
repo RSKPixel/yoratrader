@@ -201,9 +201,9 @@ export default function V2Backtesting({ model, onSelect }) {
     if (!window.matchMedia?.("(min-width: 768px)").matches) setOpen(false); // narrow screens: close after picking
   };
   return (
-    <div className="relative flex min-h-0 flex-1">
+    <div className="relative flex min-h-0 min-w-0 flex-1">
       <SubNav current={m.id} onSelect={select} open={open} onToggle={toggle} />
-      <section className="min-h-0 flex-1 overflow-auto px-4 py-6 md:px-8">
+      <section className="min-h-0 min-w-0 flex-1 overflow-auto px-4 py-6 md:px-8">
         <p className="text-xs font-medium uppercase tracking-[0.14em]" style={{ color: "var(--faint)" }}>
           {m.group.title} · {m.group.source}
         </p>
