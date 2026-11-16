@@ -19,6 +19,7 @@ totals in rupees and as % of it. The % fields above stay for the backtest-style 
 
 import gapwatch
 import v2margin
+import v2meta
 import xsmr
 import xsmrwatch
 
@@ -116,6 +117,32 @@ def gap(side="long", stop="none", max_open=5, slippage=0.0002):
             "cost_per_side_bps": round(10000 * cps, 2)}
 
 
+def _meta(data, days, cps):
+    """Meta-sizing (v2meta): each day's lots a position (2 on a predicted-good day, else 1) from the
+    recorded 5 + 5 book, applied to the page's positions; the sized totals for the summary."""
+    book = {}
+    for p in data["positions"]:
+        if p["ret_pct"] is None:
+            continue
+        exit_px = p.get("exit") if p["status"] == "closed" else p.get("ltp")
+        cost = (1 + (exit_px / p["entry"] if exit_px else 1)) * cps
+        book[p["day"]] = book.get(p["day"], 0.0) + xsmrwatch.WEIGHT * (p["ret_pct"] - 100 * cost)
+    try:
+        sized, info = v2meta.sizes([{"day": d, "net_pct": n} for d, n in book.items()])
+    except Exception as error:
+        print("Meta-sizing failed:", error)
+        return {"error": str(error)}
+    closed = [d for d in days if d["status"] == "closed"]
+    for d in days:
+        m = sized.get(d["day"])
+        d["meta"] = m and {**m, "net_rs": round(d["net_rs"] * m["size"], 2), "margin_rs": round(d["margin_rs"] * m["size"])}
+    net = sum(d["meta"]["net_rs"] for d in closed if d.get("meta"))
+    capital = max((d["meta"]["margin_rs"] for d in days if d.get("meta")), default=0)
+    return {**info, "net_rs": round(net, 2), "capital_rs": capital, "days": sum(1 for d in closed if d.get("meta")),
+            "big_days": sum(1 for d in closed if d.get("meta") and d["meta"]["size"] == v2meta.BIG),
+            "net_margin_pct": v2margin.margin_pct(net, capital), "big": v2meta.BIG, "small": v2meta.SMALL}
+
+
 def xsmr_(pairs=5, stop="none", max_open=10, slippage=0.0002):
     data = xsmrwatch.paper(slippage, stop=stop == "1sd")
     cps = xsmr.cost_per_side(slippage)
@@ -143,7 +170,8 @@ def xsmr_(pairs=5, stop="none", max_open=10, slippage=0.0002):
         rows.sort(key=lambda r: (r["side"] != "long", r["rank"]))
         days.append({"day": day, "status": "closed" if all(r["closed"] for r in rows) else "open", "picks": rows,
                      "net_pct": round(sum(r["book_net_pct"] for r in rows), 4), **_lots(rows, lots, cps)})
-    return {"now": data["now"], "today": data["today"], "market_open": data["market_open"],
+    meta = _meta(data, days, cps)
+    return {"now": data["now"], "today": data["today"], "market_open": data["market_open"], "meta": meta,
             "today_recorded": data["today_recorded"], "ltp_at": data["ltp_at"], "days": days, "summary": {**_summary(days), **_lot_summary(days, lots)},
             "per_side": k, "recorded_per_side": xsmrwatch.PER_SIDE, "backtest": data["backtest"],
             "cost_per_side_bps": round(10000 * cps, 2)}

@@ -110,6 +110,38 @@ function PreopenTest({ slippage }) {
   );
 }
 
+function MetaPanel({ meta, today }) {
+  // Meta-sizing (López de Prado): 2 lots on a predicted-good morning, else 1; shown beside the book only
+  const m = today?.meta;
+  return (
+    <Panel
+      title="Meta-sizing · side by side"
+      right={`a logistic model on the backtest book, trained to ${meta.trained_to}: ${meta.big} lots a position when the chance of a positive day is above ${meta.threshold}, else ${meta.small}`}
+    >
+      <div className="flex flex-wrap items-baseline gap-x-8 gap-y-2 text-sm">
+        <span>
+          Today:{" "}
+          {m ? (
+            <>
+              <span className="font-semibold" style={{ color: m.size === meta.big ? "var(--accent)" : "var(--text)" }}>
+                {m.size} lot{m.size > 1 ? "s" : ""} a position
+              </span>
+              <span style={{ color: "var(--muted)" }}> · chance {(100 * m.p).toFixed(1)}% · margin {formatRs(m.margin_rs)} · net </span>
+              <span className="font-medium" style={{ color: tone(m.net_rs) }}>{netBoth(m.net_rs, null)}</span>
+            </>
+          ) : (
+            <span style={{ color: "var(--muted)" }}>after the 09:15 record</span>
+          )}
+        </span>
+        <span style={{ color: "var(--muted)" }}>
+          Closed days: {meta.days} ({meta.big_days} at {meta.big} lots) · net <span style={{ color: tone(meta.net_rs) }}>{netBoth(meta.net_rs, null)}</span> · capital
+          required {formatRs(meta.capital_rs)}
+        </span>
+      </div>
+    </Panel>
+  );
+}
+
 export default function V2PaperXsmr({ params }) {
   const [pairs, setPairs] = useState(5);
   const [stop, setStop] = useState("none");
@@ -173,11 +205,14 @@ export default function V2PaperXsmr({ params }) {
             {bt ? ` · backtest ${bt.all_bps} bps a day net (${bt.year}: ${bt.year_bps})` : ""} · costs {data.cost_per_side_bps} bps a side · nothing places orders
           </StatusLine>
           <LotCards s={{ ...data.summary, win_rate: data.summary.win_rate_lots, win_days: data.summary.win_days_lots }} money={money} />
+          {data.meta && !data.meta.error && (
+            <MetaPanel meta={data.meta} today={today} />
+          )}
           <Panel title={`Today · ${data.today}`} right={today ? `${today.status === "open" ? "open, live" : "closed"} · margin ${formatRs(today.margin_rs)} · net ${netBoth(today.net_rs, today.net_value_pct)}` : undefined}>
             <PositionsTable rows={today?.picks || []} columns={[chart.column, ...columns]} minWidth={1000} empty="No positions today." />
           </Panel>
           <Panel title="Paper log" right="a row a day · click for its positions">
-            <DayLog days={data.days} columns={columns} dayValue={(d) => netBoth(d.net_rs, d.net_value_pct)} dayNote={(d) => `margin ${formatRs(d.margin_rs)}`} minWidth={1000} empty="Nothing recorded yet: the first paper day is the next trading day at 09:15 (Kite login needed)." />
+            <DayLog days={data.days} columns={columns} dayValue={(d) => netBoth(d.net_rs, d.net_value_pct)} dayNote={(d) => `margin ${formatRs(d.margin_rs)}${d.meta ? ` · meta ${d.meta.size} lot${d.meta.size > 1 ? "s" : ""} (p ${d.meta.p.toFixed(2)}): ${netBoth(d.meta.net_rs, null)}` : ""}`} minWidth={1000} empty="Nothing recorded yet: the first paper day is the next trading day at 09:15 (Kite login needed)." />
           </Panel>
           <PreopenTest slippage={slippage} />
         </>
