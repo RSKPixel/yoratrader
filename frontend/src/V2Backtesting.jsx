@@ -65,7 +65,7 @@ export default function V2Backtesting({ model, onSelect }) {
   const modelParams = { ...params, universe, maxOpen };
   return (
     <div className="relative flex min-h-0 min-w-0 flex-1">
-      <SideNav groups={BACKTEST_GROUPS} base="/v2/backtesting" title="Backtests" current={m.id} onSelect={select} open={open} onToggle={toggle} />
+      <SideNav groups={BACKTEST_GROUPS} base="/v2/backtesting" title="Backtests" current={m.id} onSelect={select} open={open} onToggle={toggle} pinKey="backtesting" />
       <section className="min-h-0 min-w-0 flex-1 overflow-auto px-4 py-6 md:px-8">
         <p className="text-xs font-medium uppercase tracking-[0.14em]" style={{ color: "var(--faint)" }}>
           {m.group.title} · {m.group.source}

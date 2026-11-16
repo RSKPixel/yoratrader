@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from "react";
+import { useSetting } from "./settings";
 
 // The v2 side nav, used by Backtesting and Paper trading: a rail of short codes. On wide screens,
 // hovering the rail slides the full list (grouped by source) out over the page, and moving the mouse
 // away (or picking a model) folds it back; the page itself never moves. On narrow screens a tap on the
-// rail's arrow opens the list over the page.
+// rail's arrow opens the list over the page. The pin keeps the list open beside the page (saved per
+// user, per nav).
 
 function useWide() {
   const query = "(min-width: 768px)";
@@ -88,13 +90,35 @@ function Rail({ groups, title, current, item, onToggle }) {
   );
 }
 
-function List({ groups, title, current, item, onClose, closeLabel }) {
+function PinIcon({ on }) {
+  return (
+    <svg viewBox="0 0 24 24" className="h-4 w-4" fill={on ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+      <path d="M9 4h6l-1 5 3 3v2H7v-2l3-3-1-5zM12 14v6" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function List({ groups, title, current, item, onClose, closeLabel, pinned, onPin }) {
   return (
     <nav className="flex h-full w-80 flex-col overflow-y-auto border-r" style={{ borderColor: "var(--border)", background: "var(--surface)" }} aria-label={title}>
       <div className="flex items-center justify-between px-4 pb-1 pt-3">
         <span className="text-xs font-semibold uppercase tracking-[0.14em]" style={{ color: "var(--muted)" }}>
           {title}
         </span>
+        <span className="flex items-center gap-1">
+        {onPin && (
+          <button
+            type="button"
+            onClick={onPin}
+            className="grid h-7 w-7 place-items-center rounded-md hover:bg-[var(--surface-2)]"
+            style={{ color: pinned ? "var(--accent)" : "var(--muted)" }}
+            aria-label={pinned ? "Unpin the list" : "Pin the list open"}
+            aria-pressed={pinned}
+            title={pinned ? "Unpin: open on hover" : "Pin: keep the list open"}
+          >
+            <PinIcon on={pinned} />
+          </button>
+        )}
         {onClose && (
           <button
             type="button"
@@ -107,6 +131,7 @@ function List({ groups, title, current, item, onClose, closeLabel }) {
             <Chevron left />
           </button>
         )}
+        </span>
       </div>
       <div className="flex flex-col gap-4 px-3 pb-4 pt-2">
         {groups.map((g) => (
@@ -137,8 +162,9 @@ function List({ groups, title, current, item, onClose, closeLabel }) {
   );
 }
 
-export function SideNav({ groups, base, title, current, onSelect, open, onToggle }) {
+export function SideNav({ groups, base, title, current, onSelect, open, onToggle, pinKey = "nav" }) {
   const wide = useWide();
+  const [pinned, setPinned] = useSetting(`nav.pinned.${pinKey}`, false);
   const [hover, setHover] = useState(false);
   const timer = useRef(null);
   useEffect(() => () => clearTimeout(timer.current), []);
@@ -151,6 +177,14 @@ export function SideNav({ groups, base, title, current, onSelect, open, onToggle
     },
     "aria-current": active ? "page" : undefined,
   });
+  if (wide && pinned) {
+    // pinned: the list stays open beside the page
+    return (
+      <div className="h-full shrink-0">
+        <List groups={groups} title={title} current={current} item={item} pinned onPin={() => setPinned(false)} />
+      </div>
+    );
+  }
   if (wide) {
     // the rail keeps its 48px in the layout; the list opens over the page on hover
     return (
@@ -168,7 +202,17 @@ export function SideNav({ groups, base, title, current, onSelect, open, onToggle
         <Rail groups={groups} title={title} current={current} item={item} />
         {hover && (
           <div className="absolute inset-y-0 left-0 z-30 shadow-2xl">
-            <List groups={groups} title={title} current={current} item={item} />
+            <List
+              groups={groups}
+              title={title}
+              current={current}
+              item={item}
+              pinned={false}
+              onPin={() => {
+                setPinned(true);
+                setHover(false);
+              }}
+            />
           </div>
         )}
       </div>

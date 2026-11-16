@@ -102,7 +102,7 @@ export default function V2Paper({ model, onSelect }) {
   const modelParams = { ...params, universe: ls ? ls.universe : "fno", maxOpen: ls ? ls.max_open : maxOpen };
   return (
     <div className="relative flex min-h-0 min-w-0 flex-1">
-      <SideNav groups={PAPER_GROUPS} base="/v2/paper" title="Paper trading" current={m.id} onSelect={select} open={open} onToggle={toggle} />
+      <SideNav groups={PAPER_GROUPS} base="/v2/paper" title="Paper trading" current={m.id} onSelect={select} open={open} onToggle={toggle} pinKey="paper" />
       <section className="min-h-0 min-w-0 flex-1 overflow-auto px-4 py-6 md:px-8">
         <p className="text-xs font-medium uppercase tracking-[0.14em]" style={{ color: "var(--faint)" }}>
           Paper trading · {m.group.title} · {m.group.source}
