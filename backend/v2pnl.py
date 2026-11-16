@@ -56,7 +56,10 @@ def curve(day, picks, cps, size=1):
         lot, entry = p["qty"] * size, p["entry"]
         stopped = str(p.get("reason") or "").startswith("stop")
         out_px = None
+        filled = datetime.fromisoformat(f"{day}T{p['filled_at']}") if p.get("filled_at") else None  # bought during the day
         for b in bars:
+            if filled is not None and b["t"] + timedelta(minutes=15) <= filled:
+                continue  # before the buy
             if b["t"].time() >= EXIT_AT:  # out at 15:15: the recorded exit (or 15:15 open)
                 px = p["exit"] if p.get("closed") and p.get("exit") else b["open"]
                 out_px = out_px or px

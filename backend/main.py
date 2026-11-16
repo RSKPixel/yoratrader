@@ -43,6 +43,7 @@ import v2dashboard
 import v2live
 import v2pnl
 import v2oops
+import oopswatch
 import usersettings
 import connors
 import xsmrwatch
@@ -979,10 +980,13 @@ def v2_paper_pnl(model: str, day: str = Query(..., pattern=r"^\d{4}-\d{2}-\d{2}$
                  pairs: int = Query(5, ge=1, le=5), max_open: int = Query(5, ge=0, le=10), slippage: float = Query(0.02, ge=0, le=1),
                  meta: bool = False):
     """A paper day's P&L every 15 minutes (the page's positions, one lot each; meta: at the meta-sizing's lots)."""
-    if model not in ("gap", "xsmr") or side not in ("long", "both") or stop not in ("none", "1sd"):
+    if model not in ("gap", "xsmr", "oops") or side not in ("long", "both") or stop not in ("none", "1sd"):
         raise HTTPException(status_code=400, detail="unknown model, side or stop")
     try:
-        data = v2paper.gap(side, stop, max_open, slippage / 100) if model == "gap" else v2paper.xsmr_(pairs, stop, max_open, slippage / 100)
+        if model == "oops":
+            data = oopswatch.paper(slippage / 100)
+        else:
+            data = v2paper.gap(side, stop, max_open, slippage / 100) if model == "gap" else v2paper.xsmr_(pairs, stop, max_open, slippage / 100)
         d = next((x for x in data["days"] if x["day"] == day), None)
         if d is None:
             return {"status": "success", "points": [], "positions": 0}
@@ -991,6 +995,34 @@ def v2_paper_pnl(model: str, day: str = Query(..., pattern=r"^\d{4}-\d{2}-\d{2}$
     except Exception as error:
         print("v2 paper pnl failed:", error)
         return {"status": "error", "message": str(error)}
+
+
+@app.get("/api/v2/paper/oops")
+def v2_paper_oops(slippage: float = Query(0.02, ge=0, le=1)):
+    """Oops gap reversal paper trading: today's watchlist and positions, the days."""
+    try:
+        return {"status": "success", **oopswatch.paper(slippage / 100)}
+    except Exception as error:
+        print("v2 oops paper failed:", error)
+        return {"status": "error", "message": str(error)}
+
+
+@app.get("/api/v2/paper/oops/settings")
+def v2_paper_oops_settings():
+    return {"status": "success", "max_open": oopswatch.max_open(), "max_open_limit": oopswatch.MAX_OPEN_LIMIT,
+            "universe": "fno", "universes": ["fno"]}
+
+
+class OopsMaxOpenRequest(BaseModel):
+    max_open: int
+
+
+@app.post("/api/v2/paper/oops/max_open")
+def v2_paper_oops_max_open(req: OopsMaxOpenRequest):
+    try:
+        return {"status": "success", "max_open": oopswatch.set_max_open(req.max_open)}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 @app.get("/api/v2/paper/xsmr")

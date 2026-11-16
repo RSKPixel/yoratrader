@@ -438,6 +438,12 @@ def _tick():
         result = xsmrwatch.record_preopen_open()
         if result.get("recorded"):
             print("Pre-open test: futures open", result)
+    import oopswatch  # Oops gap reversal paper trading: every minute from the open to 15:15
+
+    if oopswatch.OPEN_AT <= t < oopswatch.UNTIL:
+        result = oopswatch.tick()
+        if result.get("open") or result.get("bought") or result.get("sold"):
+            print("Oops paper:", {k: v for k, v in result.items() if k != "done"})
     import connorswatch  # short-term mean reversion paper trading (imported here: it imports gapwatch)
 
     if connorswatch.RECORD_AT <= t < connorswatch.RECORD_UNTIL:

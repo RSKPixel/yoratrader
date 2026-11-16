@@ -3,6 +3,7 @@ import V2BacktestParams, { useBacktestParams } from "./V2BacktestParams";
 import V2PaperConnors from "./V2PaperConnors";
 import V2PaperGap from "./V2PaperGap";
 import V2PaperXsmr from "./V2PaperXsmr";
+import V2PaperOops from "./V2PaperOops";
 import { SideNav, StyleTag, useSideNav } from "./V2SideNav";
 
 // v2 Paper trading: a side nav of the models the production scheduler paper-trades, each page sized
@@ -32,6 +33,11 @@ export const PAPER_GROUPS = [
         book: "cum",
       },
     ],
+  },
+  {
+    title: "Larry Williams",
+    source: "Long-Term Secrets to Short-Term Trading (Wiley, 2011)",
+    models: [{ id: "oops", short: "OP", label: "Oops gap reversal", style: "Intraday", live: "/api/v2/paper/oops" }],
   },
 ];
 
@@ -115,6 +121,7 @@ export default function V2Paper({ model, onSelect }) {
         </div>
         {m.id === "buy-on-gap" && <V2PaperGap params={modelParams} />}
         {m.id === "xs-mean-reversion" && <V2PaperXsmr params={modelParams} />}
+        {m.id === "oops" && <V2PaperOops params={modelParams} />}
         {m.book && <V2PaperConnors key={m.book} book={m.book} params={modelParams} version={liveSettings.version} />}
       </section>
     </div>
