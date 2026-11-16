@@ -233,6 +233,50 @@ function StopControl({ p, onDone }) {
   );
 }
 
+// What the held call is worth at the sell day's close if the future moves from here: the call's P&L
+// against the buy, and a future's P&L on the same quantity for comparison.
+function Scenarios({ s, quantity }) {
+  const signed = (v) => `${v > 0 ? "+" : v < 0 ? "−" : ""}${formatRs(Math.abs(v))}`;
+  return (
+    <div className="rounded-md border" style={{ borderColor: "var(--border)" }}>
+      <p className="border-b px-3 py-2 text-xs" style={{ borderColor: "var(--border)", color: "var(--muted)" }}>
+        <span className="font-semibold" style={{ color: "var(--text)" }}>What if</span> · {s.strike} CE on the sell day ({day(s.sell)}) if the {s.future_symbol} (now {num(s.future)}) moves from here ·
+        volatility {s.vol_pct}% as priced now · {quantity} units · estimates
+      </p>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm" style={{ minWidth: 620 }}>
+          <thead>
+            <tr className="text-left text-xs" style={{ color: "var(--muted)" }}>
+              {["Future moves", "Future at", "Call on the sell day", "Call P&L", "Future P&L (same qty)"].map((h) => (
+                <th key={h} className="px-3 py-1.5 font-medium">
+                  {h}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {s.rows.map((r) => (
+              <tr key={r.move_pct} className="border-t" style={{ borderColor: "var(--border)", background: r.move_pct === 0 ? "var(--surface-2)" : undefined }}>
+                <td className="px-3 py-1 tabular-nums">
+                  {r.move_pct === 0 ? "flat" : `${r.points > 0 ? "+" : ""}${r.points.toLocaleString("en-IN")} (${r.move_pct > 0 ? "+" : ""}${r.move_pct}%)`}
+                </td>
+                <td className="px-3 py-1 tabular-nums">{num(r.future, 0)}</td>
+                <td className="px-3 py-1 tabular-nums">₹{num(r.call, 0)}</td>
+                <td className="px-3 py-1 tabular-nums font-medium" style={{ color: tone(r.pnl) }}>
+                  {signed(r.pnl)}
+                </td>
+                <td className="px-3 py-1 tabular-nums" style={{ color: "var(--muted)" }}>
+                  {signed(r.future_pnl)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 export default function V2Trade() {
   const [d, setD] = useState(null);
   const [error, setError] = useState("");
@@ -451,6 +495,15 @@ export default function V2Trade() {
                     <StopControl p={p} onDone={(msg) => { setNotice(msg); refresh(); }} />
                   </td>
                 </tr>,
+                ...(p.scenarios
+                  ? [
+                      <tr key={`${p.tradingsymbol}-what-if`}>
+                        <td colSpan={8} className="px-2 pb-3">
+                          <Scenarios s={p.scenarios} quantity={p.quantity} />
+                        </td>
+                      </tr>,
+                    ]
+                  : []),
               ])}
             />
           </Panel>

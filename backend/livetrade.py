@@ -78,6 +78,12 @@ def state():
                                      "ltp": ltp, "bid": x.get("bid"), "ask": x.get("ask"), "mid": x.get("mid"), "limit": x.get("limit"),
                                      "pnl": round((ltp - p["average_price"]) * p["quantity"], 2) if ltp else p.get("pnl"),
                                      "value": round((ltp or 0) * p["quantity"]), "lot": _lot(s)})
+        for p in out["positions"]:
+            try:
+                p["scenarios"] = _scenarios(kite, p, plan)
+            except Exception as error:
+                p["scenarios"] = None
+                print("Live trading: scenarios failed:", error)
         stops = _stops(kite)
         for p in out["positions"]:
             g = stops.get(p["tradingsymbol"])
@@ -96,6 +102,51 @@ def state():
         out["log"] = [{"placed_at": a.isoformat(timespec="seconds"), "by": u, "side": sd, "tradingsymbol": ts, "quantity": qn,
                        "price": pr, "order_id": oid, "error": err} for a, u, sd, ts, qn, pr, oid, err in cursor.fetchall()]
     return out
+
+
+SCENARIOS = (0.08, 0.05, 0.03, 0.02, 0.01, 0.0, -0.01, -0.02, -0.03, -0.05, -0.08)
+RATE = 0.065
+
+
+def _call(F, K, T, vol):
+    """Black-76: a European call on the future F, strike K, T years, volatility vol."""
+    from math import erf, exp, log, sqrt
+    if T <= 0 or vol <= 0:
+        return max(0.0, F - K)
+    n = lambda x: 0.5 * (1 + erf(x / sqrt(2)))
+    d1 = (log(F / K) + 0.5 * vol * vol * T) / (vol * sqrt(T))
+    return exp(-RATE * T) * (F * n(d1) - K * n(d1 - vol * sqrt(T)))
+
+
+def _scenarios(kite, p, plan):
+    """What the held call would be worth at the sell day's close if the same-expiry future moved by each
+    of SCENARIOS from now (volatility as the call's price implies now): price, P&L on the position
+    against its average, and a future's P&L on the same quantity for comparison."""
+    from datetime import date as ddate
+    sym = p["tradingsymbol"]
+    row = next(((e, k) for e, k, ts, _ in v2tom._nifty_calls(kite) if ts == sym), None)
+    fut = v2tom._plan_cache.get("futures", {}).get(row[0]) if row else None
+    if not row or not fut or not p.get("mid"):
+        return None
+    expiry, strike = row
+    F = kite.ltp([f"NFO:{fut}"])[f"NFO:{fut}"]["last_price"]
+    import gapwatch
+    today = gapwatch._now().date()
+    t_now = max(1, (expiry - today).days) / 365
+    sell = ddate.fromisoformat(plan["sell"]) if plan.get("sell") else today
+    t_sell = max(0, (expiry - sell).days) / 365
+    lo, hi = 0.01, 2.0  # the volatility that prices the call at its mid now
+    for _ in range(60):
+        m = (lo + hi) / 2
+        lo, hi = (m, hi) if _call(F, strike, t_now, m) < p["mid"] else (lo, m)
+    vol, q, avg = (lo + hi) / 2, p["quantity"], p["average_price"]
+    rows = []
+    for mv in SCENARIOS:
+        f = F * (1 + mv)
+        v = _call(f, strike, t_sell, vol)
+        rows.append({"move_pct": round(100 * mv, 1), "points": round(f - F), "future": round(f, 1), "call": round(v, 1),
+                     "pnl": round((v - avg) * q), "future_pnl": round((f - F) * q)})
+    return {"future": F, "future_symbol": fut, "strike": int(strike), "sell": sell.isoformat(), "vol_pct": round(100 * vol, 1), "rows": rows}
 
 
 def _stops(kite):
