@@ -73,7 +73,7 @@ def _schedule(cursor, today, now):
     # the live download counts as done when most futures have today's candles (not just one symbol)
     live_n = _one(cursor, "SELECT count(DISTINCT symbol) FROM eod WHERE exchange = 'NSE' AND datetime >= %s - 10", (today,)) or 0
     eod_today = _one(cursor, "SELECT count(DISTINCT symbol) FROM eod WHERE exchange = 'NSE' AND datetime = %s", (today,)) or 0
-    m15_today = _one(cursor, "SELECT count(DISTINCT symbol) FROM intraday_15m WHERE exchange = 'NSE' AND datetime >= %s::date AT TIME ZONE 'Asia/Kolkata'",
+    m15_today = _one(cursor, "SELECT count(DISTINCT symbol) FROM intraday_15m WHERE exchange = 'NSE' AND datetime >= (%s::timestamp AT TIME ZONE 'Asia/Kolkata')",
                      (today,)) or 0
     return [
         step((9, 6), "Pre-open snapshot (futures auction)", bool(pre), f"{pre} futures quoted" if pre else None, until=(9, 9)),
