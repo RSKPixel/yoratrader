@@ -82,7 +82,7 @@ function Rail({ groups, title, current, item, onToggle, statuses = {} }) {
               <a
                 key={m.id}
                 {...item(m, active)}
-                title={`${m.label} · ${m.style} (${g.title}) · ${STATUS[statusOf(statuses, m.id)].label}`}
+                title={`${m.label} · ${m.author} · ${m.style} · ${STATUS[statusOf(statuses, m.id)].label}`}
                 className="relative grid h-8 w-8 place-items-center rounded-md text-[0.6875rem] font-semibold transition-colors hover:bg-[var(--surface-2)]"
                 style={active ? { background: "var(--accent-soft)", color: "var(--accent)" } : { color: "var(--muted)" }}
               >
@@ -146,7 +146,7 @@ function List({ groups, title, current, item, onClose, closeLabel, pinned, onPin
       <div className="flex flex-col gap-4 px-3 pb-4 pt-2">
         {groups.map((g) => (
           <div key={g.title}>
-            <p className="px-2 text-[0.6875rem] font-semibold uppercase tracking-[0.14em]" style={{ color: "var(--faint)" }} title={g.source}>
+            <p className="px-2 text-[0.6875rem] font-semibold uppercase tracking-[0.14em]" style={{ color: g.title === "Intraday" ? "var(--accent)" : "var(--faint)" }}>
               {g.title}
             </p>
             <div className="mt-1.5 flex flex-col gap-0.5">
@@ -159,11 +159,15 @@ function List({ groups, title, current, item, onClose, closeLabel, pinned, onPin
                     className="flex items-center justify-between gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-[var(--surface-2)]"
                     style={active ? { background: "var(--accent-soft)", color: "var(--accent)", fontWeight: 500 } : { color: "var(--text)" }}
                   >
-                    <span className="flex min-w-0 items-center gap-1.5">
-                      <span className="truncate">{m.label}</span>
-                      <Dot status={statusOf(statuses, m.id)} />
+                    <span className="flex min-w-0 flex-col">
+                      <span className="flex min-w-0 items-center gap-1.5">
+                        <span className="truncate">{m.label}</span>
+                        <Dot status={statusOf(statuses, m.id)} />
+                      </span>
+                      <span className="truncate text-[0.6875rem] font-normal" style={{ color: "var(--faint)" }} title={m.source}>
+                        {m.author}
+                      </span>
                     </span>
-                    <StyleTag style={m.style} active={active} />
                   </a>
                 );
               })}
@@ -192,7 +196,12 @@ function List({ groups, title, current, item, onClose, closeLabel, pinned, onPin
                       className="flex items-center justify-between gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-[var(--surface-2)]"
                       style={active ? { background: "var(--accent-soft)", color: "var(--accent)" } : { color: "var(--muted)" }}
                     >
-                      <span className="truncate">{m.label}</span>
+                      <span className="flex min-w-0 flex-col">
+                        <span className="truncate">{m.label}</span>
+                        <span className="truncate text-[0.6875rem]" style={{ color: "var(--faint)" }}>
+                          {m.author}
+                        </span>
+                      </span>
                       <StyleTag style={m.style} active={active} />
                     </a>
                   );
@@ -210,9 +219,11 @@ export function SideNav({ groups: allGroups, base, title, current, onSelect, ope
   const wide = useWide();
   const statuses = useModelStatuses();
   // archived models leave their groups for an "Archived" section at the bottom (the rail hides them)
-  const archived = allGroups.flatMap((g) => g.models.filter((m) => statusOf(statuses, m.id) === "archived"));
-  const groups = allGroups
-    .map((g) => ({ ...g, models: g.models.filter((m) => statusOf(statuses, m.id) !== "archived") }))
+  // listed by style (Intraday, then Positional), each model with its author; archived ones at the bottom
+  const every = allGroups.flatMap((g) => g.models.map((m) => ({ ...m, author: g.title, source: g.source })));
+  const archived = every.filter((m) => statusOf(statuses, m.id) === "archived");
+  const groups = ["Intraday", "Positional"]
+    .map((style) => ({ title: style, models: every.filter((m) => m.style === style && statusOf(statuses, m.id) !== "archived") }))
     .filter((g) => g.models.length);
   const [pinned, setPinned] = useSetting(`nav.pinned.${pinKey}`, false);
   const [hover, setHover] = useState(false);
