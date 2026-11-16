@@ -1,9 +1,9 @@
 import { useMemo, useState } from "react";
 import { Field, formatRs, Segmented } from "./V2Controls";
 import { tone } from "./V2BacktestView";
-import { SLIPPAGE, useBacktest } from "./V2BuyOnGap";
+import { SLIPPAGE, useBacktest, useLiveRefresh } from "./V2BuyOnGap";
 import { UNIVERSES } from "./V2BacktestParams";
-import { LotCards, lotColumns, lotMoney, Panel, PositionsTable, StatusLine } from "./V2PaperView";
+import { LotCards, lotColumns, lotMoney, netBoth, Panel, PositionsTable, StatusLine } from "./V2PaperView";
 
 // Short-term mean reversion paper trading on v2: what the production scheduler records at 15:15 (2-day
 // RSI below 10, above the 200-day average, hold 5 trading days, at most N open; N is a server setting
@@ -18,7 +18,8 @@ const PRICES = [
 export default function V2PaperConnors({ params, version = 0 }) {
   const [slippage, setSlippage] = useState(0.02);
   const [prices, setPrices] = useState("stock");
-  const { data, error, loading } = useBacktest(`/api/connors/paper?slippage=${slippage}&v=${version}`);
+  const live = useLiveRefresh();
+  const { data, error, loading } = useBacktest(`/api/connors/paper?slippage=${slippage}&v=${version}`, { refreshMs: live });
   const money = useMemo(() => lotMoney(params.show), [params.show]);
   const fut = prices === "fut";
   const key = fut ? "fut" : "stock";
@@ -51,9 +52,11 @@ export default function V2PaperConnors({ params, version = 0 }) {
     { h: "RSI", cell: (t) => t.rsi, style: () => ({ color: "var(--muted)" }) },
     { h: fut ? "Future" : "Buy", cell: (t) => (fut ? `${t.fut ?? "—"} @ ${t.fut_buy ?? "—"}` : t.buy) },
     lot.qty,
+    { h: "Last", cell: (t) => (fut ? t.fut_ltp : t.ltp) ?? "—" },
     { h: "Day", cell: (t) => `${t.day_of_hold} / ${data.hold}`, style: () => ({ color: "var(--muted)" }) },
     lot.value,
     lot.margin,
+    { ...lot.result, h: "Net now" },
   ];
   const closedCols = [
     { h: "Stock", cell: (t) => <span className="font-medium">{t.symbol}</span> },
@@ -104,7 +107,10 @@ export default function V2PaperConnors({ params, version = 0 }) {
             money={money}
             extra={[{ label: "Open", value: `${data.open.length} / ${maxOpen}`, hint: L.capital_rs ? undefined : `Capital required is an estimate until trades are recorded: ${maxOpen} × the average lot margin (${formatRs(data.lots?.avg_lot_margin_rs)})` }]}
           />
-          <Panel title="Open positions" right={`sold at 15:15 on the ${data.hold}th trading day`}>
+          <Panel
+            title="Open positions"
+            right={`sold at 15:15 on the ${data.hold}th trading day${data.ltp_at ? ` · live prices at ${data.ltp_at}` : ""}${open.length ? ` · net now ${netBoth(open.reduce((a, t) => a + (t.net_rs || 0), 0), null)}` : ""}`}
+          >
             <PositionsTable rows={open} columns={openCols} minWidth={760} empty="No open positions." />
           </Panel>
           <Panel title="Closed trades" right="after charges and slippage on both sides">

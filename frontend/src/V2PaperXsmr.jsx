@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Field, formatRs, Segmented } from "./V2Controls";
 import { tone } from "./V2BacktestView";
-import { SLIPPAGE, useBacktest } from "./V2BuyOnGap";
+import { SLIPPAGE, useBacktest, useLiveRefresh } from "./V2BuyOnGap";
 import { DayLog, LotCards, lotColumns, lotMoney, netBoth, Panel, PositionsTable, StatusLine } from "./V2PaperView";
 
 // Cross-sectional mean reversion paper trading on v2: the 5 long + 5 short the production scheduler
@@ -122,7 +122,8 @@ export default function V2PaperXsmr({ params }) {
     !params.maxOpen || 2 * n > params.maxOpen,
     !params.maxOpen ? "As per model: the recorded 5 + 5" : 2 * n > params.maxOpen ? `Needs Max open ${2 * n} or more` : undefined,
   ]);
-  const { data, error, loading } = useBacktest(`/api/v2/paper/xsmr?pairs=${k}&stop=${stop}&slippage=${slippage}&max_open=${params.maxOpen}`);
+  const live = useLiveRefresh();
+  const { data, error, loading } = useBacktest(`/api/v2/paper/xsmr?pairs=${k}&stop=${stop}&slippage=${slippage}&max_open=${params.maxOpen}`, { refreshMs: live });
   const money = useMemo(() => lotMoney(params.show), [params.show]);
   const lot = lotColumns(money);
 

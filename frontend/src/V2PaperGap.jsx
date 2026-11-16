@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { Field, formatRs, Segmented } from "./V2Controls";
 import { tone } from "./V2BacktestView";
-import { SLIPPAGE, useBacktest } from "./V2BuyOnGap";
+import { SLIPPAGE, useBacktest, useLiveRefresh } from "./V2BuyOnGap";
 import { DayLog, LotCards, lotColumns, lotMoney, netBoth, Panel, PositionsTable, StatusLine } from "./V2PaperView";
 
 // Buy/Sell on gap paper trading on v2: the picks the production scheduler records at 09:15 (every
@@ -20,7 +20,8 @@ export default function V2PaperGap({ params }) {
   const [side, setSide] = useState("long");
   const [stop, setStop] = useState("none");
   const [slippage, setSlippage] = useState(0.02);
-  const { data, error, loading } = useBacktest(`/api/v2/paper/gap?side=${side}&stop=${stop}&slippage=${slippage}&max_open=${params.maxOpen}`);
+  const live = useLiveRefresh();
+  const { data, error, loading } = useBacktest(`/api/v2/paper/gap?side=${side}&stop=${stop}&slippage=${slippage}&max_open=${params.maxOpen}`, { refreshMs: live });
   const money = useMemo(() => lotMoney(params.show), [params.show]);
   const lot = lotColumns(money);
 

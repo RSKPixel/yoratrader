@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Field, formatRs, Segmented } from "./V2Controls";
 import V2EquityChart from "./V2EquityChart";
 import { makeValue, MonthGrid, MonthTradesModal, Panel, SummaryCards, tone } from "./V2BacktestView";
@@ -26,13 +26,23 @@ export const SLIPPAGE = [
   [0.05, "0.05%"],
 ];
 
-export function useBacktest(url) {
+export function useBacktest(url, { refreshMs = 0 } = {}) {
+  // refreshMs: refetch on this interval (a live paper page while the market is open), keeping the
+  // data on screen in between
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
+  const [tick, setTick] = useState(0);
+  const lastUrl = useRef(null);
+  useEffect(() => {
+    if (!refreshMs) return undefined;
+    const timer = setInterval(() => setTick((t) => t + 1), refreshMs);
+    return () => clearInterval(timer);
+  }, [refreshMs]);
   useEffect(() => {
     const controller = new AbortController();
-    setLoading(true);
+    if (lastUrl.current !== url) setLoading(true); // a new query, not a live refresh
+    lastUrl.current = url;
     fetch(url, { signal: controller.signal })
       .then((r) => r.json())
       .then((p) => {
@@ -45,8 +55,28 @@ export function useBacktest(url) {
       .catch((e) => e.name !== "AbortError" && setError("Could not reach the API"))
       .finally(() => setLoading(false));
     return () => controller.abort();
-  }, [url]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [url, tick]);
   return { data, error, loading };
+}
+
+// Paper pages refresh their live prices this often while the market is open
+export const LIVE_REFRESH_MS = 20000;
+
+export function marketHours() {
+  const ist = new Date(Date.now() + (330 + new Date().getTimezoneOffset()) * 60000);
+  const m = ist.getHours() * 60 + ist.getMinutes();
+  return ist.getDay() > 0 && ist.getDay() < 6 && m >= 555 && m <= 935; // 09:15-15:35
+}
+
+export function useLiveRefresh() {
+  // re-check each minute whether the market is open, so a page left open starts / stops polling
+  const [open, setOpen] = useState(marketHours);
+  useEffect(() => {
+    const timer = setInterval(() => setOpen(marketHours()), 60000);
+    return () => clearInterval(timer);
+  }, []);
+  return open ? LIVE_REFRESH_MS : 0;
 }
 
 export default function V2BuyOnGap({ params, model = "gap" }) {

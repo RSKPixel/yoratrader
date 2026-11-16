@@ -191,6 +191,22 @@ def record(force=False):
     return {"recorded": True, "sold": len(to_sell), "bought": [b["symbol"] for b in buys], "signals": len(signals)}
 
 
+def _live_prices(out_open):
+    """The open positions' last prices (stock and future) from Kite, when connected; returns the time."""
+    if not out_open or not kite_auth.status().get("connected"):
+        return None
+    try:
+        keys = [f"NSE:{t['symbol']}" for t in out_open] + [f"NFO:{t['fut']}" for t in out_open if t.get("fut")]
+        q = kite_auth.trading_client().ltp(keys)
+    except Exception as error:
+        print("Short-term mean reversion paper: live prices failed:", error)
+        return None
+    for t in out_open:
+        t["ltp"] = (q.get(f"NSE:{t['symbol']}") or {}).get("last_price")
+        t["fut_ltp"] = (q.get(f"NFO:{t['fut']}") or {}).get("last_price") if t.get("fut") else None
+    return gapwatch._now().strftime("%H:%M:%S")
+
+
 def _lot_sizing(out_open, out_closed, cost, today):
     """One F&O lot a position (today's lots and margin rates), at the stock and at the futures prices:
     each trade gets stock_* and fut_* rupee fields; the result, for each price set, the capital
@@ -198,10 +214,10 @@ def _lot_sizing(out_open, out_closed, cost, today):
     rows = v2margin.table()
     out = {"margins_as_of": v2margin.as_of(rows),
            "avg_lot_margin_rs": round(sum(r["margin"] for r in rows.values()) / len(rows)) if rows else None}
-    for key, buy, sell in (("stock", "buy", "sell"), ("fut", "fut_buy", "fut_sell")):
+    for key, buy, sell, live in (("stock", "buy", "sell", "ltp"), ("fut", "fut_buy", "fut_sell", "fut_ltp")):
         held = []
         for t in out_open + out_closed:
-            z = v2margin.size(rows, t["symbol"], "long", t.get(buy), t.get(sell), cost)
+            z = v2margin.size(rows, t["symbol"], "long", t.get(buy), t.get(sell) or t.get(live), cost)
             z["net_margin_pct"] = v2margin.margin_pct(z["net_rs"], z["margin_rs"])
             z["net_value_pct"] = v2margin.margin_pct(z["net_rs"], z["contract_rs"])
             t.update({f"{key}_{k}": v for k, v in z.items()})
@@ -254,6 +270,7 @@ def paper(slippage=0.0002):
             fg = fut_sell / fut_buy - 1
             row.update({"fut_gross_pct": round(100 * fg, 2), "fut_net_pct": round(100 * (fg - cost * (1 + fut_sell / fut_buy)), 2)})
         out_closed.append(row)
+    ltp_at = _live_prices(out_open)
     nets = [t["net_pct"] for t in out_closed]
     fnets = [t["fut_net_pct"] for t in out_closed if "fut_net_pct" in t]
     n = max_open()
@@ -265,7 +282,7 @@ def paper(slippage=0.0002):
                "fut_book_net_pct": round(sum(t["fut_net_pct"] / t["slots"] for t in out_closed if "fut_net_pct" in t), 2) if fnets else None,
                "cost_per_side_bps": round(10000 * cost, 2)}
     return {"open": out_open, "closed": out_closed, "summary": summary, "max_open": n, "max_open_limit": MAX_OPEN_LIMIT, "hold": HOLD,
-            "universe": universe(), "universes": list(UNIVERSES), "lots": lots,
+            "universe": universe(), "universes": list(UNIVERSES), "lots": lots, "ltp_at": ltp_at,
             "backtest_variant": backtest_variant(n),
             "days": [{"day": d.isoformat(), "recorded_at": r.astimezone(backtest.IST).strftime("%H:%M:%S"), "rankable": rk,
                       "above_average": aa, "signals": sg, "bought": bo, "sold": so, "note": nt, "universe": un}
