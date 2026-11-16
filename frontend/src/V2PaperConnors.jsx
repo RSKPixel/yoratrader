@@ -52,6 +52,7 @@ export default function V2PaperConnors({ params, version = 0 }) {
     { h: fut ? "Future" : "Buy", cell: (t) => (fut ? `${t.fut ?? "—"} @ ${t.fut_buy ?? "—"}` : t.buy) },
     lot.qty,
     { h: "Day", cell: (t) => `${t.day_of_hold} / ${data.hold}`, style: () => ({ color: "var(--muted)" }) },
+    lot.value,
     lot.margin,
   ];
   const closedCols = [
@@ -64,6 +65,7 @@ export default function V2PaperConnors({ params, version = 0 }) {
     { h: "Sell", cell: (t) => (fut ? t.fut_sell ?? "—" : t.sell) },
     { h: "Gross", cell: (t) => { const g = fut ? t.fut_gross_pct : t.gross_pct; return g == null ? "—" : `${g.toFixed(2)}%`; }, style: (t) => ({ color: tone(fut ? t.fut_gross_pct : t.gross_pct) }) },
     { h: "Net", cell: (t) => (t.net == null ? "—" : `${t.net.toFixed(2)}%`), style: (t) => ({ color: tone(t.net) }) },
+    lot.value,
     lot.margin,
     lot.result,
   ];

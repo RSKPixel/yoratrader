@@ -20,6 +20,11 @@ function loadAll() {
   return {};
 }
 
+// A model's saved parameters without the hook (e.g. the dashboard reading what a page was set to)
+export function savedParams(model, defaults = {}) {
+  return { ...DEFAULT_PARAMS, ...defaults, ...(loadAll()[model] || {}) };
+}
+
 // Parameters for one model: its saved values, else the defaults (its first universe; long-short models
 // start at max open 6).
 export function useBacktestParams(model, defaults = {}) {

@@ -1014,10 +1014,11 @@ def v2_data_candles(symbol: str = Query(..., min_length=1, max_length=40), inter
 
 
 @app.get("/api/v2/dashboard")
-def v2_dashboard():
-    """Today at a glance: market status, Kite, the scheduler's steps, indices, paper trading, data freshness."""
+def v2_dashboard(gap_max_open: int = Query(5, ge=0, le=v2gap.MAX_OPEN), xsmr_max_open: int = Query(10, ge=0, le=v2xsmr.MAX_OPEN)):
+    """Today at a glance: market status, Kite, the scheduler's steps, indices, paper trading (at the
+    paper pages' max open), data freshness."""
     try:
-        return {"status": "success", **v2dashboard.overview()}
+        return {"status": "success", **v2dashboard.overview(gap_max_open, xsmr_max_open)}
     except Exception as error:
         print("v2 dashboard failed:", error)
         return {"status": "error", "message": str(error)}

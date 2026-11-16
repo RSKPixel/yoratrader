@@ -108,25 +108,27 @@ def _markets(kite_ok):
     return rows
 
 
-def _paper():
+def _paper(gap_max_open=5, xsmr_max_open=10):
+    """The paper cards, at the max open each paper page was last set to (the page passes them)."""
     out = {}
+    pairs = min(5, xsmr_max_open // 2) if xsmr_max_open else 5
     try:
-        g = v2paper.gap("long", "none", 5)
+        g = v2paper.gap("long", "none", gap_max_open)
         today = next((d for d in g["days"] if d["day"] == g["today"]), None)
         out["gap"] = {"today_positions": len(today["picks"]) if today else 0, "today_net_rs": today["net_rs"] if today else None,
                       "today_margin_pct": today["net_value_pct"] if today else None, "today_margin_rs": today["margin_rs"] if today else None,
                       "today_status": today["status"] if today else None, "total_net_rs": g["summary"]["net_rs"],
-                      "capital_rs": g["summary"]["capital_rs"], "days": g["summary"]["days"],
+                      "capital_rs": g["summary"]["capital_rs"], "days": g["summary"]["days"], "max_open": gap_max_open,
                       "watchlist": len(g["watchlist"]), "session": g["session"]}
     except Exception as error:
         out["gap"] = {"error": str(error)}
     try:
-        x = v2paper.xsmr_(5, "none", 10)
+        x = v2paper.xsmr_(pairs, "none", xsmr_max_open)
         today = next((d for d in x["days"] if d["day"] == x["today"]), None)
         out["xsmr"] = {"today_positions": len(today["picks"]) if today else 0, "today_net_rs": today["net_rs"] if today else None,
                        "today_margin_pct": today["net_value_pct"] if today else None, "today_margin_rs": today["margin_rs"] if today else None,
                        "today_status": today["status"] if today else None, "total_net_rs": x["summary"]["net_rs"],
-                       "capital_rs": x["summary"]["capital_rs"], "days": x["summary"]["days"]}
+                       "capital_rs": x["summary"]["capital_rs"], "days": x["summary"]["days"], "max_open": xsmr_max_open, "pairs": pairs}
     except Exception as error:
         out["xsmr"] = {"error": str(error)}
     try:
@@ -160,7 +162,7 @@ def _last_session(today):
     return day
 
 
-def overview():
+def overview(gap_max_open=5, xsmr_max_open=10):
     now = gapwatch._now()
     today = now.date()
     kite = kite_auth.status()
@@ -173,7 +175,7 @@ def overview():
         "market_open": market_open, "preopen": today.weekday() < 5 and clock(9, 0) <= now.time() < clock(9, 15),
         "next_session": gapwatch.next_session(now).isoformat(), "expected_data": _last_session(today).isoformat()
         if not (today.weekday() < 5 and now.time() >= clock(15, 45)) else today.isoformat(),
-        "kite": kite, "schedule": schedule, "markets": _markets(kite.get("connected")), "paper": _paper(), "freshness": fresh,
+        "kite": kite, "schedule": schedule, "markets": _markets(kite.get("connected")), "paper": _paper(gap_max_open, xsmr_max_open), "freshness": fresh,
     }
 
 

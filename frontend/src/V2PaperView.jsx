@@ -51,7 +51,8 @@ export function LotCards({ s, money, extra = [] }) {
 export function lotColumns(money) {
   return {
     qty: { h: "Qty", cell: (t) => (t.qty == null ? "—" : t.qty.toLocaleString("en-IN")), title: (t) => (t.qty == null ? "No F&O lot size for this stock" : `1 lot = ${t.qty}`) },
-    margin: { h: "Margin", cell: (t) => formatRs(t.margin_rs), style: () => ({ color: "var(--muted)" }), title: (t) => (t.contract_rs ? `Contract value ${formatRs(t.contract_rs)}` : undefined) },
+    value: { h: "Value", cell: (t) => formatRs(t.contract_rs), title: (t) => (t.qty ? `Contract value: ${t.qty} × ${t.entry ?? t.buy ?? t.fut_buy}` : undefined) },
+    margin: { h: "Margin", cell: (t) => formatRs(t.margin_rs), style: () => ({ color: "var(--muted)" }), title: () => "Futures margin (SPAN + exposure) for one lot, from Kite" },
     result: {
       h: "Net result",
       cell: (t) => <span className="font-medium">{money(t.net_rs, t.net_value_pct)}</span>,

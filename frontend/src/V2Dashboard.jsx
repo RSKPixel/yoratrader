@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { Card, Panel, tone } from "./V2BacktestView";
 import { formatRs } from "./V2Controls";
+import { savedParams } from "./V2BacktestParams";
+import { findPaper, paperDefaults } from "./V2Paper";
 
 // v2 Dashboard: today at a glance. Refreshes every minute while the market is open (every 5 outside).
 
@@ -158,6 +160,7 @@ function Paper({ p, today }) {
         error={g.error}
         lines={[
           ["Today", g.today_status ? `${g.today_positions} positions · ${g.today_status === "open" ? "live" : "closed"}` : "no picks yet"],
+          ["Max open", g.max_open ? g.max_open : "as per model"],
           ["Today's net", rs(g.today_net_rs, g.today_margin_pct), tone(g.today_net_rs)],
           ["Total net", rs(g.total_net_rs), tone(g.total_net_rs)],
           ["Capital required", g.capital_rs ? formatRs(g.capital_rs) : "—"],
@@ -171,6 +174,7 @@ function Paper({ p, today }) {
         error={x.error}
         lines={[
           ["Today", x.today_status ? `${x.today_positions} positions · ${x.today_status === "open" ? "live" : "closed"}` : "not recorded yet"],
+          ["Max open", x.max_open ? `${x.max_open} (${x.pairs} + ${x.pairs})` : "as per model (5 + 5)"],
           ["Today's net", rs(x.today_net_rs, x.today_margin_pct), tone(x.today_net_rs)],
           ["Total net", rs(x.total_net_rs), tone(x.total_net_rs)],
           ["Capital required", x.capital_rs ? formatRs(x.capital_rs) : "—"],
@@ -291,13 +295,19 @@ function Freshness({ f, expected }) {
   );
 }
 
+// The paper cards use the max open each paper page was last set to (saved in this browser)
+function dashboardQuery() {
+  const max = (id) => savedParams(`paper-${id}`, paperDefaults(findPaper(id))).maxOpen;
+  return `gap_max_open=${max("buy-on-gap")}&xsmr_max_open=${max("xs-mean-reversion")}`;
+}
+
 export default function V2Dashboard() {
   const [d, setD] = useState(null);
   const [error, setError] = useState("");
   useEffect(() => {
     let timer;
     const load = () =>
-      fetch("/api/v2/dashboard")
+      fetch(`/api/v2/dashboard?${dashboardQuery()}`)
         .then((r) => r.json())
         .then((p) => {
           if (p.status !== "success") setError(p.message || p.detail || "Could not load the dashboard");

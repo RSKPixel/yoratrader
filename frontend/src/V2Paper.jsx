@@ -60,10 +60,13 @@ const ALL = PAPER_GROUPS.flatMap((g) => g.models.map((m) => ({ ...m, group: g })
 export const DEFAULT_PAPER = ALL[0].id;
 export const findPaper = (id) => ALL.find((m) => m.id === id);
 
+// The defaults each paper page's parameters start from (the dashboard reads the same saved values)
+export const paperDefaults = (m) => ({ universe: "fno", maxOpen: m.step > 1 ? 10 : 5 });
+
 export default function V2Paper({ model, onSelect }) {
   const m = findPaper(model) || findPaper(DEFAULT_PAPER);
   const { open, toggle, select } = useSideNav("yt-v2-paper-nav", onSelect);
-  const [params, setParams] = useBacktestParams(`paper-${m.id}`, { universe: "fno", maxOpen: m.step > 1 ? 10 : 5 });
+  const [params, setParams] = useBacktestParams(`paper-${m.id}`, paperDefaults(m));
   const step = m.step || 1;
   const maxOpen = params.maxOpen && step > 1 ? Math.min(10, Math.ceil(params.maxOpen / step) * step) : params.maxOpen;
   const liveSettings = useLiveSettings(m.live);
