@@ -70,7 +70,9 @@ VARIANTS = {f"{s}-{h}d{f'-max{m}' if m else ''}{st}{tm}": {
                 "setup": s, "hold": h, "max_open": m, "stop": k, "timing": TIMINGS[tm]}
             for s in SETUPS for h in HOLDS for m in (None, *MAX_OPEN) for st, k in STOPS.items() for tm in TIMINGS}
 BOOK = ("rsi2-5d",)
-TAKES = {"all": None, "top5": 5, "top3": 3}
+# Take: at most this many new positions a day, the lowest RSIs first. As per model (no max open): the
+# day's picks; with a max open: also capped by the free slots (e.g. max open 10, at most 3 new a day).
+TAKES = {"all": None, "top5": 5, "top4": 4, "top3": 3, "top2": 2, "top1": 1}
 
 
 def variant_id(base, take="all"):
@@ -186,7 +188,8 @@ def _simulate(d, variant, lot=None):
     sizes) and the trades."""
     base, take = parse_variant(variant)
     meta = VARIANTS[base]
-    hold, top, k, cap = meta["hold"], TAKES[take], meta["stop"], meta["max_open"]
+    hold, per_day, k, cap = meta["hold"], TAKES[take], meta["stop"], meta["max_open"]
+    top = per_day
     idx, cols = d["px"].index, d["px"].columns
     hit = ((d["setups"][meta["setup"]] & d["eligible"]).fillna(False)
            & (d["rankable"] >= MIN_STOCKS).to_numpy()[:, None]).to_numpy()
@@ -246,6 +249,8 @@ def _simulate(d, variant, lot=None):
             held_now = {tr["s"] for tr in open_trades}
             cand = np.array([c for c in cand if c not in held_now], dtype=int)
             top = cap - len(open_trades)
+            if per_day is not None:  # and at most `take` new positions a day
+                top = min(top, per_day)
         if top is not None and len(cand) > top:
             cand = cand[np.argsort(rsi[i, cand], kind="stable")[:max(top, 0)]]
         if len(cand):

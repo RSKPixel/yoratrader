@@ -22,13 +22,13 @@ SETUPS = ("rsi2", "low10", "down3", "every")
 HOLDS = ("5d", "2d")
 STOPS = {"none": "", "1sd": "-1sd", "2sd": "-2sd"}
 TIMINGS = {"1515": "", "close": "-close"}
-TAKES = ("all", "top5", "top3")
+TAKES = ("all", "top5", "top4", "top3", "top2", "top1")
 MAX_OPEN = 10
 
 
 def variant(setup, hold, max_open, stop, timing, take):
     base = f"{setup}-{hold}{f'-max{max_open}' if max_open else ''}{STOPS[stop]}{TIMINGS[timing]}"
-    return base if max_open or take == "all" else f"{base}-{take}"
+    return base if take == "all" else f"{base}-{take}"
 
 
 def _sized(dataset, setup, hold, max_open, stop, timing, take, slippage):
