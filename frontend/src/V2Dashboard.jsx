@@ -151,9 +151,9 @@ function PaperCard({ title, href, style, lines, error }) {
 function Paper({ p, today }) {
   // one F&O lot a position: rupees, with % of the day's margin where there is one
   const rs = (v, m) => (v == null ? "—" : `${v > 0 ? "+" : ""}${formatRs(v)}${m == null ? "" : ` · ${pct(m, 2)}`}`);
-  const g = p.gap || {}, x = p.xsmr || {}, c = p.connors || {};
+  const g = p.gap || {}, x = p.xsmr || {}, c = p.connors || {}, cc = p.connors_cum || {};
   return (
-    <div className="grid gap-3 md:grid-cols-3">
+    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
       <PaperCard
         title="Buy/Sell on gap"
         href="/v2/paper/buy-on-gap"
@@ -189,9 +189,24 @@ function Paper({ p, today }) {
         lines={[
           ["Open", `${c.open ?? 0} / ${c.max_open ?? 3}${c.open_symbols?.length ? ` · ${c.open_symbols.join(", ")}` : ""}`],
           ["Closed trades", c.closed ?? 0],
+          ["Open now", rs(c.open_net_rs), tone(c.open_net_rs)],
           ["Net (stock prices)", rs(c.net_rs), tone(c.net_rs)],
           ["Net (futures prices)", rs(c.fut_net_rs), tone(c.fut_net_rs)],
           ["Capital required", c.capital_rs ? formatRs(c.capital_rs) : "—"],
+        ]}
+      />
+      <PaperCard
+        title="Cumulative RSI(2) · exit on strength"
+        href="/v2/paper/cumulative-rsi"
+        style="Positional"
+        error={cc.error}
+        lines={[
+          ["Open", `${cc.open ?? 0} / ${cc.max_open ?? 3}${cc.open_symbols?.length ? ` · ${cc.open_symbols.join(", ")}` : ""}`],
+          ["Closed trades", cc.closed ?? 0],
+          ["Open now", rs(cc.open_net_rs), tone(cc.open_net_rs)],
+          ["Net (stock prices)", rs(cc.net_rs), tone(cc.net_rs)],
+          ["Net (futures prices)", rs(cc.fut_net_rs), tone(cc.fut_net_rs)],
+          ["Capital required", cc.capital_rs ? formatRs(cc.capital_rs) : "—"],
         ]}
       />
     </div>
@@ -234,7 +249,7 @@ function Models() {
         </thead>
         <tbody>
           {data.models.map((m) => (
-            <tr key={m.id} className="border-t" style={{ borderColor: "var(--border)" }}>
+            <tr key={`${m.id}-${m.label}`} className="border-t" style={{ borderColor: "var(--border)" }}>
               <td className="px-3 py-2">
                 <a href={`/v2/backtesting/${m.id}`} onClick={go(`/v2/backtesting/${m.id}`)} className="font-medium hover:underline">
                   {m.label}

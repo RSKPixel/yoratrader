@@ -62,10 +62,13 @@ def _schedule(cursor, today, now):
     pre = _one(cursor, "SELECT count(*) FROM xsmr_preopen_quotes WHERE day = %s AND snap = '0906'", (today,)) if _table_exists(cursor, "xsmr_preopen_quotes") else 0
     gap = _one(cursor, "SELECT candidates FROM gap_paper_days WHERE day = %s", (today,)) if _table_exists(cursor, "gap_paper_days") else None
     xs = _one(cursor, "SELECT quoted FROM xsmr_paper_days WHERE day = %s", (today,)) if _table_exists(cursor, "xsmr_paper_days") else None
-    con = None
+    con = con_cum = None
     if _table_exists(cursor, "connors_paper_days"):
         cursor.execute("SELECT bought, sold, note FROM connors_paper_days WHERE day = %s", (today,))
         con = cursor.fetchone()
+    if _table_exists(cursor, "connors_paper_cum_days"):
+        cursor.execute("SELECT bought, sold, note FROM connors_paper_cum_days WHERE day = %s", (today,))
+        con_cum = cursor.fetchone()
     gap_open = _one(cursor, "SELECT count(*) FROM gap_paper WHERE day = %s AND status = 'open'", (today,)) if gap is not None else None
     xs_open = _one(cursor, "SELECT count(*) FROM xsmr_paper WHERE day = %s AND status = 'open'", (today,)) if xs is not None else None
     daily = _one(cursor, "SELECT max(day) FROM bt_daily WHERE symbol IN (SELECT symbol FROM bt_symbols WHERE dataset = 'fno')")
@@ -81,6 +84,9 @@ def _schedule(cursor, today, now):
         step((9, 15), "Cross-sectional mean reversion: 5 + 5 at the open", xs is not None, f"{xs} stocks quoted" if xs is not None else None, until=(9, 20)),
         step((15, 15), "Short-term mean reversion: sells and buys", con is not None and not (con[2] or "").startswith("market closed"),
              (f"{con[1] or 0} sold, {con[0] or 0} bought" if con and con[0] is not None else (con[2] if con else None)), until=(15, 25)),
+        step((15, 15), "Cumulative RSI(2): sells on strength and buys", con_cum is not None and not (con_cum[2] or "").startswith("market closed"),
+             (f"{con_cum[1] or 0} sold, {con_cum[0] or 0} bought" if con_cum and con_cum[0] is not None else (con_cum[2] if con_cum else None)),
+             until=(15, 25)),
         step((15, 16), "Intraday exits at 15:15", exits_done and (gap is not None or xs is not None),
              "all closed" if exits_done and (gap is not None or xs is not None) else None, until=(15, 30)),
         step((15, 45), "Daily candles refreshed", daily is not None and daily >= today, f"to {daily}" if daily else None, until=(16, 30)),
@@ -138,14 +144,16 @@ def _paper(gap_max_open=5, xsmr_max_open=10):
                        "capital_rs": x["summary"]["capital_rs"], "days": x["summary"]["days"], "max_open": xsmr_max_open, "pairs": pairs}
     except Exception as error:
         out["xsmr"] = {"error": str(error)}
-    try:
-        c = connorswatch.paper()
-        out["connors"] = {"open": len(c["open"]), "max_open": c["max_open"], "closed": c["summary"]["trades"],
-                          "net_rs": c["lots"]["stock"]["net_rs"], "fut_net_rs": c["lots"]["fut"]["net_rs"],
-                          "capital_rs": c["lots"]["stock"]["capital_rs"] or (c["max_open"] * (c["lots"]["avg_lot_margin_rs"] or 0)),
-                          "open_symbols": [t["symbol"] for t in c["open"]]}
-    except Exception as error:
-        out["connors"] = {"error": str(error)}
+    for key, book in (("connors", "rsi2"), ("connors_cum", "cum")):  # the two short-term mean reversion books
+        try:
+            c = connorswatch.paper(book=book)
+            out[key] = {"open": len(c["open"]), "max_open": c["max_open"], "closed": c["summary"]["trades"],
+                        "net_rs": c["lots"]["stock"]["net_rs"], "fut_net_rs": c["lots"]["fut"]["net_rs"],
+                        "open_net_rs": round(sum(t.get("stock_net_rs") or 0 for t in c["open"]), 2) if c["open"] else None,
+                        "capital_rs": c["lots"]["stock"]["capital_rs"] or (c["max_open"] * (c["lots"]["avg_lot_margin_rs"] or 0)),
+                        "open_symbols": [t["symbol"] for t in c["open"]]}
+        except Exception as error:
+            out[key] = {"error": str(error)}
     return out
 
 
@@ -199,6 +207,8 @@ MODELS = [
     ("quant-momentum", "Quantitative momentum", "Positional", "F&O · book · max 5", lambda: v2qmom.results("fno", "book", "none", 5)),
     ("short-term-reversion", "Short-term mean reversion", "Positional", "F&O · RSI(2) · max 3 · close",
      lambda: v2connors.results("fno", "rsi2", "5d", 3, "none", "close", "all")),
+    ("short-term-reversion", "Cumulative RSI(2) · exit on strength", "Positional", "F&O · cumulative RSI(2) · max 3 · close",
+     lambda: v2connors.results("fno", "cumrsi2", "0d", 3, "none", "close", "all")),
 ]
 
 
