@@ -57,15 +57,21 @@ HOLDS = {5: "hold 5 days (book)", 2: "hold 2 days"}
 MAX_OPEN = tuple(range(1, 11))
 # Stop (not in the book; Connors argues stops hurt mean reversion): "-1sd" / "-2sd" puts it 1 / 2
 # standard deviations of the stock's last 90 daily returns below the buy price (1σ is Buy on gap's
-# stop). Checked on the daily low for the days in between (out at the open if the stock gaps
-# through it) and on the 15m lows up to 15:15 on the sell day; out at the stop price.
-STOPS = {"": None, "-1sd": 1.0, "-2sd": 2.0}
+# stop); "-3pc" / "-5pc" / "-7pc" / "-10pc" a fixed % below the buy price. Checked on the daily low for
+# the days in between (out at the open if the stock gaps through it) and on the 15m lows up to 15:15
+# on the sell day; out at the stop price.
+STOPS = {"": None, "-1sd": ("sd", 1.0), "-2sd": ("sd", 2.0),
+         "-3pc": ("pct", 0.03), "-5pc": ("pct", 0.05), "-7pc": ("pct", 0.07), "-10pc": ("pct", 0.10)}
+
+
+def _stop_label(k):
+    return "" if not k else f" · {k[1]:g}σ stop" if k[0] == "sd" else f" · {100 * k[1]:g}% stop"
 # Prices: "" = the live 15:15 version (15m candles, from 2015); "-close" = official closes for the
 # signal, the buy and the sale (daily candles, from 2004). The close is a 30-minute average on NSE,
 # so it can't be traded exactly; it's the long-history check, and the two can be compared from 2015.
 TIMINGS = {"": "15:15", "-close": "close"}
 VARIANTS = {f"{s}-{h}d{f'-max{m}' if m else ''}{st}{tm}": {
-                "label": f"{SETUPS[s]} · {HOLDS[h]}{f' · max {m} open' if m else ''}{f' · {k:g}σ stop' if k else ''}"
+                "label": f"{SETUPS[s]} · {HOLDS[h]}{f' · max {m} open' if m else ''}{_stop_label(k)}"
                          f"{' · at the close' if tm else ''}",
                 "setup": s, "hold": h, "max_open": m, "stop": k, "timing": TIMINGS[tm]}
             for s in SETUPS for h in HOLDS for m in (None, *MAX_OPEN) for st, k in STOPS.items() for tm in TIMINGS}
@@ -252,7 +258,12 @@ def _simulate(d, variant, lot=None):
             w = 1.0 / cap if cap else 1.0 / (hold * len(cand))
             for s_ in cand:
                 buy = float(px[i, s_])
-                stop = buy * (1 - k * sd[i, s_]) if k and pd.notna(sd[i, s_]) else None
+                if not k:
+                    stop = None
+                elif k[0] == "pct":
+                    stop = buy * (1 - k[1])
+                else:
+                    stop = buy * (1 - k[1] * sd[i, s_]) if pd.notna(sd[i, s_]) else None
                 size = float(lots[s_]) if pd.notna(lots[s_]) else 0.0
                 tr = {"s": s_, "buy_i": i, "sell_i": min(i + hold, n - 1) if i + hold < n else None, "buy": buy,
                       "last": buy, "w": w, "stop": stop, "lot": size, "rsi": float(rsi[i, s_])}

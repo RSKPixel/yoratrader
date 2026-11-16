@@ -20,7 +20,7 @@ import xsmr
 DATASETS = connors.DATASETS
 SETUPS = ("rsi2", "low10", "down3", "every")
 HOLDS = ("5d", "2d")
-STOPS = {"none": "", "1sd": "-1sd", "2sd": "-2sd"}
+STOPS = {"none": "", "1sd": "-1sd", "2sd": "-2sd", "3pc": "-3pc", "5pc": "-5pc", "7pc": "-7pc", "10pc": "-10pc"}
 TIMINGS = {"1515": "", "close": "-close"}
 TAKES = ("all", "top5", "top3")
 MAX_OPEN = 10

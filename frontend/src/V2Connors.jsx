@@ -26,6 +26,10 @@ const STOPS = [
   ["none", "None (book)"],
   ["1sd", "1σ"],
   ["2sd", "2σ"],
+  ["3pc", "3%"],
+  ["5pc", "5%"],
+  ["7pc", "7%"],
+  ["10pc", "10%"],
 ];
 const TAKES = [
   ["all", "All signals"],
@@ -86,7 +90,7 @@ export default function V2Connors({ params }) {
         <Field label="Prices" hint="Close: official closes for the signal, buy and sale (daily candles, 2004 on). 15:15: today's 15:15 price, what you can trade (15m candles, 2015 on); its first load takes ~45 s.">
           <Segmented label="Prices" options={TIMINGS} value={timing} onChange={setTiming} />
         </Field>
-        <Field label="Stop" hint="Not in the book. 1σ / 2σ of the stock's last 90 daily returns below the buy price.">
+        <Field label="Stop" hint="Not in the book. 1σ / 2σ of the stock's last 90 daily returns below the buy price, or a fixed % below it.">
           <Segmented label="Stop" options={STOPS} value={stop} onChange={setStop} />
         </Field>
         {book && (
