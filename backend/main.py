@@ -56,7 +56,7 @@ async def startup():
     # Buy-on-gap paper trading records picks at the open and exits after 15:15 on its own, but
     # only in production: dev shares the database and would record everything twice.
     if os.environ.get("APP_ENV") == "production" or os.environ.get("GAP_SCHEDULER") == "1":
-        gapwatch.start_scheduler()
+        gapwatch.start_scheduler(after_close=scheduled_live_download)
     v2xsmr.warm()  # the cross-sectional page's 15m prices (~40 s), so the first visit is quick
     v2dashboard.models()  # the dashboard's strategy table, built in the background
 
@@ -336,126 +336,76 @@ class EodRequest(BaseModel):
     full: bool = False  # EOD only: continuous daily history from 2010 instead of the last 30 days
 
 
-@app.post("/api/eod")
-def eod(body: EodRequest):
-    job_id = uuid.uuid4().hex
-    data_job.update(id=job_id, kind="full" if body.full else "eod", started_at=int(time.time()))
-    total = len(body.symbols)
-    jobs[job_id] = {
-        "status": "running",
-        "done": 0,
-        "total": total,
-        "symbol": "",
-        "candles": 0,
-        "errors": [],
-    }
-    ws_hub.notify(
-        {
-            "type": "status",
-            "level": "info",
-            "message": f"EOD download started for {total} symbols",
-            "job_id": job_id,
-        }
-    )
-
-    def on_progress(state):
-        jobs[job_id] = state
-        ws_hub.notify({"type": "eod_progress", "job_id": job_id, **state})
-        if state.get("status") == "running" and state.get("symbol"):
-            ws_hub.notify(
-                {
-                    "type": "status",
-                    "level": "info",
-                    "message": (
-                        f"Downloading EOD {state['done'] + 1}/{state['total']}: "
-                        f"{state['symbol']}"
-                    ),
-                    "job_id": job_id,
-                }
-            )
-        elif state.get("status") == "completed":
-            failed = len(state.get("errors") or [])
-            suffix = f" ({failed} failed)" if failed else ""
-            ws_hub.notify(
-                {
-                    "type": "status",
-                    "level": "success" if failed == 0 else "info",
-                    "message": (
-                        f"EOD download complete. Saved {state.get('candles', 0)} candles{suffix}"
-                    ),
-                    "job_id": job_id,
-                }
-            )
-
-    def run():
-        try:
-            download_eod(body.symbols, on_progress, full=body.full)
-        except Exception as error:
-            print("Error downloading EOD:", error)
-            state = {
-                "status": "error",
-                "message": str(error),
-                "done": 0,
-                "total": total,
-                "symbol": "",
-                "candles": 0,
-                "errors": [],
-            }
-            jobs[job_id] = state
-            ws_hub.notify({"type": "eod_progress", "job_id": job_id, **state})
-            ws_hub.notify(
-                {
-                    "type": "status",
-                    "level": "error",
-                    "message": f"EOD download failed: {error}",
-                    "job_id": job_id,
-                }
-            )
-
-    threading.Thread(target=run, daemon=True).start()
-    return {"status": "success", "job_id": job_id}
+LABELS = {"eod": "EOD", "full": "Full EOD history", "idata": "iData (15m)"}
 
 
-@app.post("/api/idata")
-def idata(body: EodRequest):
-    job_id = uuid.uuid4().hex
-    data_job.update(id=job_id, kind="idata", started_at=int(time.time()))
-    total = len(body.symbols)
+def _run_data_job(kind, symbols, job_id=None):
+    """One live-futures download (eod: the last 30 days; full: from 2010; idata: 15m from the
+    previous expiry), with the progress the Data page shows. Runs in the calling thread."""
+    job_id = job_id or uuid.uuid4().hex
+    data_job.update(id=job_id, kind=kind, started_at=int(time.time()))
+    total = len(symbols)
+    event = "idata_progress" if kind == "idata" else "eod_progress"
+    label = LABELS[kind]
     jobs[job_id] = {"status": "running", "done": 0, "total": total, "symbol": "", "candles": 0, "errors": []}
-    ws_hub.notify(
-        {"type": "status", "level": "info", "message": f"iData (15m) download started for {total} symbols", "job_id": job_id}
-    )
+    ws_hub.notify({"type": "status", "level": "info", "message": f"{label} download started for {total} symbols", "job_id": job_id})
 
     def on_progress(state):
         jobs[job_id] = state
-        ws_hub.notify({"type": "idata_progress", "job_id": job_id, **state})
+        ws_hub.notify({"type": event, "job_id": job_id, **state})
         if state.get("status") == "running" and state.get("symbol"):
-            message = f"Downloading iData {state['done'] + 1}/{state['total']}: {state['symbol']}"
+            message = f"Downloading {label} {state['done'] + 1}/{state['total']}: {state['symbol']}"
             ws_hub.notify({"type": "status", "level": "info", "message": message, "job_id": job_id})
         elif state.get("status") == "completed":
             failed = len(state.get("errors") or [])
             suffix = f" ({failed} failed)" if failed else ""
-            ws_hub.notify(
-                {
-                    "type": "status",
-                    "level": "success" if failed == 0 else "info",
-                    "message": f"iData download complete. Saved {state.get('candles', 0)} 15m candles{suffix}",
-                    "job_id": job_id,
-                }
-            )
+            ws_hub.notify({"type": "status", "level": "success" if failed == 0 else "info",
+                           "message": f"{label} download complete. Saved {state.get('candles', 0)} candles{suffix}", "job_id": job_id})
 
-    def run():
-        try:
-            download_intraday(body.symbols, on_progress)
-        except Exception as error:
-            print("Error downloading iData:", error)
-            state = {"status": "error", "message": str(error), "done": 0, "total": total, "symbol": "", "candles": 0, "errors": []}
-            jobs[job_id] = state
-            ws_hub.notify({"type": "idata_progress", "job_id": job_id, **state})
-            ws_hub.notify({"type": "status", "level": "error", "message": f"iData download failed: {error}", "job_id": job_id})
+    try:
+        if kind == "idata":
+            download_intraday(symbols, on_progress)
+        else:
+            download_eod(symbols, on_progress, full=kind == "full")
+    except Exception as error:
+        print(f"Error downloading {label}:", error)
+        state = {"status": "error", "message": str(error), "done": 0, "total": total, "symbol": "", "candles": 0, "errors": []}
+        jobs[job_id] = state
+        ws_hub.notify({"type": event, "job_id": job_id, **state})
+        ws_hub.notify({"type": "status", "level": "error", "message": f"{label} download failed: {error}", "job_id": job_id})
+    return jobs[job_id]
 
-    threading.Thread(target=run, daemon=True).start()
+
+def _start_data_job(kind, symbols):
+    if data_job["id"] and (jobs.get(data_job["id"]) or {}).get("status") == "running":
+        raise HTTPException(status_code=409, detail="A download is already running.")
+    job_id = uuid.uuid4().hex
+    threading.Thread(target=_run_data_job, args=(kind, symbols, job_id), daemon=True).start()
     return {"status": "success", "job_id": job_id}
+
+
+@app.post("/api/eod")
+def eod(body: EodRequest):
+    return _start_data_job("full" if body.full else "eod", body.symbols)
+
+
+@app.post("/api/idata")
+def idata(body: EodRequest):
+    return _start_data_job("idata", body.symbols)
+
+
+def scheduled_live_download():
+    """After the close (the production scheduler, 15:50): every live future's last 30 days of daily
+    candles, then its 15m candles from the previous expiry. Skipped if a download is already running."""
+    if data_job["id"] and (jobs.get(data_job["id"]) or {}).get("status") == "running":
+        return {"ran": False, "reason": "a download is already running"}
+    symbols = sorted({row["name"] for row in list_contracts("ALL")})
+    out = {}
+    for kind in ("eod", "idata"):
+        state = _run_data_job(kind, symbols)
+        out[kind] = {"status": state.get("status"), "candles": state.get("candles"), "errors": len(state.get("errors") or [])}
+    print("Live futures download:", out)
+    return {"ran": True, **out}
 
 
 MODELS = {"orb": orb, "fib": fib, "kbdtfib": kbdtfib}

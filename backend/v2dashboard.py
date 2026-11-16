@@ -70,6 +70,8 @@ def _schedule(cursor, today, now):
     xs_open = _one(cursor, "SELECT count(*) FROM xsmr_paper WHERE day = %s AND status = 'open'", (today,)) if xs is not None else None
     daily = _one(cursor, "SELECT max(day) FROM bt_daily WHERE symbol IN (SELECT symbol FROM bt_symbols WHERE dataset = 'fno')")
     exits_done = (gap is not None or xs is not None) and not gap_open and not xs_open
+    live_eod = _one(cursor, "SELECT max(datetime) FROM eod WHERE exchange = 'NSE'")
+    live_15m = _one(cursor, "SELECT (max(datetime) AT TIME ZONE 'Asia/Kolkata')::date FROM intraday_15m WHERE exchange = 'NSE'")
     return [
         step((9, 6), "Pre-open snapshot (futures auction)", bool(pre), f"{pre} futures quoted" if pre else None, until=(9, 9)),
         step((9, 15), "Buy/Sell on gap: picks at the open", gap is not None, f"{gap} qualifying stocks" if gap is not None else None, until=(9, 20)),
@@ -79,6 +81,8 @@ def _schedule(cursor, today, now):
         step((15, 16), "Intraday exits at 15:15", exits_done and (gap is not None or xs is not None),
              "all closed" if exits_done and (gap is not None or xs is not None) else None, until=(15, 30)),
         step((15, 45), "Daily candles refreshed", daily is not None and daily >= today, f"to {daily}" if daily else None, until=(16, 30)),
+        step((15, 50), "Live futures download (EOD + 15 min)", bool(live_eod and live_eod >= today and live_15m and live_15m >= today),
+             f"EOD to {live_eod} · 15 min to {live_15m}" if live_eod else None, until=(16, 45)),
     ]
 
 

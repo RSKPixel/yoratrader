@@ -8,6 +8,7 @@
 - finalize(): after 15:15, the exit from that day's 15m candles: the close of the 15:00 candle,
   and whether a 1σ stop was touched first.
 - refresh_daily(): tops up bt_daily for the F&O stocks after the close, for tomorrow's levels.
+- after_close (from main): at 15:50, the live futures' EOD and 15m download, as the Data page does.
 
 In production a background loop (start_scheduler) runs these on weekdays, so the log builds up
 even when nobody has the page open. Nothing here places orders.
@@ -30,6 +31,7 @@ OPEN_AT = clock(9, 15, 1)  # the scheduler wakes at 09:15:01: the open is known,
 LIVE_FILL_BY = clock(9, 15, 30)  # a snapshot later than this isn't "a market order at the open"
 EXIT_AT = clock(15, 16)  # the 15:00 candle has closed
 REFRESH_AT = clock(15, 45)  # daily candles for tomorrow's levels
+LIVE_DOWNLOAD_AT = clock(15, 50)  # live futures: EOD (30 days) and 15m (from the previous expiry)
 TOP = 10
 SLIPPAGE = 0.0002  # per side, as on the backtest page default
 HISTORY_ROWS = backtest.GAP_SD_DAYS + 40  # daily rows read per stock
@@ -410,7 +412,7 @@ def paper(slippage=SLIPPAGE):
 
 # ---- scheduler (production only) -------------------------------------------------------------
 
-_state = {"refreshed_on": None, "started": False, "last_error": None}
+_state = {"refreshed_on": None, "downloaded_on": None, "started": False, "last_error": None, "after_close": None}
 
 
 def _tick():
@@ -456,6 +458,9 @@ def _tick():
         result = refresh_daily()
         _state["refreshed_on"] = now.date()
         print("Gap paper: daily candles refreshed", len(result["errors"]), "errors")
+    if t >= LIVE_DOWNLOAD_AT and _state["after_close"] and _state["downloaded_on"] != now.date():
+        _state["downloaded_on"] = now.date()  # once a day, even if it fails (the Data page can re-run it)
+        threading.Thread(target=_state["after_close"], daemon=True, name="live-download").start()
 
 
 def _loop():
@@ -471,7 +476,9 @@ def _loop():
         time.sleep(max(1.0, 61 - now.second - now.microsecond / 1e6))
 
 
-def start_scheduler():
+def start_scheduler(after_close=None):
+    """after_close: run once each weekday from LIVE_DOWNLOAD_AT (the live futures download)."""
+    _state["after_close"] = after_close
     if not _state["started"]:
         _state["started"] = True
         threading.Thread(target=_loop, daemon=True, name="gap-paper").start()
