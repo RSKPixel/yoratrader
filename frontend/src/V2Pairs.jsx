@@ -2,7 +2,7 @@ import { useCallback, useMemo, useState } from "react";
 import { useSetting } from "./settings";
 import { Field, formatRs, Segmented } from "./V2Controls";
 import V2EquityChart from "./V2EquityChart";
-import { makeValue, MonthGrid, MonthTradesModal, Panel, SummaryCards, tone } from "./V2BacktestView";
+import { makeValue, MonthGrid, MonthTradesModal, Panel, SummaryCards, tone, AT_COLUMNS } from "./V2BacktestView";
 import { SLIPPAGE, useBacktest } from "./V2BuyOnGap";
 
 // Pairs trading (Chan, Algorithmic Trading ch. 2-4) on v2: same-industry F&O pairs that passed a
@@ -50,8 +50,7 @@ export default function V2Pairs({ params }) {
   };
   const longY = (t) => t.side === "long";
   const columns = [
-    { h: "Entry", cell: (t) => t.entry_day },
-    { h: "Exit", cell: (t) => t.exit_day, style: () => ({ color: "var(--muted)" }) },
+    ...AT_COLUMNS,
     { h: "Days", cell: (t) => t.days, style: () => ({ color: "var(--muted)" }) },
     { h: "Pair (y / x)", cell: (t) => <span className="font-medium">{t.y} / {t.x}</span>, title: (t) => `${t.industry} · rank ${t.rank} in its year · hedge ${t.hedge}` },
     { h: "Side", cell: (t) => (longY(t) ? `long ${t.y}, short ${t.x}` : `short ${t.y}, long ${t.x}`), style: (t) => ({ color: longY(t) ? "var(--positive)" : "var(--negative)" }) },

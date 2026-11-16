@@ -113,7 +113,8 @@ def month_trades(month, dataset="fno", version="book", hedge="none", max_open=5,
     def num(v, d=2):
         return round(float(v), d) if pd.notna(v) else None
 
-    return [{"entry_day": r.entry_day.date().isoformat(), "exit_day": r.exit_day.date().isoformat(), "symbol": r.symbol,
+    return [{"entry_day": r.entry_day.date().isoformat(), "exit_day": r.exit_day.date().isoformat(),
+             "entry_at": f"{r.entry_day.date().isoformat()} {v2common.CLOSE}", "exit_at": f"{r.exit_day.date().isoformat()} {v2common.CLOSE}", "symbol": r.symbol,
              "side": r.side, "hedge": bool(r.hedge), "kept": bool(r.kept), "mom_pct": num(100 * r.mom if pd.notna(r.mom) else None, 1),
              "fip": num(r.fip, 3), "entry": num(r.entry), "exit": num(r.exit), "weight_pct": round(100 * float(r.w), 3),
              "ret_pct": round(100 * float(r.ret), 3), "cost_pct": round(100 * float(r.cost), 3), "net_pct": round(100 * float(r.net), 3),

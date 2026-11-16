@@ -3,7 +3,7 @@ import { useSetting } from "./settings";
 import V2CandleChart from "./V2CandleChart";
 import V2PnlChart from "./V2PnlChart";
 import { Field, formatRs, Segmented } from "./V2Controls";
-import { tone } from "./V2BacktestView";
+import { tone, AT_COLUMNS } from "./V2BacktestView";
 import { SLIPPAGE, useBacktest, useLiveRefresh } from "./V2BuyOnGap";
 import { UNIVERSES } from "./V2BacktestParams";
 import { LotCards, lotColumns, lotMoney, netBoth, Panel, usePaperChart, PositionsTable, StatusLine } from "./V2PaperView";
@@ -146,7 +146,7 @@ export default function V2PaperConnors({ params, version = 0, book = "rsi2" }) {
 
   const openCols = [
     { h: "Stock", cell: (t) => <span className="font-medium">{t.symbol}</span> },
-    { h: "Bought", cell: (t) => `${t.buy_day} ${t.buy_at}` },
+    AT_COLUMNS[0],
     { h: strength ? "Cum RSI" : "RSI", cell: (t) => t.rsi, style: () => ({ color: "var(--muted)" }), title: () => (strength ? "The cumulative 2-day RSI it was bought at" : "The 2-day RSI it was bought at") },
     { h: fut ? "Future" : "Buy", cell: (t) => (fut ? `${t.fut ?? "—"} @ ${t.fut_buy ?? "—"}` : t.buy) },
     lot.qty,
@@ -163,8 +163,7 @@ export default function V2PaperConnors({ params, version = 0, book = "rsi2" }) {
   ];
   const closedCols = [
     { h: "Stock", cell: (t) => <span className="font-medium">{t.symbol}</span> },
-    { h: "Bought", cell: (t) => t.buy_day },
-    { h: "Sold", cell: (t) => t.sell_day, style: () => ({ color: "var(--muted)" }) },
+    ...AT_COLUMNS,
     ...(strength ? [{ h: "Exit", cell: (t) => t.reason, style: (t) => ({ color: t.reason === "strength" ? "var(--positive)" : "var(--muted)" }) }] : []),
     { h: strength ? "Cum RSI" : "RSI", cell: (t) => t.rsi, style: () => ({ color: "var(--muted)" }) },
     { h: "Buy", cell: (t) => (fut ? t.fut_buy ?? "—" : t.buy) },

@@ -112,6 +112,9 @@ def month_trades(month, dataset="indices", hold="5d", stop_mode="model", stop_pc
     t, _ = _sized(dataset, variant(hold, stop_mode, stop_pct), max_open, slippage)
     t = t[t["day"].dt.strftime("%Y-%m") == month]
     return [{"entry_day": r.entry_day.date().isoformat(), "entry_time": r.entry_label, "exit_day": r.exit_day.date().isoformat(),
+             "entry_at": f"{r.entry_day.date().isoformat()} {r.entry_label}",
+             "exit_at": f"{r.exit_day.date().isoformat()} "
+                        f"{v2common.exit_time(r.exit_reason, v2common.CLOSE if 'close' in str(r.exit_reason) else '15:15')}",
              "symbol": r.symbol, "side": r.side, "entry": round(float(r.entry), 2), "stop": round(float(r.stop), 2),
              "exit": round(float(r.exit), 2), "reason": r.exit_reason, "r": round(float(r.r), 2), "rolls": int(r.rolls),
              "weight_pct": round(100 * float(r.w), 2), "ret_pct": round(100 * float(r.ret), 3), "cost_pct": round(100 * float(r.cost), 3),

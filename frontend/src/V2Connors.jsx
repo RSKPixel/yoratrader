@@ -2,7 +2,7 @@ import { useCallback, useMemo, useState } from "react";
 import { useSetting } from "./settings";
 import { Field, formatRs, Segmented } from "./V2Controls";
 import V2EquityChart from "./V2EquityChart";
-import { makeValue, MonthGrid, MonthTradesModal, Panel, SummaryCards, tone } from "./V2BacktestView";
+import { makeValue, MonthGrid, MonthTradesModal, Panel, SummaryCards, tone, AT_COLUMNS } from "./V2BacktestView";
 import { SLIPPAGE, useBacktest } from "./V2BuyOnGap";
 
 // Short-term mean reversion (Connors & Sen, How Markets Really Work) on v2: long only, F&O stocks above
@@ -65,8 +65,7 @@ export default function V2Connors({ params }) {
   const at = timing === "close" ? "the close" : "15:15";
 
   const columns = [
-    { h: "Bought", cell: (t) => t.entry_day },
-    { h: "Sold", cell: (t) => t.exit_day, style: () => ({ color: "var(--muted)" }) },
+    ...AT_COLUMNS,
     { h: "Days", cell: (t) => t.days, style: () => ({ color: "var(--muted)" }), title: (t) => (t.rolls ? `${t.rolls} futures roll` : undefined) },
     { h: "Stock", cell: (t) => <span className="font-medium">{t.symbol}</span> },
     ...(side !== "long"

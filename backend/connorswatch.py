@@ -375,6 +375,7 @@ def paper(slippage=0.0002, book="rsi2"):
     out_open, out_closed = [], []
     for symbol, buy_day, buy_at, rsi, buy, fut, fut_buy, sell_day, sell_at, sell, fut_sell, slots, reason in trades:
         row = {"symbol": symbol, "buy_day": buy_day.isoformat(), "buy_at": buy_at.astimezone(backtest.IST).strftime("%H:%M:%S"), "slots": slots,
+               "entry_at": f"{buy_day.isoformat()} {buy_at.astimezone(backtest.IST).strftime('%H:%M:%S')}",
                "rsi": round(rsi, 1), "buy": round(buy, 2), "fut": fut, "fut_buy": round(fut_buy, 2) if fut_buy else None}
         if sell_day is None:
             row["day_of_hold"] = min(open_days[(symbol, buy_day)], b["max_days"])
@@ -382,7 +383,8 @@ def paper(slippage=0.0002, book="rsi2"):
             continue
         gross = sell / buy - 1
         net = gross - cost * (1 + sell / buy)
-        row.update({"sell_day": sell_day.isoformat(), "sell": round(sell, 2), "reason": reason or "time", "fut_sell": round(fut_sell, 2) if fut_sell else None,
+        row.update({"sell_day": sell_day.isoformat(), "sell": round(sell, 2), "reason": reason or "time",
+                    "exit_at": f"{sell_day.isoformat()} {sell_at.astimezone(backtest.IST).strftime('%H:%M:%S')}", "fut_sell": round(fut_sell, 2) if fut_sell else None,
                     "gross_pct": round(100 * gross, 2), "net_pct": round(100 * net, 2)})
         if fut_buy and fut_sell:
             fg = fut_sell / fut_buy - 1

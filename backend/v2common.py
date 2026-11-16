@@ -9,6 +9,21 @@ import xsmr
 TRADING_DAYS = xsmr.TRADING_DAYS
 
 
+CLOSE = "15:30 close"
+STOP_INTRADAY = "stop, intraday"  # a stop whose time wasn't stored (only the day)
+
+
+def exit_time(reason, normal):
+    """The exit's time of day from a trade's exit reason: a stop at the open is 09:15; a stop otherwise
+    happened during the day (its time isn't stored); anything else exits at `normal`."""
+    reason = str(reason or "")
+    if reason == "stop (gap)":
+        return "09:15 (stop at the open)"
+    if reason.startswith("stop"):
+        return STOP_INTRADAY
+    return normal
+
+
 def build_results(t, days, slippage, extra=None, daily=None):
     """t: one row per closed trade with day (the day its result counts: the exit), ret / cost / net
     (on the position's own value) and book_ret / book_cost / book_net (its share of capital).

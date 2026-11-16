@@ -127,9 +127,18 @@ def results(dataset="fno", version="intraday", entry="0915", stop="none", max_op
 
 
 def month_trades(month, dataset="fno", version="intraday", entry="0915", stop="none", max_open=6, pairs=3, slippage=0.0002):
-    t, _ = _sized(dataset, version, entry, stop, max_open, pairs, slippage)
+    t, days = _sized(dataset, version, entry, stop, max_open, pairs, slippage)
+    prev_day = dict(zip(days[1:], days[:-1]))  # daily version: bought at the previous day's 15:15
+
+    def at(r):
+        d = r.day.date().isoformat()
+        if version == "daily":
+            p = prev_day.get(r.day)
+            return f"{p.date().isoformat() if p is not None else d} 15:15", f"{d} 15:15"
+        return f"{d} {entry[:2]}:{entry[2:]}", f"{d} {v2common.STOP_INTRADAY if r.stopped else '15:15'}"
     t = t[t["day"].dt.strftime("%Y-%m") == month].sort_values(["day", "book_net"], ascending=[True, False])
-    return [{"day": r.day.date().isoformat(), "symbol": r.symbol, "side": r.side, "signal_pct": round(100 * float(r.sig), 2),
+    return [{"day": r.day.date().isoformat(), "entry_at": at(r)[0], "exit_at": at(r)[1],
+             "symbol": r.symbol, "side": r.side, "signal_pct": round(100 * float(r.sig), 2),
              "entry": round(float(r.entry), 2), "exit": round(float(r.exit), 2), "stopped": bool(r.stopped),
              "weight_pct": round(100 * abs(float(r.w)), 3), "ret_pct": round(100 * float(r.ret), 3),
              "cost_pct": round(100 * float(r.cost), 3), "net_pct": round(100 * float(r.net), 3),

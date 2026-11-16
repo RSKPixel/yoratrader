@@ -5,7 +5,8 @@ candles (today's F&O stocks, 2015 on), for the v2 backtest page and the paper bo
   (at the level, or at the candle's open if it opens above it).
 - Stop (optional): just below the day's low so far at the buy (0.1% under it), checked on the later
   candles before 15:15; out at the stop (or the candle's open if it opens through it).
-- Out at 15:15 (the 15:15 candle's open).
+- Out at 15:15: the close of the 15:00 candle (from 3 Aug 2026 NSE's closing auction starts at 15:15 for F&O
+  stocks, so there is no 15:15 candle; the 15:00 candle's close is the 15:15 price either way).
 - Trend (optional): only stocks whose close was above their 200-day average yesterday.
 - Max open N: the day's first N fills (by fill time), capital / N each; as per model: 3.
 
@@ -53,6 +54,7 @@ def _build():
                 continue
             pl = prev_low[day]
             rows = list(zip(g["hm"], g["open"], g["high"], g["low"]))
+            closes = dict(zip(g["hm"], g["close"]))
             if not (pl > 0) or not (rows[0][1] > 0) or rows[0][1] >= pl:  # must open below yesterday's low
                 continue
             low_so_far, fill = np.inf, None
@@ -66,16 +68,17 @@ def _build():
             if fill is None:
                 continue
             hm_fill, entry, low_at_fill, j = fill
-            exit_px = next((o for (hm, o, h, l) in rows[j + 1:] if hm == EXIT_AT), None)
+            exit_px = closes.get("15:00") if hm_fill < "15:00" else None  # the price at 15:15
             if exit_px is None or not (exit_px > 0):
                 continue
             stop = low_at_fill * STOP_BELOW
-            hit = next((min(o, stop) for (hm, o, h, l) in rows[j + 1:] if hm < EXIT_AT and l <= stop), None)
+            hit_row = next(((hm, min(o, stop)) for (hm, o, h, l) in rows[j + 1:] if hm < EXIT_AT and l <= stop), None)
+            hit, hit_at = (hit_row[1], hit_row[0]) if hit_row else (None, None)
             if abs(exit_px / entry - 1) > 0.25:  # a bad print
                 continue
             fills.append((day, hm_fill, sym, bool(up.get(day, False)), float(pl), float(rows[0][1]), float(entry),
-                          float(stop), float(exit_px), float(hit) if hit is not None else None))
-    f = pd.DataFrame(fills, columns=["day", "fill_at", "symbol", "up", "prev_low", "open", "entry", "stop", "exit_time", "exit_stop"])
+                          float(stop), float(exit_px), float(hit) if hit is not None else None, hit_at))
+    f = pd.DataFrame(fills, columns=["day", "fill_at", "symbol", "up", "prev_low", "open", "entry", "stop", "exit_time", "exit_stop", "stop_at"])
     days = v2common.trading_days("fno", pd.Timestamp(START))
     return f, days
 
@@ -111,6 +114,7 @@ def _sized(stop="low", trend="any", max_open=3, slippage=0.0002):
     stopped = t["exit_stop"].notna() if stop == "low" else pd.Series(False, index=t.index)
     t["exit"] = np.where(stopped, t["exit_stop"], t["exit_time"])
     t["reason"] = np.where(stopped, "stop", "15:15")
+    t["exit_hm"] = np.where(stopped, t["stop_at"].fillna(""), EXIT_AT)
     t["gap_pct"] = 100 * (t["open"] / t["prev_low"] - 1)
     t["ret"] = t["exit"] / t["entry"] - 1
     t["w"] = 1.0 / n
@@ -136,7 +140,9 @@ def results(stop="low", trend="any", max_open=3, slippage=0.0002):
 def month_trades(month, stop="low", trend="any", max_open=3, slippage=0.0002):
     t, _ = _sized(stop, trend, max_open, slippage)
     t = t[t["day"].dt.strftime("%Y-%m") == month]
-    return [{"day": r.day.date().isoformat(), "symbol": r.symbol, "fill_at": r.fill_at, "gap_pct": round(float(r.gap_pct), 2),
+    return [{"day": r.day.date().isoformat(), "entry_at": f"{r.day.date().isoformat()} {r.fill_at}",
+             "exit_at": f"{r.day.date().isoformat()} {r.exit_hm}" + (" (the candle the stop was hit in)" if r.reason == "stop" else ""),
+             "symbol": r.symbol, "fill_at": r.fill_at, "gap_pct": round(float(r.gap_pct), 2),
              "prev_low": round(r.prev_low, 2), "open": round(r.open, 2), "entry": round(r.entry, 2),
              "stop": round(r.stop, 2) if stop == "low" else None, "exit": round(float(r.exit), 2), "reason": r.reason,
              "weight_pct": round(100 * float(r.w), 2), "ret_pct": round(100 * float(r.ret), 3), "cost_pct": round(100 * float(r.cost), 3),

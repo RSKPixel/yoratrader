@@ -2,7 +2,7 @@ import { useCallback, useMemo, useState } from "react";
 import { useSetting } from "./settings";
 import { Field, formatRs, Segmented } from "./V2Controls";
 import V2EquityChart from "./V2EquityChart";
-import { makeValue, MonthGrid, MonthTradesModal, Panel, SummaryCards, tone } from "./V2BacktestView";
+import { makeValue, MonthGrid, MonthTradesModal, Panel, SummaryCards, tone, AT_COLUMNS } from "./V2BacktestView";
 import { SLIPPAGE, useBacktest } from "./V2BuyOnGap";
 
 // Key Breakout Dow Theory on v2: the stored backtest trades (both sides: buy the key break up, sell
@@ -42,8 +42,7 @@ export default function V2Kbdt({ params }) {
   const capital = params.capital;
 
   const columns = [
-    { h: "Entry day", cell: (t) => `${t.entry_day} ${t.entry_time}` },
-    { h: "Exit day", cell: (t) => t.exit_day, style: () => ({ color: "var(--muted)" }) },
+    ...AT_COLUMNS,
     { h: "Symbol", cell: (t) => <span className="font-medium">{t.symbol}</span> },
     { h: "Side", cell: (t) => t.side, style: (t) => ({ color: t.side === "long" ? "var(--positive)" : "var(--negative)" }) },
     { h: "Entry", cell: (t) => t.entry },

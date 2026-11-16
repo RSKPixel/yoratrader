@@ -2,7 +2,7 @@ import { useCallback, useMemo, useState } from "react";
 import { useSetting } from "./settings";
 import { Field, formatRs, Segmented } from "./V2Controls";
 import V2EquityChart from "./V2EquityChart";
-import { makeValue, MonthGrid, MonthTradesModal, Panel, SummaryCards, tone } from "./V2BacktestView";
+import { makeValue, MonthGrid, MonthTradesModal, Panel, SummaryCards, tone, AT_COLUMNS } from "./V2BacktestView";
 import { SLIPPAGE, useBacktest } from "./V2BuyOnGap";
 
 // Quantitative momentum (Gray & Vogel) on v2: long only, the smoothest of the top 10% by 12-to-1-month
@@ -34,7 +34,7 @@ export default function V2Qmom({ params }) {
   const capital = params.capital;
 
   const columns = [
-    { h: "Held", cell: (t) => `${t.entry_day} → ${t.exit_day}` },
+    ...AT_COLUMNS,
     { h: "Stock", cell: (t) => <span className="font-medium">{t.symbol}</span> },
     {
       h: "Next period",

@@ -2,7 +2,7 @@ import { useCallback, useMemo, useState } from "react";
 import { useSetting } from "./settings";
 import { Field, formatRs, Segmented } from "./V2Controls";
 import V2EquityChart from "./V2EquityChart";
-import { makeValue, MonthGrid, MonthTradesModal, Panel, SummaryCards, tone } from "./V2BacktestView";
+import { makeValue, MonthGrid, MonthTradesModal, Panel, SummaryCards, tone, AT_COLUMNS } from "./V2BacktestView";
 import { SLIPPAGE, useBacktest } from "./V2BuyOnGap";
 
 // Larry Williams' "Oops" gap reversal on v2 (v2oops.py): a stock opens below yesterday's low and is
@@ -33,10 +33,9 @@ export default function V2Oops({ params }) {
   const capital = params.capital;
 
   const columns = [
-    { h: "Day", cell: (t) => t.day },
+    ...AT_COLUMNS,
     { h: "Stock", cell: (t) => <span className="font-medium">{t.symbol}</span> },
     { h: "Gap", cell: (t) => `${t.gap_pct.toFixed(2)}%`, style: () => ({ color: "var(--muted)" }), title: (t) => `Opened ${t.open}, yesterday's low ${t.prev_low}` },
-    { h: "Filled", cell: (t) => t.fill_at, style: () => ({ color: "var(--muted)" }), title: () => "The 15-minute candle that traded back up to yesterday's low" },
     { h: "Entry", cell: (t) => t.entry },
     {
       h: "Qty",

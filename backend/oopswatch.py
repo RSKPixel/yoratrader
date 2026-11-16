@@ -196,6 +196,8 @@ def paper(slippage=0.0002):
         by_day.setdefault(day.isoformat(), []).append({
             "symbol": s, "side": "long", "gap_pct": round(100 * (o / pl - 1), 2), "prev_low": round(pl, 2), "open": round(o, 2),
             "filled_at": filled_at.astimezone(gapwatch.IST).strftime("%H:%M:%S"), "entry": round(entry, 2), "stop": round(stop, 2),
+            "entry_at": f"{day.isoformat()} {filled_at.astimezone(gapwatch.IST).strftime('%H:%M:%S')}",
+            "exit_at": f"{day.isoformat()} {exit_at.astimezone(gapwatch.IST).strftime('%H:%M:%S')}" if exit_at else f"{day.isoformat()} open",
             "exit": round(px, 2) if px else None, "reason": reason or ("live" if px else "open"), "closed": closed,
             "exit_at": exit_at.astimezone(gapwatch.IST).strftime("%H:%M:%S") if exit_at else None,
             "weight_pct": round(100 * w, 3), "ret_pct": round(100 * ret, 3) if ret is not None else None,

@@ -108,7 +108,8 @@ def month_trades(month, method="bollinger", fill="close", max_open=6, pairs=3, s
     def num(v, d=2):
         return round(float(v), d) if pd.notna(v) else None
 
-    return [{"entry_day": r.entry_day.date().isoformat(), "exit_day": r.exit_day.date().isoformat(), "days": int(r.days),
+    return [{"entry_day": r.entry_day.date().isoformat(), "exit_day": r.exit_day.date().isoformat(),
+             "entry_at": f"{r.entry_day.date().isoformat()} {v2common.CLOSE}", "exit_at": f"{r.exit_day.date().isoformat()} {v2common.CLOSE}", "days": int(r.days),
              "y": r.y, "x": r.x, "industry": r.industry, "rank": int(r.rank), "side": r.side, "hedge": num(r.hedge, 3),
              "y_entry": num(r.y_entry), "x_entry": num(r.x_entry), "y_exit": num(r.y_exit), "x_exit": num(r.x_exit),
              "weight_pct": round(100 * float(r.w), 3), "ret_pct": round(100 * float(r.ret), 3), "cost_pct": round(100 * float(r.cost), 3),

@@ -72,7 +72,9 @@ def month_trades(month, dataset="fno", setup="rsi2", hold="5d", max_open=3, stop
                  side="long"):
     t, _, _ = _sized(dataset, setup, hold, max_open, stop, timing, take, slippage, side)
     t = t[t["day"].dt.strftime("%Y-%m") == month] if len(t) else t
+    hm = v2common.CLOSE if timing == "close" else "15:15"
     return [{"entry_day": r.entry_day.date().isoformat(), "exit_day": r.day.date().isoformat(), "days": int(r.held),
+             "entry_at": f"{r.entry_day.date().isoformat()} {hm}", "exit_at": f"{r.day.date().isoformat()} {v2common.exit_time(r.reason, hm)}",
              "symbol": r.symbol, "side": r.side, "rsi": round(float(r.rsi), 1), "entry": round(float(r.buy), 2),
              "stop": round(float(r.stop), 2) if r.stop is not None and pd.notna(r.stop) else None,
              "exit": round(float(r.sell), 2), "reason": r.reason, "rolls": round(float(r.roll) / 2),

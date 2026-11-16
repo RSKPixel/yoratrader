@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSetting } from "./settings";
 import { Field, formatRs, Segmented } from "./V2Controls";
 import V2EquityChart from "./V2EquityChart";
-import { makeValue, MonthGrid, MonthTradesModal, Panel, SummaryCards, tone } from "./V2BacktestView";
+import { makeValue, MonthGrid, MonthTradesModal, Panel, SummaryCards, tone, AT_COLUMNS } from "./V2BacktestView";
 
 // Buy/Sell on gap (Chan, Algorithmic Trading ch. 4) on v2: the stored backtest trades sized by the
 // common parameters (universe, capital, max open, % or ₹).
@@ -97,7 +97,7 @@ export default function V2BuyOnGap({ params, model = "gap" }) {
   const capital = params.capital;
 
   const columns = [
-    { h: "Day", cell: (t) => t.day },
+    ...AT_COLUMNS,
     { h: "Stock", cell: (t) => <span className="font-medium">{t.symbol}</span> },
     { h: "Side", cell: (t) => t.side, style: (t) => ({ color: t.side === "long" ? "var(--positive)" : "var(--negative)" }) },
     { h: "Gap", cell: (t) => `${t.gap_pct.toFixed(2)}%`, style: () => ({ color: "var(--muted)" }), title: (t) => `Rank ${t.rank} that day` },

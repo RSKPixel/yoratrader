@@ -18,12 +18,24 @@ totals in rupees and as % of it. The % fields above stay for the backtest-style 
 """
 
 import gapwatch
+import v2common
 import v2margin
 import v2meta
 import xsmr
 import xsmrwatch
 
 TOP = gapwatch.TOP
+
+
+def _times(day, rows):
+    """Each row's entry_at / exit_at: in at the open (the live snapshot's time when recorded), out at 15:15
+    or during the day at the stop (its time isn't recorded), or still open."""
+    for r in rows:
+        r["entry_at"] = f"{day} {r.get('live_at') or '09:15'}"
+        reason = str(r.get("reason") or "")
+        r["exit_at"] = (f"{day} {v2common.STOP_INTRADAY}" if reason.startswith("stop") else
+                        f"{day} 15:15" if r.get("closed") else f"{day} open")
+    return rows
 
 
 def _lots(rows, lots, cps):
@@ -106,6 +118,7 @@ def gap(side="long", stop="none", max_open=5, slippage=0.0002):
                          "book_net_pct": round(100 * w * (ret - cost), 4) if ret is not None else 0.0,
                          "book_cost_pct": round(100 * w * cost, 4)})
         status = "closed" if all(r["closed"] for r in rows) else "open"
+        _times(day, rows)
         days.append({"day": day, "status": status, "picks": rows,
                      "net_pct": round(sum(r["book_net_pct"] for r in rows), 4), **_lots(rows, lots, cps)})
     watch = data["watchlist"]
@@ -168,6 +181,7 @@ def xsmr_(pairs=5, stop="none", max_open=10, slippage=0.0002):
                          "book_net_pct": round(w * (ret - 100 * cost), 4) if ret is not None else 0.0,
                          "book_cost_pct": round(100 * w * cost, 4)})
         rows.sort(key=lambda r: (r["side"] != "long", r["rank"]))
+        _times(day, rows)
         days.append({"day": day, "status": "closed" if all(r["closed"] for r in rows) else "open", "picks": rows,
                      "net_pct": round(sum(r["book_net_pct"] for r in rows), 4), **_lots(rows, lots, cps)})
     meta = _meta(data, days, cps)

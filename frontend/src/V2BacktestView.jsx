@@ -6,6 +6,17 @@ import { formatRs } from "./V2Controls";
 
 export const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
+// Every trade list's first two columns: when it went in and came out (date and time of day)
+export const AT_COLUMNS = [
+  { h: "Entry date & time", cell: (t) => <span className="whitespace-nowrap">{t.entry_at ?? "—"}</span> },
+  {
+    h: "Exit date & time",
+    cell: (t) => <span className="whitespace-nowrap">{t.exit_at ?? "—"}</span>,
+    style: (t) => ({ color: String(t.exit_at || "").includes("stop") ? "var(--negative)" : "var(--muted)" }),
+    title: (t) => (String(t.exit_at || "").includes("stop, intraday") ? "Stopped during the day: the stored backtest keeps the day, not the time" : undefined),
+  },
+];
+
 export const tone = (v) => (v == null || v === 0 ? "var(--muted)" : v > 0 ? "var(--positive)" : "var(--negative)");
 
 export function makeValue(show, capital) {

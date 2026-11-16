@@ -154,7 +154,8 @@ def month_trades(month, dataset="fno", fill="close", max_open=6, pairs=3, slippa
         return [{"day": r.day.date().isoformat(), "stocks": int(r.stocks), "ret_pct": round(100 * float(r.book_ret), 3),
                  "book_cost_pct": round(100 * float(r.book_cost), 4), "book_net_pct": round(100 * float(r.book_net), 4),
                  "long_pct": round(100 * float(r.long), 3), "short_pct": round(100 * float(r.short), 3)} for r in t.itertuples()]
-    return [{"entry_day": r.entry_day.date().isoformat(), "exit_day": r.exit_day.date().isoformat(), "days": int(r.days),
+    return [{"entry_day": r.entry_day.date().isoformat(), "exit_day": r.exit_day.date().isoformat(),
+             "entry_at": f"{r.entry_day.date().isoformat()} {v2common.CLOSE}", "exit_at": f"{r.exit_day.date().isoformat()} {v2common.CLOSE}", "days": int(r.days),
              "symbol": r.symbol, "side": r.side, "signal_pct": round(100 * float(r.signal), 1),
              "entry": round(float(r.entry), 2), "exit": round(float(r.exit), 2), "rolls": int(r.rolls),
              "weight_pct": round(100 * float(r.w), 3), "ret_pct": round(100 * float(r.ret), 3), "cost_pct": round(100 * float(r.cost), 3),

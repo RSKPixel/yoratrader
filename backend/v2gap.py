@@ -99,7 +99,9 @@ def results(dataset="fno", side="long", stop="none", max_open=5, slippage=0.0002
 def month_trades(month, dataset="fno", side="long", stop="none", max_open=5, slippage=0.0002, model="gap"):
     t, _ = _sized(dataset, side, stop, max_open, slippage, model)
     t = t[t["day"].dt.strftime("%Y-%m") == month]
-    return [{"day": r.day.date().isoformat(), "symbol": r.symbol, "side": r.side, "rank": int(r.rank),
+    return [{"day": r.day.date().isoformat(), "entry_at": f"{r.day.date().isoformat()} 09:15",
+             "exit_at": f"{r.day.date().isoformat()} {v2common.exit_time(r.exit_reason, '15:15')}",
+             "symbol": r.symbol, "side": r.side, "rank": int(r.rank),
              "gap_pct": round(100 * float(r.gap), 2), "entry": round(float(r.entry), 2), "stop": round(float(r.stop), 2),
              "exit": round(float(r.exit), 2), "reason": r.exit_reason, "weight_pct": round(100 * float(r.w), 2),
              "ret_pct": round(100 * float(r.ret), 3), "cost_pct": round(100 * float(r.cost), 3), "net_pct": round(100 * float(r.net), 3),

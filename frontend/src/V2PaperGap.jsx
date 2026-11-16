@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useSetting } from "./settings";
 import { Field, formatRs, Segmented } from "./V2Controls";
-import { tone } from "./V2BacktestView";
+import { tone, AT_COLUMNS } from "./V2BacktestView";
 import { SLIPPAGE, useBacktest, useLiveRefresh } from "./V2BuyOnGap";
 import V2PnlChart from "./V2PnlChart";
 import { DayLog, LotCards, lotColumns, lotMoney, netBoth, usePaperChart, Panel, PositionsTable, StatusLine } from "./V2PaperView";
@@ -29,6 +29,7 @@ export default function V2PaperGap({ params }) {
   const chart = usePaperChart();
 
   const columns = [
+    ...AT_COLUMNS,
     { h: "#", cell: (t) => t.rank, style: () => ({ color: "var(--faint)" }) },
     { h: "Stock", cell: (t) => <span className="font-medium">{t.symbol}</span> },
     { h: "Side", cell: (t) => t.side, style: (t) => ({ color: t.side === "long" ? "var(--positive)" : "var(--negative)" }) },

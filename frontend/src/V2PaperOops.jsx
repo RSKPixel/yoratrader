@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { useSetting } from "./settings";
 import { Field, formatRs, Segmented } from "./V2Controls";
-import { tone } from "./V2BacktestView";
+import { tone, AT_COLUMNS } from "./V2BacktestView";
 import { SLIPPAGE, useBacktest, useLiveRefresh } from "./V2BuyOnGap";
 import V2PnlChart from "./V2PnlChart";
 import { DayLog, LotCards, lotColumns, lotMoney, netBoth, usePaperChart, Panel, PositionsTable, StatusLine } from "./V2PaperView";
@@ -21,7 +21,7 @@ export default function V2PaperOops({ params }) {
   const columns = [
     { h: "Stock", cell: (t) => <span className="font-medium">{t.symbol}</span> },
     { h: "Gap", cell: (t) => `${t.gap_pct.toFixed(2)}%`, style: () => ({ color: "var(--muted)" }), title: (t) => `Opened ${t.open}, yesterday's low ${t.prev_low}` },
-    { h: "Bought", cell: (t) => t.filled_at, style: () => ({ color: "var(--muted)" }), title: () => "When the price traded back up to yesterday's low" },
+    ...AT_COLUMNS,
     { h: "Entry", cell: (t) => t.entry, title: () => "Yesterday's low (a buy-stop order there)" },
     lot.qty,
     { h: "Stop", cell: (t) => t.stop, style: () => ({ color: "var(--muted)" }), title: () => "0.1% below the day's low at the buy" },
