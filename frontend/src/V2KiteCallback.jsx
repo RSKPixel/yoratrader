@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from "react";
+import { systemTheme, useSetting } from "./settings";
 
 // /kite: where Kite sends you after logging in (the app's redirect URL). Exchanges the request_token
 // for the day's access token, then returns to v2. A token works once, so it's sent only once.
 
-const SENT = "yt-kite-token-sent";
+const sent = new Set(); // tokens sent from this page (a token works once)
 
 export default function V2KiteCallback() {
   const [state, setState] = useState({ status: "working" });
+  const [theme] = useSetting("theme", systemTheme());
   const started = useRef(false);
 
   useEffect(() => {
@@ -24,15 +26,11 @@ export default function V2KiteCallback() {
       setState({ status: "error", message: "No request_token in the address" });
       return;
     }
-    try {
-      if (sessionStorage.getItem(SENT) === token) {
-        setState({ status: "error", message: "This token was already used; log in to Kite again" });
-        return;
-      }
-      sessionStorage.setItem(SENT, token);
-    } catch {
-      // storage blocked: the ref above still stops a second send in this page
+    if (sent.has(token)) {
+      setState({ status: "error", message: "This token was already used; log in to Kite again" });
+      return;
     }
+    sent.add(token);
     fetch("/api/kite/session", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -53,13 +51,7 @@ export default function V2KiteCallback() {
 
   const ok = state.status === "ok";
   return (
-    <div className="v2 flex h-full items-center justify-center p-4" data-theme={(() => {
-      try {
-        return localStorage.getItem("yt-v2-theme") === "light" ? "light" : "dark";
-      } catch {
-        return "dark";
-      }
-    })()}>
+    <div className="v2 flex h-full items-center justify-center p-4" data-theme={theme}>
       <div className="w-full max-w-sm rounded-lg border p-6 text-center" style={{ borderColor: "var(--border)", background: "var(--surface)" }}>
         <p className="text-xl font-bold tracking-[0.18em]">
           <span style={{ color: "var(--brand)" }}>YORA</span>

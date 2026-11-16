@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useState } from "react";
+import { loadSettings, SettingsProvider, systemTheme } from "./settings";
 
 const AuthContext = createContext(null);
 
@@ -23,22 +24,12 @@ window.fetch = async (input, init) => {
   return response;
 };
 
-// The sign-in screen uses the v2 theme the browser last chose (dark by default).
-function savedTheme() {
-  try {
-    const t = localStorage.getItem("yt-v2-theme");
-    if (t === "light" || t === "dark") return t;
-  } catch {
-    // storage blocked
-  }
-  return window.matchMedia?.("(prefers-color-scheme: light)").matches ? "light" : "dark";
-}
-
+// The sign-in screen follows the system theme (settings are per user, on the server, and load after sign-in).
 const field = { borderColor: "var(--border)", background: "var(--surface-2)", color: "var(--text)" };
 
 function Shell({ children }) {
   return (
-    <div className="v2 flex h-full items-center justify-center px-4" data-theme={savedTheme()}>
+    <div className="v2 flex h-full items-center justify-center px-4" data-theme={systemTheme()}>
       {children}
     </div>
   );
@@ -224,6 +215,7 @@ function LoginPage({ onLogin }) {
 export default function AuthGate({ children }) {
   // undefined = still checking, null = logged out, object = logged in
   const [user, setUser] = useState(undefined);
+  const [settings, setSettings] = useState(null); // the user's settings, loaded once signed in
 
   useEffect(() => {
     onUnauthorized = () => setUser(null);
@@ -233,12 +225,23 @@ export default function AuthGate({ children }) {
       .catch(() => setUser(null));
   }, []);
 
+  const signedIn = !!user;
+  useEffect(() => {
+    if (!signedIn) {
+      setSettings(null);
+      return;
+    }
+    loadSettings()
+      .then(setSettings)
+      .catch(() => setSettings({}));
+  }, [signedIn]);
+
   const logout = async () => {
     await fetch("/api/auth/logout", { method: "POST" }).catch(() => {});
     setUser(null);
   };
 
-  if (user === undefined) {
+  if (user === undefined || (user && !settings)) {
     return (
       <Shell>
         <span className="text-sm" style={{ color: "var(--faint)" }}>
@@ -249,5 +252,9 @@ export default function AuthGate({ children }) {
   }
   if (!user) return <LoginPage onLogin={setUser} />;
 
-  return <AuthContext.Provider value={{ user, setUser, logout }}>{children}</AuthContext.Provider>;
+  return (
+    <AuthContext.Provider value={{ user, setUser, logout }}>
+      <SettingsProvider initial={settings}>{children}</SettingsProvider>
+    </AuthContext.Provider>
+  );
 }

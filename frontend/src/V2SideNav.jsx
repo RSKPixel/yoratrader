@@ -1,3 +1,4 @@
+import { useSetting } from "./settings";
 import { useState } from "react";
 
 // The v2 side nav: a collapsible list of models grouped by source (full list, or a rail of short
@@ -133,32 +134,17 @@ export function SideNav({ groups, base, title, current, onSelect, open, onToggle
   );
 }
 
-function initialOpen(key) {
-  try {
-    const saved = localStorage.getItem(key);
-    if (saved === "open" || saved === "closed") return saved === "open";
-  } catch {
-    // storage blocked: use the default
-  }
-  return window.matchMedia?.("(min-width: 768px)").matches ?? true;
-}
-
-
-// Open / closed, remembered under `key`; narrow screens start closed and close after a pick.
+// Open / closed, saved per user under `key`; narrow screens start closed and close after a pick.
 export function useSideNav(key, onSelect) {
-  const [open, setOpen] = useState(() => initialOpen(key));
-  const toggle = () =>
-    setOpen((was) => {
-      try {
-        localStorage.setItem(key, was ? "closed" : "open");
-      } catch {
-        // not saved: still toggles for this visit
-      }
-      return !was;
-    });
+  // wide screens: the user's saved choice (on the server); narrow screens: closed to start, not saved
+  const [saved, setSaved] = useSetting(`nav.${key}`, null);
+  const wide = window.matchMedia?.("(min-width: 768px)").matches ?? true;
+  const [narrowOpen, setNarrowOpen] = useState(false);
+  const open = wide ? saved ?? true : narrowOpen;
+  const toggle = () => (wide ? setSaved(!open) : setNarrowOpen(!open));
   const select = (id) => {
     onSelect(id);
-    if (!window.matchMedia?.("(min-width: 768px)").matches) setOpen(false);
+    if (!wide) setNarrowOpen(false);
   };
   return { open, toggle, select };
 }

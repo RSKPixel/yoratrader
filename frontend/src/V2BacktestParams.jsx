@@ -1,43 +1,28 @@
+import { useSetting } from "./settings";
 import { useEffect, useState } from "react";
 import { Field, formatRs, inputStyle, Segmented } from "./V2Controls";
 
 // The parameters every backtest has: universe, capital, max open positions, and whether results show
 // as % of capital or rupees. Each model keeps its own values, remembered per browser.
 
-const KEY = "yt-v2-backtest-params-by-model";
 export const DEFAULT_PARAMS = { capital: 1000000, maxOpen: 5, show: "rs", universe: "fno" };
 export const UNIVERSES = { fno: "F&O stocks", stocks: "Nifty 50 stocks", indices: "Indices" };
 const CAPITAL_PICKS = [500000, 1000000, 2500000, 5000000, 10000000];
 const MAX_OPEN = 10;
 
-function loadAll() {
-  try {
-    const saved = JSON.parse(localStorage.getItem(KEY) || "null");
-    if (saved && typeof saved === "object") return saved;
-  } catch {
-    // nothing saved, or storage blocked
-  }
-  return {};
-}
-
 // A model's saved parameters without the hook (e.g. the dashboard reading what a page was set to)
-export function savedParams(model, defaults = {}) {
-  return { ...DEFAULT_PARAMS, ...defaults, ...(loadAll()[model] || {}) };
+export function savedParams(values, model, defaults = {}) {
+  // values: the user's settings (useSettings().values)
+  return { ...DEFAULT_PARAMS, ...defaults, ...(values[`params.${model}`] || {}) };
 }
 
 // Parameters for one model: its saved values, else the defaults (its first universe; long-short models
 // start at max open 6).
 export function useBacktestParams(model, defaults = {}) {
-  const [all, setAll] = useState(loadAll);
-  const params = { ...DEFAULT_PARAMS, ...defaults, ...(all[model] || {}) };
-  useEffect(() => {
-    try {
-      localStorage.setItem(KEY, JSON.stringify(all));
-    } catch {
-      // not saved: still applies for this visit
-    }
-  }, [all]);
-  const update = (patch) => setAll((a) => ({ ...a, [model]: { ...DEFAULT_PARAMS, ...defaults, ...(a[model] || {}), ...patch } }));
+  // saved per user on the server (settings key params.<model>)
+  const [saved, setSaved] = useSetting(`params.${model}`, null);
+  const params = { ...DEFAULT_PARAMS, ...defaults, ...(saved || {}) };
+  const update = (patch) => setSaved((a) => ({ ...DEFAULT_PARAMS, ...defaults, ...(a || {}), ...patch }));
   return [params, update];
 }
 

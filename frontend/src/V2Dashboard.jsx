@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Card, Panel, tone } from "./V2BacktestView";
 import { formatRs } from "./V2Controls";
 import { savedParams } from "./V2BacktestParams";
+import { useSettings } from "./settings";
 import { findPaper, paperDefaults } from "./V2Paper";
 
 // v2 Dashboard: today at a glance. Refreshes every minute while the market is open (every 5 outside).
@@ -295,19 +296,20 @@ function Freshness({ f, expected }) {
   );
 }
 
-// The paper cards use the max open each paper page was last set to (saved in this browser)
-function dashboardQuery() {
-  const max = (id) => savedParams(`paper-${id}`, paperDefaults(findPaper(id))).maxOpen;
+// The paper cards use the max open each paper page was last set to (the user's settings)
+function dashboardQuery(values) {
+  const max = (id) => savedParams(values, `paper-${id}`, paperDefaults(findPaper(id))).maxOpen;
   return `gap_max_open=${max("buy-on-gap")}&xsmr_max_open=${max("xs-mean-reversion")}`;
 }
 
 export default function V2Dashboard() {
   const [d, setD] = useState(null);
   const [error, setError] = useState("");
+  const query = dashboardQuery(useSettings().values);
   useEffect(() => {
     let timer;
     const load = () =>
-      fetch(`/api/v2/dashboard?${dashboardQuery()}`)
+      fetch(`/api/v2/dashboard?${query}`)
         .then((r) => r.json())
         .then((p) => {
           if (p.status !== "success") setError(p.message || p.detail || "Could not load the dashboard");
@@ -328,7 +330,7 @@ export default function V2Dashboard() {
       clearTimeout(timer);
       window.removeEventListener("kite-status-changed", onKite);
     };
-  }, []);
+  }, [query]);
 
   if (error && !d) return <p className="text-sm" style={{ color: "var(--negative)" }}>{error}</p>;
   if (!d) return <p className="text-sm" style={{ color: "var(--faint)" }}>Loading…</p>;

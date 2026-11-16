@@ -41,6 +41,7 @@ import v2paper
 import v2data
 import v2dashboard
 import v2live
+import usersettings
 import connors
 import xsmrwatch
 import connorswatch
@@ -104,6 +105,10 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class SettingsRequest(BaseModel):
+    values: dict
+
+
 class TotpRequest(BaseModel):
     challenge: str
     code: str
@@ -158,6 +163,21 @@ def auth_logout(request: Request, response: Response):
 @app.get("/api/auth/me")
 def auth_me(request: Request):
     return {"user": request.state.user}
+
+
+@app.get("/api/settings")
+def settings_get(request: Request):
+    """The signed-in user's settings (theme, page parameters...): none are kept in the browser."""
+    return {"settings": usersettings.get_all(request.state.user["id"])}
+
+
+@app.put("/api/settings")
+def settings_put(req: SettingsRequest, request: Request):
+    try:
+        usersettings.put(request.state.user["id"], req.values)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"ok": True}
 
 
 @app.post("/api/auth/name")

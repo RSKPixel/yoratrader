@@ -6,6 +6,7 @@ import V2Settings from "./V2Settings";
 import V2Data from "./V2Data";
 import { KiteButton } from "./V2Kite";
 import V2Dashboard from "./V2Dashboard";
+import { systemTheme, useSetting } from "./settings";
 import V2Live from "./V2Live";
 
 // YoraTrader: top navigation and one content area. Pages live at /v2/<page> ("/" opens the dashboard).
@@ -19,18 +20,6 @@ const PAGES = [
   { id: "data", label: "Data" },
   { id: "settings", label: "Settings" },
 ];
-
-const THEME_KEY = "yt-v2-theme";
-
-function initialTheme() {
-  try {
-    const saved = localStorage.getItem(THEME_KEY);
-    if (saved === "dark" || saved === "light") return saved;
-  } catch {
-    // storage blocked: fall back to the system setting
-  }
-  return window.matchMedia?.("(prefers-color-scheme: light)").matches ? "light" : "dark";
-}
 
 function pathParts() {
   return window.location.pathname.replace(/^\/v2\/?/, "").split("/");
@@ -81,20 +70,13 @@ function NavLink({ page, active, onSelect }) {
 
 export default function AppV2() {
   const { user, logout } = useAuth();
-  const [theme, setTheme] = useState(initialTheme);
+  const [theme, setTheme] = useSetting("theme", systemTheme());
   const [page, setPage] = useState(pageFromPath);
   const [menuOpen, setMenuOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(() => pathParts()[0] === "settings");
   const [backtest, setBacktest] = useState(backtestFromPath);
   const [paper, setPaper] = useState(paperFromPath);
 
-  useEffect(() => {
-    try {
-      localStorage.setItem(THEME_KEY, theme);
-    } catch {
-      // not saved: the theme still applies for this visit
-    }
-  }, [theme]);
 
   useEffect(() => {
     const onPop = () => {
