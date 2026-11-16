@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Field, formatRs, Segmented } from "./V2Controls";
 import { tone } from "./V2BacktestView";
 import { SLIPPAGE, useBacktest, useLiveRefresh } from "./V2BuyOnGap";
+import V2PnlChart from "./V2PnlChart";
 import { DayLog, LotCards, lotColumns, lotMoney, netBoth, usePaperChart, Panel, PositionsTable, StatusLine } from "./V2PaperView";
 
 // Cross-sectional mean reversion paper trading on v2: the 5 long + 5 short the production scheduler
@@ -209,10 +210,18 @@ export default function V2PaperXsmr({ params }) {
             <MetaPanel meta={data.meta} today={today} />
           )}
           <Panel title={`Today · ${data.today}`} right={today ? `${today.status === "open" ? "open, live" : "closed"} · margin ${formatRs(today.margin_rs)} · net ${netBoth(today.net_rs, today.net_value_pct)}` : undefined}>
+            {today && (
+              <div className="mb-3">
+                <V2PnlChart url={`/api/v2/paper/xsmr/pnl?day=${today.day}&pairs=${k}&stop=${stop}&slippage=${slippage}&max_open=${params.maxOpen}`} refreshMs={today.status === "open" ? live : 0} />
+              </div>
+            )}
             <PositionsTable rows={today?.picks || []} columns={[chart.column, ...columns]} minWidth={1000} empty="No positions today." />
           </Panel>
           <Panel title="Paper log" right="a row a day · click for its positions">
-            <DayLog days={data.days} columns={columns} dayValue={(d) => netBoth(d.net_rs, d.net_value_pct)} dayNote={(d) => `margin ${formatRs(d.margin_rs)}${d.meta ? ` · meta ${d.meta.size} lot${d.meta.size > 1 ? "s" : ""} (p ${d.meta.p.toFixed(2)}): ${netBoth(d.meta.net_rs, null)}` : ""}`} minWidth={1000} empty="Nothing recorded yet: the first paper day is the next trading day at 09:15 (Kite login needed)." />
+            <DayLog
+              days={data.days}
+              columns={columns}
+              extra={(d) => <V2PnlChart url={`/api/v2/paper/xsmr/pnl?day=${d.day}&pairs=${k}&stop=${stop}&slippage=${slippage}&max_open=${params.maxOpen}`} height="h-44" />} dayValue={(d) => netBoth(d.net_rs, d.net_value_pct)} dayNote={(d) => `margin ${formatRs(d.margin_rs)}${d.meta ? ` · meta ${d.meta.size} lot${d.meta.size > 1 ? "s" : ""} (p ${d.meta.p.toFixed(2)}): ${netBoth(d.meta.net_rs, null)}` : ""}`} minWidth={1000} empty="Nothing recorded yet: the first paper day is the next trading day at 09:15 (Kite login needed)." />
           </Panel>
           <PreopenTest slippage={slippage} />
         </>

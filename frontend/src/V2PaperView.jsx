@@ -169,7 +169,7 @@ export function PositionsTable({ rows, columns, minWidth = 900, empty = "No posi
   );
 }
 
-export function DayLog({ days, columns, value, empty, minWidth = 900, dayValue, dayNote }) {
+export function DayLog({ days, columns, value, empty, minWidth = 900, dayValue, dayNote, extra }) {
   const [open, setOpen] = useState({});
   if (!days.length) {
     return (
@@ -202,6 +202,7 @@ export function DayLog({ days, columns, value, empty, minWidth = 900, dayValue, 
             </button>
             {isOpen && (
               <div className="pb-2">
+                {extra && <div className="px-2 pb-2">{extra(d)}</div>}
                 <PositionsTable rows={d.picks} columns={columns} minWidth={minWidth} />
               </div>
             )}

@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { Field, formatRs, Segmented } from "./V2Controls";
 import { tone } from "./V2BacktestView";
 import { SLIPPAGE, useBacktest, useLiveRefresh } from "./V2BuyOnGap";
+import V2PnlChart from "./V2PnlChart";
 import { DayLog, LotCards, lotColumns, lotMoney, netBoth, usePaperChart, Panel, PositionsTable, StatusLine } from "./V2PaperView";
 
 // Buy/Sell on gap paper trading on v2: the picks the production scheduler records at 09:15 (every
@@ -84,6 +85,11 @@ export default function V2PaperGap({ params }) {
           </StatusLine>
           <LotCards s={{ ...data.summary, win_rate: data.summary.win_rate_lots, win_days: data.summary.win_days_lots }} money={money} />
           <Panel title={`Today · ${data.today}`} right={today ? `${today.status === "open" ? "open, live" : "closed"} · margin ${formatRs(today.margin_rs)} · net ${netBoth(today.net_rs, today.net_value_pct)}` : undefined}>
+            {today && (
+              <div className="mb-3">
+                <V2PnlChart url={`/api/v2/paper/gap/pnl?day=${today.day}&side=${side}&stop=${stop}&slippage=${slippage}&max_open=${params.maxOpen}`} refreshMs={today.status === "open" ? live : 0} />
+              </div>
+            )}
             <PositionsTable rows={today?.picks || []} columns={[chart.column, ...columns]} minWidth={1050} empty="No picks today." />
           </Panel>
           <Panel title={`Watchlist for ${data.session}`} right={`${data.watchlist.length} stocks · a pick if it opens past its level and stays on the right side of its 20-day average`}>
@@ -92,7 +98,10 @@ export default function V2PaperGap({ params }) {
             </div>
           </Panel>
           <Panel title="Paper log" right="a row a day · click for its positions">
-            <DayLog days={data.days} columns={columns} dayValue={(d) => netBoth(d.net_rs, d.net_value_pct)} dayNote={(d) => `margin ${formatRs(d.margin_rs)}`} minWidth={1050} empty="Nothing recorded yet: the first paper day is the next trading day at 09:15 (Kite login needed)." />
+            <DayLog
+              days={data.days}
+              columns={columns}
+              extra={(d) => <V2PnlChart url={`/api/v2/paper/gap/pnl?day=${d.day}&side=${side}&stop=${stop}&slippage=${slippage}&max_open=${params.maxOpen}`} height="h-44" />} dayValue={(d) => netBoth(d.net_rs, d.net_value_pct)} dayNote={(d) => `margin ${formatRs(d.margin_rs)}`} minWidth={1050} empty="Nothing recorded yet: the first paper day is the next trading day at 09:15 (Kite login needed)." />
           </Panel>
         </>
       )}

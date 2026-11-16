@@ -41,6 +41,7 @@ import v2paper
 import v2data
 import v2dashboard
 import v2live
+import v2pnl
 import usersettings
 import connors
 import xsmrwatch
@@ -936,6 +937,25 @@ def v2_paper_gap(side: str = Query("long"), stop: str = Query("none"), max_open:
         return {"status": "success", **v2paper.gap(side, stop, max_open, slippage / 100)}
     except Exception as error:
         print("v2 gap paper failed:", error)
+        return {"status": "error", "message": str(error)}
+
+
+@app.get("/api/v2/paper/{model}/pnl")
+def v2_paper_pnl(model: str, day: str = Query(..., pattern=r"^\d{4}-\d{2}-\d{2}$"), side: str = Query("long"), stop: str = Query("none"),
+                 pairs: int = Query(5, ge=1, le=5), max_open: int = Query(5, ge=0, le=10), slippage: float = Query(0.02, ge=0, le=1),
+                 meta: bool = False):
+    """A paper day's P&L every 15 minutes (the page's positions, one lot each; meta: at the meta-sizing's lots)."""
+    if model not in ("gap", "xsmr") or side not in ("long", "both") or stop not in ("none", "1sd"):
+        raise HTTPException(status_code=400, detail="unknown model, side or stop")
+    try:
+        data = v2paper.gap(side, stop, max_open, slippage / 100) if model == "gap" else v2paper.xsmr_(pairs, stop, max_open, slippage / 100)
+        d = next((x for x in data["days"] if x["day"] == day), None)
+        if d is None:
+            return {"status": "success", "points": [], "positions": 0}
+        size = (d.get("meta") or {}).get("size", 1) if meta else 1
+        return {"status": "success", "size": size, **v2pnl.curve(day, d["picks"], xsmr.cost_per_side(slippage / 100), size)}
+    except Exception as error:
+        print("v2 paper pnl failed:", error)
         return {"status": "error", "message": str(error)}
 
 
