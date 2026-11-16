@@ -1,10 +1,13 @@
 import { useEffect, useRef, useState } from "react";
-import { CandlestickSeries, createChart, HistogramSeries, LineStyle } from "lightweight-charts";
+import { CandlestickSeries, createChart, HistogramSeries, LineSeries, LineStyle } from "lightweight-charts";
 import { Segmented } from "./V2Controls";
 
 // A candlestick chart with volume for one symbol, on the v2 theme. Daily or 15 min.
 // source "kite": the stock straight from Kite with today's candles (paper pages), refreshed while open;
 // lines: price lines to mark, e.g. [{ price, label, color }] for a position's entry / stop / exit.
+// indicators (daily): { sma: 200, rsi: { period: 2, level: 10 } } draws the average on the price and
+// Wilder's RSI in a pane below with its level marked; ~300 extra days are fetched so the average
+// is complete from the first visible candle.
 
 const DAILY_RANGES = [
   [90, "3M"],
@@ -17,19 +20,45 @@ const INTRADAY_RANGES = [
   [30, "1M"],
   [90, "3M"],
 ];
+const KITE_DAILY_RANGES = [
+  [90, "3M"],
+  [180, "6M"],
+  [365, "1Y"],
+];
 const KITE_RANGES = [
   [1, "Today"],
   [5, "5D"],
   [30, "1M"],
 ];
 
+function withIndicators(k, ind) {
+  // SMA over `ind.sma` closes and Wilder's RSI (smoothing 1 / period), as the model computes them
+  const n = ind.sma;
+  const a = 1 / (ind.rsi?.period || 2);
+  let sum = 0;
+  let up = null;
+  let dn = null;
+  return k.map((c, i) => {
+    sum += c.close;
+    if (i >= n) sum -= k[i - n].close;
+    const out = { ...c, sma: n && i >= n - 1 ? sum / n : null, rsi: null };
+    if (i > 0) {
+      const d = c.close - k[i - 1].close;
+      up = up == null ? Math.max(d, 0) : a * Math.max(d, 0) + (1 - a) * up;
+      dn = dn == null ? Math.max(-d, 0) : a * Math.max(-d, 0) + (1 - a) * dn;
+      if (i > 10) out.rsi = dn === 0 ? 100 : 100 - 100 / (1 + up / dn);
+    }
+    return out;
+  });
+}
+
 function colors(el) {
   const css = getComputedStyle(el.closest(".v2") || document.body);
   const v = (n) => css.getPropertyValue(n).trim();
-  return { text: v("--muted"), grid: v("--border"), up: v("--positive"), down: v("--negative"), faint: v("--faint") };
+  return { text: v("--muted"), grid: v("--border"), up: v("--positive"), down: v("--negative"), faint: v("--faint"), accent: v("--accent"), warning: v("--warning") };
 }
 
-export default function V2CandleChart({ row, source, onClose, lines = [], initialInterval = "day", initialDays = null }) {
+export default function V2CandleChart({ row, source, onClose, lines = [], initialInterval = "day", initialDays = null, indicators = null }) {
   const box = useRef(null);
   const kite = source === "kite";
   const [interval, setInterval] = useState(initialInterval);
@@ -62,7 +91,8 @@ export default function V2CandleChart({ row, source, onClose, lines = [], initia
     if (!tick) setCandles(null);
     const ex = row.exchange || "NSE";
     // "Today" asks Kite for a few days (weekends, holidays) and shows the latest session
-    const ask = kite && days === 1 ? 5 : days;
+    const ind = indicators && interval === "day" ? indicators : null;
+    const ask = kite && days === 1 ? 5 : ind ? Math.min(2000, (days || 365) + Math.ceil((ind.sma || 0) * 1.5)) : days;
     fetch(`/api/v2/data/candles?symbol=${encodeURIComponent(row.symbol)}&interval=${interval}&source=${source}&exchange=${ex}&days=${ask}`, {
       signal: controller.signal,
     })
@@ -73,10 +103,16 @@ export default function V2CandleChart({ row, source, onClose, lines = [], initia
           const lastDay = new Date(k[k.length - 1].time * 1000).toISOString().slice(0, 10);
           k = k.filter((c) => new Date(c.time * 1000).toISOString().slice(0, 10) === lastDay);
         }
+        if (ind && k.length) {
+          k = withIndicators(k, ind);
+          const from = new Date(new Date(`${k[k.length - 1].time}T00:00:00Z`).getTime() - (days || 365) * 86400000).toISOString().slice(0, 10);
+          k = k.filter((c) => c.time >= from);
+        }
         setCandles(k);
       })
       .catch(() => {});
     return () => controller.abort();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [row, source, interval, days, tick, kite]);
   useEffect(() => setTick(0), [interval, days]);
 
@@ -103,11 +139,23 @@ export default function V2CandleChart({ row, source, onClose, lines = [], initia
       const k = p.seriesData?.get(price);
       setHover(k ? { ...k, volume: p.seriesData.get(volume)?.value } : null);
     });
-    chartRef.current = { chart, price, volume, c, fitted: false, priceLines: [] };
+    let sma = null;
+    let rsi = null;
+    if (indicators && interval === "day") {
+      sma = chart.addSeries(LineSeries, { color: c.accent, lineWidth: 2, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
+      rsi = chart.addSeries(LineSeries, { color: c.warning, lineWidth: 2, priceLineVisible: false, lastValueVisible: true }, 1);
+      if (indicators.rsi?.level != null) {
+        rsi.createPriceLine({ price: indicators.rsi.level, color: c.up, lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: "buy" });
+      }
+      rsi.createPriceLine({ price: 50, color: c.grid, lineWidth: 1, lineStyle: LineStyle.Dotted, axisLabelVisible: false, title: "" });
+      chart.panes()[1]?.setHeight(150);
+    }
+    chartRef.current = { chart, price, volume, sma, rsi, c, fitted: false, priceLines: [] };
     return () => {
       chartRef.current = null;
       chart.remove();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [interval, days, theme]);
 
   useEffect(() => {
@@ -121,6 +169,8 @@ export default function V2CandleChart({ row, source, onClose, lines = [], initia
     const { chart, price, volume, c } = ref;
     price.setData(candles.map(({ volume: _, ...k }) => k));
     volume.setData(candles.map((k) => ({ time: k.time, value: k.volume, color: k.close >= k.open ? `${c.up}55` : `${c.down}55` })));
+    if (ref.sma) ref.sma.setData(candles.filter((k) => k.sma != null).map((k) => ({ time: k.time, value: k.sma })));
+    if (ref.rsi) ref.rsi.setData(candles.filter((k) => k.rsi != null).map((k) => ({ time: k.time, value: k.rsi })));
     if (!ref.fitted) {
       chart.timeScale().fitContent();
       ref.fitted = true;
@@ -138,7 +188,7 @@ export default function V2CandleChart({ row, source, onClose, lines = [], initia
 
   const last = candles?.[candles.length - 1];
   const show = hover || last;
-  const ranges = interval === "day" ? DAILY_RANGES : kite ? KITE_RANGES : INTRADAY_RANGES;
+  const ranges = interval === "day" ? (kite ? KITE_DAILY_RANGES : DAILY_RANGES) : kite ? KITE_RANGES : INTRADAY_RANGES;
   const fmt = (v) => (v == null ? "—" : v.toLocaleString("en-IN", { maximumFractionDigits: 2 }));
   const when = (t) => (typeof t === "number" ? new Date(t * 1000).toISOString().slice(0, 16).replace("T", " ") : t);
   return (
@@ -165,7 +215,7 @@ export default function V2CandleChart({ row, source, onClose, lines = [], initia
             value={interval}
             onChange={(v) => {
               setInterval(v);
-              setDays(v === "day" ? 365 : kite ? 1 : 30);
+              setDays(v === "day" ? (kite ? 180 : 365) : kite ? 1 : 30);
             }}
           />
           <Segmented label="Range" options={ranges} value={days} onChange={setDays} />
@@ -179,6 +229,19 @@ export default function V2CandleChart({ row, source, onClose, lines = [], initia
               {when(show.time)} · O {fmt(show.open)} · H {fmt(show.high)} · L {fmt(show.low)} · C{" "}
               <span style={{ color: show.close >= show.open ? "var(--positive)" : "var(--negative)" }}>{fmt(show.close)}</span>
               {show.volume != null ? ` · Vol ${show.volume.toLocaleString("en-IN")}` : ""}
+              {indicators && interval === "day" && candles?.length ? (() => {
+                const k = candles.find((x) => x.time === show.time) || last;
+                return (
+                  <>
+                    {" · "}
+                    <span style={{ color: "var(--accent)" }}>SMA {indicators.sma} {fmt(k?.sma)}</span>
+                    {" · "}
+                    <span style={{ color: k?.rsi != null && k.rsi < (indicators.rsi?.level ?? 0) ? "var(--positive)" : "var(--warning)" }}>
+                      RSI({indicators.rsi?.period}) {k?.rsi == null ? "—" : k.rsi.toFixed(1)}
+                    </span>
+                  </>
+                );
+              })() : null}
             </>
           ) : candles == null ? (
             "Loading…"

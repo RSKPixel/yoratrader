@@ -1091,6 +1091,16 @@ class ConnorsUniverseRequest(BaseModel):
     universe: str
 
 
+@app.get("/api/connors/paper/watchlist")
+def connors_paper_watchlist():
+    """Today's short-term mean reversion candidates, live (what 15:15 would buy if it were now)."""
+    try:
+        return {"status": "success", **connorswatch.watchlist()}
+    except Exception as error:
+        print("Connors watchlist failed:", error)
+        return {"status": "error", "message": str(error)}
+
+
 @app.get("/api/connors/paper/settings")
 def connors_paper_settings():
     """The 15:15 run's live settings: universe and max open."""

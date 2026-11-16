@@ -16,8 +16,11 @@ places orders. The backtest ("rsi2-5d-max3-close") trades at the official close;
 the closest tradable moment (within a few points a year of the close from 2015).
 """
 
+import time
 from datetime import timedelta
 from datetime import time as clock
+
+import pandas as pd
 
 from psycopg2.extras import execute_values
 
@@ -25,6 +28,7 @@ import backtest
 import connors
 import gapwatch
 import kite_auth
+import xsmom
 import xsmr
 import db
 import v2margin
@@ -189,6 +193,50 @@ def record(force=False):
              len(to_sell), f"prices taken at {stamp.time():%H:%M:%S}" + (" (late)" if late else ""), uni))
         conn.commit()
     return {"recorded": True, "sold": len(to_sell), "bought": [b["symbol"] for b in buys], "signals": len(signals)}
+
+
+_watch = {"at": 0, "value": None}
+WATCH_TTL = 30
+
+
+def watchlist():
+    """Today's candidates, live: every stock in the universe above its 200-day average (with the price
+    now as today's close, as the 15:15 run computes it), its 2-day RSI and whether it signals (RSI below
+    10). Sorted by RSI: the first free slots' worth would be bought if 15:15 were now. Cached 30 s."""
+    if _watch["value"] is not None and time.time() - _watch["at"] < WATCH_TTL:
+        return _watch["value"]
+    now = gapwatch._now()
+    today = now.date()
+    uni = universe()
+    out = {"universe": uni, "at": now.strftime("%H:%M:%S"), "stocks": [], "rsi_max": connors.RSI_MAX, "sma_days": connors.SMA_DAYS}
+    if not kite_auth.status().get("connected"):
+        out["note"] = "Kite not connected: no live prices"
+        return out
+    symbols = gapwatch._symbols()
+    q = kite_auth.trading_client().ltp([f"NSE:{s}" for s in symbols])
+    prices = {s: float(q[f"NSE:{s}"]["last_price"]) for s in symbols if q.get(f"NSE:{s}", {}).get("last_price")}
+    live = connors.live_signals(prices, today, uni)
+    if not live["stocks"]:
+        out["note"] = "No session today (weekend or holiday): candidates are computed on trading days"
+    else:
+        closes = xsmom._closes(uni)
+        last = closes[closes.index < pd.Timestamp(today)].iloc[-(connors.SMA_DAYS - 1):]
+        for x in live["stocks"]:
+            s_ = x["symbol"]
+            px, prev = prices.get(s_), last[s_].dropna().iloc[-1] if s_ in last and last[s_].notna().any() else None
+            sma = (last[s_].sum() + px) / (last[s_].count() + 1) if px else None
+            out["stocks"].append({**x, "price": px, "prev_close": round(float(prev), 2) if prev else None,
+                                  "change_pct": round(float(100 * (px / prev - 1)), 2) if px and prev else None,
+                                  "sma200": round(float(sma), 2) if sma else None,
+                                  "above_pct": round(float(100 * (px / sma - 1)), 2) if px and sma else None})
+        out["above"] = len(live["stocks"])
+        out["signals"] = sum(x["signal"] for x in live["stocks"])
+    with connect() as conn, conn.cursor() as cursor:
+        cursor.execute("SELECT symbol FROM connors_paper WHERE sell_day IS NULL")
+        out["held"] = [r[0] for r in cursor.fetchall()]
+    out["free_slots"] = max(0, max_open() - len(out["held"]))
+    _watch.update(at=time.time(), value=out)
+    return out
 
 
 def _live_prices(out_open):

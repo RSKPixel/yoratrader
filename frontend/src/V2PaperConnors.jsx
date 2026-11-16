@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import V2CandleChart from "./V2CandleChart";
 import { Field, formatRs, Segmented } from "./V2Controls";
 import { tone } from "./V2BacktestView";
 import { SLIPPAGE, useBacktest, useLiveRefresh } from "./V2BuyOnGap";
@@ -14,6 +15,88 @@ const PRICES = [
   ["stock", "Stock prices"],
   ["fut", "Futures prices"],
 ];
+
+// Today's candidates, live: every stock above its 200-day average by its 2-day RSI (with the price now
+// as today's close, as the 15:15 run computes it). The lowest RSIs below 10 fill the free slots at 15:15.
+function Candidates({ live }) {
+  const { data, error } = useBacktest("/api/connors/paper/watchlist", { refreshMs: live });
+  const [all, setAll] = useState(false);
+  const [chart, setChart] = useState(null);
+  if (error) return <Panel title="Today's candidates"><p className="text-sm" style={{ color: "var(--negative)" }}>{error}</p></Panel>;
+  if (!data) return <Panel title="Today's candidates"><p className="text-sm" style={{ color: "var(--muted)" }}>Loading…</p></Panel>;
+  const held = new Set(data.held || []);
+  let slot = 0;
+  const rows = (data.stocks || []).map((x) => {
+    let status = "watch";
+    if (held.has(x.symbol)) status = "held";
+    else if (x.signal) status = slot++ < data.free_slots ? "buy" : "signal";
+    return { ...x, status };
+  });
+  const shown = all ? rows : rows.filter((x, i) => x.signal || i < 15);
+  const STATUS = {
+    buy: ["Buy at 15:15", "var(--positive)"],
+    signal: ["Signal · no free slot", "var(--warning)"],
+    held: ["Held", "var(--muted)"],
+    watch: ["", "var(--faint)"],
+  };
+  const columns = [
+    {
+      h: "",
+      cell: (x) => (
+        <button
+          type="button"
+          onClick={() => setChart(x)}
+          className="grid h-6 w-6 place-items-center rounded border transition-colors hover:bg-[var(--surface-2)]"
+          style={{ borderColor: "var(--border)", color: "var(--muted)" }}
+          title={`${x.symbol}: daily chart with the 200-day average and RSI(2)`}
+          aria-label={`${x.symbol} chart`}
+        >
+          <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+            <path d="M2 13h12M4 10V6M7 11V4M10 9V5M13 8V3" />
+          </svg>
+        </button>
+      ),
+    },
+    { h: "Stock", cell: (x) => <span className="font-medium">{x.symbol}</span> },
+    { h: "Price", cell: (x) => x.price },
+    { h: "Today", cell: (x) => (x.change_pct == null ? "—" : `${x.change_pct > 0 ? "+" : ""}${x.change_pct}%`), style: (x) => ({ color: tone(x.change_pct) }) },
+    {
+      h: "RSI(2)",
+      cell: (x) => <span className="font-semibold">{x.rsi.toFixed(1)}</span>,
+      style: (x) => ({ color: x.rsi < data.rsi_max ? "var(--positive)" : x.rsi < 2 * data.rsi_max ? "var(--warning)" : "var(--muted)" }),
+      title: () => `Below ${data.rsi_max} = a signal (Wilder's 2-day RSI, the price now as today's close)`,
+    },
+    { h: "200-day avg", cell: (x) => x.sma200 ?? "—", style: () => ({ color: "var(--muted)" }) },
+    { h: "Above avg", cell: (x) => (x.above_pct == null ? "—" : `+${x.above_pct}%`), style: () => ({ color: "var(--muted)" }) },
+    { h: "Status", cell: (x) => STATUS[x.status][0], style: (x) => ({ color: STATUS[x.status][1], fontWeight: x.status === "buy" ? 600 : 400 }) },
+  ];
+  return (
+    <Panel
+      title="Today's candidates"
+      right={
+        data.note ||
+        `${data.signals} signals of ${data.above} stocks above their 200-day average · ${data.free_slots} free slot${data.free_slots === 1 ? "" : "s"} · live at ${data.at} · bought at 15:15`
+      }
+    >
+      {chart && (
+        <V2CandleChart
+          row={{ symbol: chart.symbol, exchange: "NSE" }}
+          source="kite"
+          initialInterval="day"
+          initialDays={180}
+          indicators={{ sma: data.sma_days, rsi: { period: 2, level: data.rsi_max } }}
+          onClose={() => setChart(null)}
+        />
+      )}
+      <PositionsTable rows={shown} columns={columns} minWidth={760} empty={data.note || "No stock is above its 200-day average."} />
+      {rows.length > shown.length || all ? (
+        <button type="button" onClick={() => setAll((v) => !v)} className="mt-2 text-xs underline" style={{ color: "var(--muted)" }}>
+          {all ? "Show signals and the closest 15" : `Show all ${rows.length} above their 200-day average`}
+        </button>
+      ) : null}
+    </Panel>
+  );
+}
 
 export default function V2PaperConnors({ params, version = 0 }) {
   const [slippage, setSlippage] = useState(0.02);
@@ -109,6 +192,7 @@ export default function V2PaperConnors({ params, version = 0 }) {
             money={money}
             extra={[{ label: "Open", value: `${data.open.length} / ${maxOpen}`, hint: L.capital_rs ? undefined : `Capital required is an estimate until trades are recorded: ${maxOpen} × the average lot margin (${formatRs(data.lots?.avg_lot_margin_rs)})` }]}
           />
+          <Candidates live={live} />
           <Panel
             title="Open positions"
             right={`sold at 15:15 on the ${data.hold}th trading day${data.ltp_at ? ` · live prices at ${data.ltp_at}` : ""}${open.length ? ` · net now ${netBoth(open.reduce((a, t) => a + (t.net_rs || 0), 0), null)}` : ""}`}
