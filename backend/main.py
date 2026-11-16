@@ -42,6 +42,7 @@ import v2data
 import v2dashboard
 import v2live
 import v2pnl
+import v2oops
 import usersettings
 import connors
 import xsmrwatch
@@ -60,6 +61,7 @@ async def startup():
     if os.environ.get("APP_ENV") == "production" or os.environ.get("GAP_SCHEDULER") == "1":
         gapwatch.start_scheduler(after_close=scheduled_live_download)
     v2xsmr.warm()  # the cross-sectional page's 15m prices (~40 s), so the first visit is quick
+    v2oops.warm()  # the Oops backtest's fills from the 15m candles (~45 s)
     v2dashboard.models()  # the dashboard's strategy table, built in the background
 
 
@@ -684,6 +686,35 @@ def _v2gap_args(dataset, side, stop, max_open, slippage):
     if dataset not in v2gap.DATASETS or side not in v2gap.SIDES or stop not in v2gap.STOPS:
         raise HTTPException(status_code=400, detail="unknown dataset, side or stop")
     return dict(dataset=dataset, side=side, stop=stop, max_open=max_open, slippage=slippage / 100)
+
+
+def _v2oops_args(stop, trend, max_open, slippage):
+    if stop not in ("low", "none") or trend not in ("any", "up"):
+        raise HTTPException(status_code=400, detail="unknown stop or trend")
+    return dict(stop=stop, trend=trend, max_open=max_open, slippage=slippage / 100)
+
+
+@app.get("/api/v2/backtest/oops")
+def v2_backtest_oops(stop: str = Query("low"), trend: str = Query("any"), max_open: int = Query(3, ge=0, le=v2oops.MAX_OPEN),
+                     slippage: float = Query(0.02, ge=0, le=1)):
+    """Oops gap reversal (v2 page): the day's first N fills on 15-minute candles, capital / N each."""
+    args = _v2oops_args(stop, trend, max_open, slippage)
+    try:
+        return {"status": "success", **v2oops.results(**args)}
+    except Exception as error:
+        print("v2 oops backtest failed:", error)
+        return {"status": "error", "message": str(error)}
+
+
+@app.get("/api/v2/backtest/oops/month")
+def v2_backtest_oops_month(month: str = Query(..., pattern=r"^\d{4}-\d{2}$"), stop: str = Query("low"), trend: str = Query("any"),
+                           max_open: int = Query(3, ge=0, le=v2oops.MAX_OPEN), slippage: float = Query(0.02, ge=0, le=1)):
+    args = _v2oops_args(stop, trend, max_open, slippage)
+    try:
+        return {"status": "success", "trades": v2oops.month_trades(month, **args)}
+    except Exception as error:
+        print("v2 oops month failed:", error)
+        return {"status": "error", "message": str(error)}
 
 
 @app.get("/api/v2/backtest/gap")
