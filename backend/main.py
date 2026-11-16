@@ -43,6 +43,8 @@ import v2dashboard
 import v2live
 import v2pnl
 import v2oops
+import v2tom
+import livetrade
 import oopswatch
 import usersettings
 import modelstatus
@@ -725,6 +727,78 @@ def v2_backtest_oops(stop: str = Query("none"), trend: str = Query("any"), max_o
         return {"status": "success", **v2oops.results(**args)}
     except Exception as error:
         print("v2 oops backtest failed:", error)
+        return {"status": "error", "message": str(error)}
+
+
+def _v2tom_args(index, window, slippage):
+    if index not in v2tom.INDICES or window not in v2tom.WINDOWS:
+        raise HTTPException(status_code=400, detail="unknown index or window")
+    return dict(index=index, window=window, slippage=slippage / 100)
+
+
+class LiveOrderRequest(BaseModel):
+    side: str
+    tradingsymbol: str
+    lots: int
+    price: float
+
+
+class LivePriceRequest(BaseModel):
+    price: float
+
+
+@app.get("/api/v2/trade/tom")
+def v2_trade_tom():
+    try:
+        return {"status": "success", **livetrade.state()}
+    except Exception as error:
+        print("Live trading state failed:", error)
+        return {"status": "error", "message": str(error)}
+
+
+@app.post("/api/v2/trade/tom/order")
+def v2_trade_tom_order(req: LiveOrderRequest, request: Request):
+    """A REAL order on the Kite account (the page confirms first)."""
+    try:
+        return {"status": "success", **livetrade.place(req.side, req.tradingsymbol, req.lots, req.price, request.state.user.get("username"))}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.post("/api/v2/trade/order/{order_id}/modify")
+def v2_trade_modify(order_id: str, req: LivePriceRequest, request: Request):
+    try:
+        return {"status": "success", **livetrade.modify(order_id, req.price, request.state.user.get("username"))}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.post("/api/v2/trade/order/{order_id}/cancel")
+def v2_trade_cancel(order_id: str, request: Request):
+    try:
+        return {"status": "success", **livetrade.cancel(order_id, request.state.user.get("username"))}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.get("/api/v2/backtest/tom")
+def v2_backtest_tom(index: str = Query("nifty"), window: str = Query("4"), slippage: float = Query(0.02, ge=0, le=1)):
+    args = _v2tom_args(index, window, slippage)
+    try:
+        return {"status": "success", **v2tom.results(**args)}
+    except Exception as error:
+        print("v2 turn of the month backtest failed:", error)
+        return {"status": "error", "message": str(error)}
+
+
+@app.get("/api/v2/backtest/tom/month")
+def v2_backtest_tom_month(month: str = Query(..., pattern=r"^\d{4}-\d{2}$"), index: str = Query("nifty"), window: str = Query("4"),
+                          slippage: float = Query(0.02, ge=0, le=1)):
+    args = _v2tom_args(index, window, slippage)
+    try:
+        return {"status": "success", "trades": v2tom.month_trades(month, **args)}
+    except Exception as error:
+        print("v2 turn of the month month failed:", error)
         return {"status": "error", "message": str(error)}
 
 

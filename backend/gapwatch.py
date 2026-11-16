@@ -487,6 +487,8 @@ def _topup_backtest():
         print("Minute candles topped up:", m["days"], "stock-days,", len(m["errors"]), "errors")
         import v2oops
         v2oops.invalidate()  # the Oops backtest rebuilds from the new candles on its next use
+        import v2tom
+        v2tom.invalidate()
     except Exception as error:
         print("Backtest data top-up failed:", error)
 

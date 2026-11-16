@@ -155,6 +155,8 @@ function Paper({ p, today }) {
   // one F&O lot a position: rupees, with % of the day's margin where there is one
   const rs = (v, m) => (v == null ? "—" : `${v > 0 ? "+" : ""}${formatRs(v)}${m == null ? "" : ` · ${pct(m, 2)}`}`);
   const g = p.gap || {}, x = p.xsmr || {}, c = p.connors || {}, cc = p.connors_cum || {}, op = p.oops || {};
+  const tm = p.tom || {};
+  const day = (iso) => (iso ? new Date(`${iso}T00:00:00`).toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" }) : "—");
   return (
     <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
       {shown("buy-on-gap") && (
@@ -200,6 +202,32 @@ function Paper({ p, today }) {
           ["Today's net", rs(op.today_net_rs, op.today_value_pct), tone(op.today_net_rs)],
           ["Total net", rs(op.total_net_rs), tone(op.total_net_rs)],
           ["Capital required", op.capital_rs ? formatRs(op.capital_rs) : "—"],
+        ]}
+      />
+      )}
+      {shown("turn-of-month") && (
+      <PaperCard
+        title="Turn of the month · manual"
+        href="/v2/trade"
+        style="Positional"
+        error={tm.error}
+        lines={[
+          ["Now", tm.state === "waiting" ? `waiting · ${tm.days_to_buy} trading days to the buy` : tm.state ?? "—", tm.state && tm.state !== "waiting" ? "var(--warning)" : undefined],
+          ["Buy (close)", day(tm.buy)],
+          ["Sell (close)", day(tm.sell)],
+          ["Nifty 50", tm.nifty ? tm.nifty.toLocaleString("en-IN") : "Kite not connected"],
+          ...(tm.future ? [["Future (options follow it)", `${tm.future.toLocaleString("en-IN")} · +${tm.basis_pct}% over spot`]] : []),
+          [tm.call_label || "Call to buy", tm.strike ? `NIFTY ${tm.strike} CE · ${day(tm.expiry)} expiry` : tm.call_label?.startsWith("Call held") ? "buy day's close not stored yet" : "—"],
+          ...(tm.best
+            ? [
+                ["Limit price", `₹${tm.best.limit} (bid ${tm.best.bid ?? "—"} / ask ${tm.best.ask ?? "—"})`, tm.state?.startsWith("buy") ? "var(--warning)" : undefined],
+                ["Per lot", `${formatRs(tm.best.per_lot)} · ${tm.best.lot} units · ${tm.best.itm_pct}% in the money`],
+                ["Why this one", `tightest spread ${tm.best.spread_pct}% · OI ${(tm.best.oi ?? 0).toLocaleString("en-IN")} · time value ₹${tm.best.time_value}`],
+                ["Others", tm.calls.filter((c) => c.strike !== tm.best.strike).map((c) => `${c.strike} (${c.spread_pct ?? "—"}%)`).join(", ") || "—"],
+                ["Prices at", tm.quoted_at],
+              ]
+            : []),
+          ["Dates from", tm.holidays_source ?? "—"],
         ]}
       />
       )}

@@ -8,6 +8,7 @@ import { KiteButton } from "./V2Kite";
 import V2Dashboard from "./V2Dashboard";
 import { systemTheme, useSetting } from "./settings";
 import V2Live from "./V2Live";
+import V2Trade from "./V2Trade";
 
 // YoraTrader: top navigation and one content area. Pages live at /v2/<page> ("/" opens the dashboard).
 
@@ -15,6 +16,7 @@ const PAGES = [
   { id: "dashboard", label: "Dashboard" },
   { id: "backtesting", label: "Backtesting" },
   { id: "paper", label: "Paper trading" },
+  { id: "trade", label: "Live trading" },
   { id: "live", label: "Live" },
   { id: "reports", label: "Reports" },
   { id: "data", label: "Data" },
@@ -180,6 +182,10 @@ export default function AppV2() {
       ) : page === "dashboard" ? (
         <main className="min-h-0 flex-1 overflow-auto px-4 py-6 md:px-6">
           <V2Dashboard />
+        </main>
+      ) : page === "trade" ? (
+        <main className="min-h-0 flex-1 overflow-auto px-4 py-6 md:px-6">
+          <V2Trade />
         </main>
       ) : page === "live" ? (
         <main className="min-h-0 flex-1 overflow-auto px-4 py-6 md:px-6">

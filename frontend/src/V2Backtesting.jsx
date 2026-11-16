@@ -9,6 +9,7 @@ import V2Xsmom from "./V2Xsmom";
 import V2Qmom from "./V2Qmom";
 import V2Connors from "./V2Connors";
 import V2Oops from "./V2Oops";
+import V2Tom from "./V2Tom";
 
 // v2 Backtesting: a sub nav of every model with a backtest, grouped by where it comes from. Each
 // model has its own page below the shared parameters.
@@ -43,7 +44,10 @@ export const BACKTEST_GROUPS = [
   {
     title: "Larry Williams",
     source: "Long-Term Secrets to Short-Term Trading (Wiley, 2011)",
-    models: [{ id: "oops", universes: ["fno"], short: "OP", label: "Oops gap reversal", style: "Intraday" }],
+    models: [
+      { id: "oops", universes: ["fno"], short: "OP", label: "Oops gap reversal", style: "Intraday" },
+      { id: "turn-of-month", universes: ["indices"], short: "TM", label: "Turn of the month", style: "Positional" },
+    ],
   },
 ];
 
@@ -83,6 +87,7 @@ export default function V2Backtesting({ model, onSelect }) {
         </div>
         {m.id === "buy-on-gap" && <V2BuyOnGap params={modelParams} />}
         {m.id === "oops" && <V2Oops params={modelParams} />}
+        {m.id === "turn-of-month" && <V2Tom params={modelParams} />}
         {m.id === "gap-momentum" && <V2BuyOnGap params={modelParams} model="gapmom" key="gapmom" />}
         {m.id === "kbdt" && <V2Kbdt params={modelParams} />}
         {m.id === "xs-mean-reversion" && <V2Xsmr params={modelParams} />}
