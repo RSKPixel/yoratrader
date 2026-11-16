@@ -237,46 +237,6 @@ export default function V2Trade() {
             Dates from {plan.holidays_source} · option expiry {day(plan.expiry)} · in the money and time value are measured from the {plan.future_symbol || "future"} (the price the options follow) · prices refresh every 5 s in market hours (last {updated})
           </p>
 
-          <Panel title="Position" right="the account's Nifty calls (NRML)">
-            <Table
-              head={["Contract", "Qty", "Avg", "Bid / Ask", "Last", "P&L", "Value", ""]}
-              empty="No Nifty call held."
-              rows={(d.positions || []).map((p) => (
-                <tr key={p.tradingsymbol} className="border-t" style={{ borderColor: "var(--border)" }}>
-                  <td className="px-2 py-1.5 font-medium">{p.tradingsymbol}</td>
-                  <td className="px-2 py-1.5 tabular-nums">{p.quantity}</td>
-                  <td className="px-2 py-1.5 tabular-nums">{num(p.average_price)}</td>
-                  <td className="px-2 py-1.5 tabular-nums">
-                    {num(p.bid)} / {num(p.ask)}
-                  </td>
-                  <td className="px-2 py-1.5 tabular-nums">{num(p.ltp)}</td>
-                  <td className="px-2 py-1.5 tabular-nums font-medium" style={{ color: tone(p.pnl) }}>
-                    {p.pnl == null ? "—" : `${p.pnl > 0 ? "+" : ""}${formatRs(p.pnl)}`}
-                  </td>
-                  <td className="px-2 py-1.5 tabular-nums">{formatRs(p.value)}</td>
-                  <td className="px-2 py-1.5 text-right">
-                    <Btn
-                      kind="sell"
-                      disabled={!p.limit || p.quantity <= 0}
-                      onClick={() =>
-                        setConfirm({
-                          side: "SELL",
-                          symbol: p.tradingsymbol,
-                          lot: p.lot || p.quantity,
-                          lots: p.lot ? Math.round(p.quantity / p.lot) : 1,
-                          price: p.limit,
-                          warning: plan.state?.startsWith("sell") ? null : `Today isn't the sell day (${day(plan.sell)}).`,
-                        })
-                      }
-                    >
-                      Sell all at ₹{num(p.limit)}
-                    </Btn>
-                  </td>
-                </tr>
-              ))}
-            />
-          </Panel>
-
           <Panel title={`Buy · calls for ${day(plan.expiry)}`} right={plan.quoted_at ? `prices at ${plan.quoted_at} · best = tightest spread` : "prices need Kite"}>
             <Table
               head={["", "Strike", "Bid", "Ask", "Mid", "Spread", "In the money", "Time value", "Open interest", "Per lot"]}
@@ -335,6 +295,46 @@ export default function V2Trade() {
                 </span>
               </div>
             )}
+          </Panel>
+
+          <Panel title="Position" right="the account's Nifty calls (NRML)">
+            <Table
+              head={["Contract", "Qty", "Avg", "Bid / Ask", "Last", "P&L", "Value", ""]}
+              empty="No Nifty call held."
+              rows={(d.positions || []).map((p) => (
+                <tr key={p.tradingsymbol} className="border-t" style={{ borderColor: "var(--border)" }}>
+                  <td className="px-2 py-1.5 font-medium">{p.tradingsymbol}</td>
+                  <td className="px-2 py-1.5 tabular-nums">{p.quantity}</td>
+                  <td className="px-2 py-1.5 tabular-nums">{num(p.average_price)}</td>
+                  <td className="px-2 py-1.5 tabular-nums">
+                    {num(p.bid)} / {num(p.ask)}
+                  </td>
+                  <td className="px-2 py-1.5 tabular-nums">{num(p.ltp)}</td>
+                  <td className="px-2 py-1.5 tabular-nums font-medium" style={{ color: tone(p.pnl) }}>
+                    {p.pnl == null ? "—" : `${p.pnl > 0 ? "+" : ""}${formatRs(p.pnl)}`}
+                  </td>
+                  <td className="px-2 py-1.5 tabular-nums">{formatRs(p.value)}</td>
+                  <td className="px-2 py-1.5 text-right">
+                    <Btn
+                      kind="sell"
+                      disabled={!p.limit || p.quantity <= 0}
+                      onClick={() =>
+                        setConfirm({
+                          side: "SELL",
+                          symbol: p.tradingsymbol,
+                          lot: p.lot || p.quantity,
+                          lots: p.lot ? Math.round(p.quantity / p.lot) : 1,
+                          price: p.limit,
+                          warning: plan.state?.startsWith("sell") ? null : `Today isn't the sell day (${day(plan.sell)}).`,
+                        })
+                      }
+                    >
+                      Sell all at ₹{num(p.limit)}
+                    </Btn>
+                  </td>
+                </tr>
+              ))}
+            />
           </Panel>
 
           <Panel title="Today's orders" right="from this page (tagged on Kite)">
