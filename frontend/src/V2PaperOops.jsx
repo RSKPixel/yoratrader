@@ -26,6 +26,12 @@ export default function V2PaperOops({ params, stop, onStop, saving }) {
 
   const columns = [
     { h: "Stock", cell: (t) => <span className="font-medium">{t.symbol}</span>, title: (t) => t.fut || "" },
+    {
+      h: "1st sec",
+      cell: (t) => (t.first_second ? "yes" : ""),
+      style: () => ({ color: "var(--warning)" }),
+      title: (t) => (t.first_second ? "Already back at yesterday's low by 09:15:01: a real buy-stop placed at the open would likely miss it" : "Touched after the first second: a real buy-stop would have been in place"),
+    },
     { h: "Gap", cell: (t) => `${t.gap_pct.toFixed(2)}%`, style: () => ({ color: "var(--muted)" }), title: (t) => `Opened ${t.open}, yesterday's low ${t.prev_low}` },
     ...AT_COLUMNS,
     { h: "Reason", cell: (t) => t.reason, style: (t) => ({ color: t.reason === "stop" ? "var(--negative)" : "var(--muted)" }) },
@@ -82,6 +88,7 @@ export default function V2PaperOops({ params, stop, onStop, saving }) {
             {data.max_open}), {data.stop_mode === "low" ? "stop 0.1% below the day's low at the buy, " : "no stop, "}out at 15:15{data.ltp_at ? ` · live prices at ${data.ltp_at}` : ""} · costs{" "}
             {data.cost_per_side_bps} bps a side · nothing places orders
           </StatusLine>
+          <FirstSecond f={data.first_second} />
           <LotCards s={{ ...data.summary, win_rate: data.summary.win_rate_lots, win_days: data.summary.win_days_lots }} money={money} />
           <Panel
             title={`Today · ${data.today}`}
@@ -116,5 +123,20 @@ export default function V2PaperOops({ params, stop, onStop, saving }) {
         </>
       )}
     </div>
+  );
+}
+
+// Fills already back at yesterday's low by 09:15:01: paper counts them, a real buy-stop placed at the open
+// would likely miss them. Shown against the rest, so the paper result can be read without them.
+function FirstSecond({ f }) {
+  if (!f) return null;
+  const all = f.first.fills + f.later.fills;
+  const pct = all ? Math.round((100 * f.first.fills) / all) : 0;
+  return (
+    <p className="-mt-1 text-xs" style={{ color: "var(--muted)" }}>
+      <span style={{ color: "var(--warning)" }}>First-second fills</span> (already at yesterday's low by 09:15:01, a real order would likely miss them):{" "}
+      {f.first.fills} of {all}
+      {all ? ` (${pct}%)` : ""} · net {formatRs(f.first.net_rs)} · the rest {f.later.fills} · net {formatRs(f.later.net_rs)}
+    </p>
   );
 }

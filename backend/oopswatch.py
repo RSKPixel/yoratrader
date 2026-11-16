@@ -87,6 +87,8 @@ def _ensure_tables(cursor):
         );
         ALTER TABLE oops_paper ALTER COLUMN stop DROP NOT NULL;  -- NULL: bought with no stop
         ALTER TABLE oops_paper_watch ADD COLUMN IF NOT EXISTS fut TEXT;  -- the future traded
+        -- already back at yesterday's low by the 09:15:01 quote: a real buy-stop, placed at the open, likely misses it
+        ALTER TABLE oops_paper_watch ADD COLUMN IF NOT EXISTS first_sec BOOLEAN;
         ALTER TABLE oops_paper ADD COLUMN IF NOT EXISTS fut TEXT;
         CREATE TABLE IF NOT EXISTS oops_paper_prev (
             day DATE NOT NULL, symbol TEXT NOT NULL, fut TEXT NOT NULL, prev_low DOUBLE PRECISION NOT NULL,
@@ -165,13 +167,14 @@ def _record_open(kite, today, stamp):
     traded = sum(1 for q in quotes.values() if q.get("last_trade_time") and q["last_trade_time"].date() == today)
     watch = []
     for s, (fut, pl) in lows.items():
-        o = ((quotes.get(fut) or {}).get("ohlc") or {}).get("open")
+        ohlc = (quotes.get(fut) or {}).get("ohlc") or {}
+        o, high = ohlc.get("open"), ohlc.get("high")
         if o and o < pl:
-            watch.append((today, s, float(pl), float(o), fut))
+            watch.append((today, s, float(pl), float(o), fut, bool(high and high >= pl)))
     note = None if traded >= 0.5 * max(1, len(quotes)) else f"market closed (only {traded} of {len(quotes)} futures traded today)"
     with connect() as conn, conn.cursor() as cursor:
         if watch and not note:
-            cursor.executemany("INSERT INTO oops_paper_watch (day, symbol, prev_low, open, fut) VALUES (%s, %s, %s, %s, %s) "
+            cursor.executemany("INSERT INTO oops_paper_watch (day, symbol, prev_low, open, fut, first_sec) VALUES (%s, %s, %s, %s, %s, %s) "
                                "ON CONFLICT (day, symbol) DO NOTHING", watch)
         cursor.execute("INSERT INTO oops_paper_days (day, recorded_at, quoted, gapped, note) VALUES (%s, %s, %s, %s, %s) "
                        "ON CONFLICT (day) DO NOTHING", (today, stamp, len(quotes), 0 if note else len(watch), note))
@@ -362,6 +365,15 @@ def tick(force=False, stream=True):
     return {**out, "done": True}
 
 
+def _first_second(days):
+    """Fills that were already back at yesterday's low by 09:15:01 (a real buy-stop placed at the open
+    would likely miss them), against the rest: count and net rupees (one lot each)."""
+    picks = [r for d in days for r in d["picks"]]
+    def part(rows):
+        return {"fills": len(rows), "net_rs": round(sum(r.get("net_rs") or 0 for r in rows))}
+    return {"first": part([r for r in picks if r["first_second"]]), "later": part([r for r in picks if not r["first_second"]])}
+
+
 def paper(slippage=0.0002):
     """The log in the paper pages' shape: days, each with its positions (one lot each, live prices for
     today's open ones), the watchlist, and the totals."""
@@ -371,8 +383,9 @@ def paper(slippage=0.0002):
     with connect() as conn, conn.cursor() as cursor:
         _ensure_tables(cursor)
         conn.commit()
-        cursor.execute("SELECT day, symbol, prev_low, open, filled_at, entry, low_at_fill, stop, exit_at, exit, reason, slots, fut "
-                       "FROM oops_paper ORDER BY day DESC, filled_at")
+        cursor.execute("SELECT p.day, p.symbol, p.prev_low, p.open, p.filled_at, p.entry, p.low_at_fill, p.stop, p.exit_at, p.exit, "
+                       "p.reason, p.slots, p.fut, w.first_sec FROM oops_paper p LEFT JOIN oops_paper_watch w "
+                       "ON w.day = p.day AND w.symbol = p.symbol ORDER BY p.day DESC, p.filled_at")
         trades = cursor.fetchall()
         cursor.execute("SELECT day, recorded_at, quoted, gapped, note FROM oops_paper_days ORDER BY day DESC LIMIT 60")
         day_rows = cursor.fetchall()
@@ -394,14 +407,14 @@ def paper(slippage=0.0002):
             print("Oops paper: live prices failed:", error)
     lots = v2margin.table()
     by_day = {}
-    for day, s, pl, o, filled_at, entry, low_fill, stop, exit_at, exit_, reason, slots, fut in trades:
+    for day, s, pl, o, filled_at, entry, low_fill, stop, exit_at, exit_, reason, slots, fut, first_sec in trades:
         closed = exit_at is not None
         px = exit_ if closed else (live.get(s) or {}).get("last_price")
         w = 1.0 / slots
         ret = px / entry - 1 if px else None
         cost = (1 + (px / entry if px else 1)) * cps
         by_day.setdefault(day.isoformat(), []).append({
-            "symbol": s, "fut": fut, "side": "long", "gap_pct": round(100 * (o / pl - 1), 2), "prev_low": round(pl, 2), "open": round(o, 2),
+            "symbol": s, "fut": fut, "first_second": bool(first_sec), "side": "long", "gap_pct": round(100 * (o / pl - 1), 2), "prev_low": round(pl, 2), "open": round(o, 2),
             "filled_at": filled_at.astimezone(gapwatch.IST).strftime("%H:%M:%S"), "entry": round(entry, 2), "stop": round(stop, 2) if stop is not None else None,
             "entry_at": f"{day.isoformat()} {filled_at.astimezone(gapwatch.IST).strftime('%H:%M:%S')}",
             "exit_at": f"{day.isoformat()} {exit_at.astimezone(gapwatch.IST).strftime('%H:%M:%S')}" if exit_at else f"{day.isoformat()} open",
@@ -425,6 +438,7 @@ def paper(slippage=0.0002):
             "market_open": today.weekday() < 5 and OPEN_AT <= now.time() < UNTIL, "max_open": max_open(), "stop_mode": stop_mode(), "stream": stream_status(), "max_open_limit": MAX_OPEN_LIMIT,
             "watchlist": sorted(watchlist, key=lambda w: (w["bought"], w["to_trigger_pct"] if w["to_trigger_pct"] is not None else 99)),
             "days": days, "summary": {**v2paper._summary(days), **v2paper._lot_summary(days, lots)},
+            "first_second": _first_second(days),
             "log": [{"day": d.isoformat(), "recorded_at": r.astimezone(gapwatch.IST).strftime("%H:%M:%S"), "quoted": q, "gapped": g, "note": n}
                     for d, r, q, g, n in day_rows],
             "cost_per_side_bps": round(10000 * cps, 2)}
