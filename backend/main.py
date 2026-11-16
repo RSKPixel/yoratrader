@@ -63,7 +63,7 @@ async def startup():
     if os.environ.get("APP_ENV") == "production" or os.environ.get("GAP_SCHEDULER") == "1":
         gapwatch.start_scheduler(after_close=scheduled_live_download)
     v2xsmr.warm()  # the cross-sectional page's 15m prices (~40 s), so the first visit is quick
-    v2oops.warm()  # the Oops backtest's fills from the 15m candles (~45 s)
+    v2oops.warm()  # the Oops backtest's fills from the 1-minute candles (~1-2 min)
     v2dashboard.models()  # the dashboard's strategy table, built in the background
 
 
@@ -717,7 +717,7 @@ def _v2oops_args(stop, trend, max_open, slippage):
 
 
 @app.get("/api/v2/backtest/oops")
-def v2_backtest_oops(stop: str = Query("low"), trend: str = Query("any"), max_open: int = Query(3, ge=0, le=v2oops.MAX_OPEN),
+def v2_backtest_oops(stop: str = Query("none"), trend: str = Query("any"), max_open: int = Query(3, ge=0, le=v2oops.MAX_OPEN),
                      slippage: float = Query(0.02, ge=0, le=1)):
     """Oops gap reversal (v2 page): the day's first N fills on 15-minute candles, capital / N each."""
     args = _v2oops_args(stop, trend, max_open, slippage)
@@ -729,7 +729,7 @@ def v2_backtest_oops(stop: str = Query("low"), trend: str = Query("any"), max_op
 
 
 @app.get("/api/v2/backtest/oops/month")
-def v2_backtest_oops_month(month: str = Query(..., pattern=r"^\d{4}-\d{2}$"), stop: str = Query("low"), trend: str = Query("any"),
+def v2_backtest_oops_month(month: str = Query(..., pattern=r"^\d{4}-\d{2}$"), stop: str = Query("none"), trend: str = Query("any"),
                            max_open: int = Query(3, ge=0, le=v2oops.MAX_OPEN), slippage: float = Query(0.02, ge=0, le=1)):
     args = _v2oops_args(stop, trend, max_open, slippage)
     try:
@@ -1031,7 +1031,19 @@ def v2_paper_oops(slippage: float = Query(0.02, ge=0, le=1)):
 @app.get("/api/v2/paper/oops/settings")
 def v2_paper_oops_settings():
     return {"status": "success", "max_open": oopswatch.max_open(), "max_open_limit": oopswatch.MAX_OPEN_LIMIT,
-            "universe": "fno", "universes": ["fno"]}
+            "universe": "fno", "universes": ["fno"], "stop": oopswatch.stop_mode()}
+
+
+class OopsStopRequest(BaseModel):
+    stop: str
+
+
+@app.post("/api/v2/paper/oops/stop")
+def v2_paper_oops_stop(req: OopsStopRequest):
+    try:
+        return {"status": "success", "stop": oopswatch.set_stop_mode(req.stop)}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 class OopsMaxOpenRequest(BaseModel):

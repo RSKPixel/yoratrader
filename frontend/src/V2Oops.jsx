@@ -7,11 +7,11 @@ import { SLIPPAGE, useBacktest } from "./V2BuyOnGap";
 
 // Larry Williams' "Oops" gap reversal on v2 (v2oops.py): a stock opens below yesterday's low and is
 // bought when it trades back up to that low; out at 15:15, or at the stop below the day's low so far.
-// 15-minute candles, today's F&O stocks, 2015 on. Max open = the day's first N fills.
+// 1-minute candles, today's F&O stocks, 2015 on. Max open = the day's first N fills.
 
 const STOPS = [
+  ["none", "None (out at 15:15)"],
   ["low", "Below the day's low"],
-  ["none", "None"],
 ];
 const TRENDS = [
   ["any", "Any"],
@@ -19,7 +19,7 @@ const TRENDS = [
 ];
 
 export default function V2Oops({ params }) {
-  const [stop, setStop] = useSetting("bt.oops.stop", "low");
+  const [stop, setStop] = useSetting("bt.oops.stop", "none");
   const [trend, setTrend] = useSetting("bt.oops.trend", "any");
   const [slippage, setSlippage] = useSetting("bt.oops.slippage", 0.02);
   const [month, setMonth] = useState(null);
@@ -55,7 +55,7 @@ export default function V2Oops({ params }) {
   return (
     <div className="mt-4 flex flex-col gap-4">
       <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
-        <Field label="Stop" hint="Below the day's low: 0.1% under the day's low at the moment of the buy, checked on every later 15-minute candle. None: out at 15:15 only.">
+        <Field label="Stop" hint="None: out at 15:15 only. Below the day's low: 0.1% under the lowest price known at the buy, checked every minute after; most buys come in the first minute, so it's tight and noise takes it out.">
           <Segmented label="Stop" options={STOPS} value={stop} onChange={setStop} />
         </Field>
         <Field label="Trend" hint="Any stock, or only those whose close was above their 200-day average yesterday">
@@ -66,7 +66,7 @@ export default function V2Oops({ params }) {
         </Field>
         {loading && (
           <span className="pb-1.5 text-xs" style={{ color: "var(--faint)" }}>
-            Loading… (the first load builds the fills from the 15-minute candles, about a minute)
+            Loading… (the first load builds the fills from the 1-minute candles, a minute or two)
           </span>
         )}
       </div>
@@ -80,7 +80,7 @@ export default function V2Oops({ params }) {
           <p className="-mt-1 text-xs" style={{ color: "var(--muted)" }}>
             {s.from} → {s.to} · {value(s.net_year_pct)} net a year · Sharpe {s.sharpe ?? "—"} · {s.green_years}/{s.years} green years · traded on{" "}
             {s.days_traded} of {s.days} days, {s.avg_positions} a day on average · {s.stopped_pct}% stopped · half the fills by {s.median_fill_at} ·
-            today's F&O stocks (15-minute data)
+            today's F&O stocks (1-minute data)
           </p>
           <Panel title="Net by month" right="click a month for its trades">
             <MonthGrid years={data.years} months={data.months} value={value} onOpen={setMonth} />

@@ -9,7 +9,7 @@
   and whether a 1σ stop was touched first.
 - refresh_daily(): tops up bt_daily for the F&O stocks after the close, for tomorrow's levels.
 - after_close (from main): at 15:50, the live futures' EOD and 15m download, as the Data page does.
-- _topup_backtest(): at 16:00, the backtest store's 15m and daily candles topped up to today.
+- _topup_backtest(): at 16:00, the backtest store's 15m, daily and 1-minute candles topped up to today.
 
 In production a background loop (start_scheduler) runs these on weekdays, so the log builds up
 even when nobody has the page open. Nothing here places orders.
@@ -442,6 +442,8 @@ def _tick():
             print("Pre-open test: futures open", result)
     import oopswatch  # Oops gap reversal paper trading: every minute from the open to 15:15
 
+    if oopswatch.PREPARE_AT <= t < oopswatch.OPEN_AT:  # each future's own yesterday's low, before the open
+        threading.Thread(target=oopswatch.prepare, daemon=True, name="oops-prepare").start()
     if oopswatch.OPEN_AT <= t < oopswatch.UNTIL:
         result = oopswatch.tick()
         if result.get("open") or result.get("bought") or result.get("sold"):
@@ -480,6 +482,9 @@ def _topup_backtest():
     try:
         result = backtest.download(rerun=False)
         print("Backtest data topped up:", result["candles"], "15m candles,", len(result["errors"]), "errors")
+        import minute
+        m = minute.download()  # the 1-minute store, which the Oops backtest reads
+        print("Minute candles topped up:", m["days"], "stock-days,", len(m["errors"]), "errors")
         import v2oops
         v2oops.invalidate()  # the Oops backtest rebuilds from the new candles on its next use
     except Exception as error:

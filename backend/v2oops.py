@@ -1,17 +1,18 @@
-"""Larry Williams' "Oops" gap reversal (Long-Term Secrets to Short-Term Trading), long, on 15-minute
+"""Larry Williams' "Oops" gap reversal (Long-Term Secrets to Short-Term Trading), long, on 1-minute
 candles (today's F&O stocks, 2015 on), for the v2 backtest page and the paper book's reference.
 
-- A stock opens below yesterday's low; it's bought when a 15-minute candle trades back up to that low
-  (at the level, or at the candle's open if it opens above it).
-- Stop (optional): just below the day's low so far at the buy (0.1% under it), checked on the later
-  candles before 15:15; out at the stop (or the candle's open if it opens through it).
-- Out at 15:15: the close of the 15:00 candle (from 3 Aug 2026 NSE's closing auction starts at 15:15 for F&O
-  stocks, so there is no 15:15 candle; the 15:00 candle's close is the 15:15 price either way).
+- A stock opens below yesterday's low; it's bought in the first minute whose high trades back up to that
+  low (at the level, or at the minute's open if it opens above it), as a resting buy-stop order would fill.
+- Out at 15:15: the close of the 15:14 minute (NSE's closing auction from 3 Aug 2026 starts at 15:15).
+- Stop (optional, off by default): 0.1% under the lowest price known at the buy. Most buys come in the
+  first minute, when that is just the open, so the stop is tight and noise takes it out: about 4% a year
+  with it against about 24% without (2015-2026). The old 15-minute build put it under the whole first
+  candle's low, a low not yet known at the buy, which flattered it (28.7%).
 - Trend (optional): only stocks whose close was above their 200-day average yesterday.
-- Max open N: the day's first N fills (by fill time), capital / N each; as per model: 3.
+- Max open N: the day's first N fills (by fill minute, then symbol), capital / N each; as per model: 3.
 
-Costs: NSE futures charges + slippage on the buy and the sale. Built once from the stored candles (about
-a minute) and cached; warmed at startup.
+Costs: NSE futures charges + slippage on the buy and the sale. Built once from the stored candles (a
+minute or two) and cached; warmed at startup.
 """
 
 import threading
@@ -26,6 +27,7 @@ from db import connect
 
 START = "2015-03-01"
 EXIT_AT = "15:15"
+EXIT_MIN = 6 * 60  # minutes since 09:15: 15:15 (the 15:14 minute is the last one before it)
 STOP_BELOW = 0.999
 MAX_OPEN, BOOK_OPEN = 10, 3
 CACHE_SECONDS = 6 * 3600
@@ -33,7 +35,17 @@ _cache, _lock = {"at": 0, "fills": None, "days": None}, threading.Lock()
 _building = threading.Lock()
 
 
+def _hm(minute):
+    m = 9 * 60 + 15 + int(minute)
+    return f"{m // 60:02d}:{m % 60:02d}"
+
+
 def _build():
+    """Every Oops fill from the 1-minute candles: the first minute whose high reaches yesterday's low is
+    the buy (at that low, or the minute's open if it opens above it). The stop is 0.1% under the lowest
+    price known at the buy (earlier minutes' lows and the buy minute's open, never a low printed later);
+    the buy minute itself counts if its low reaches the stop (the order inside a minute is unknown, so the
+    worse case is taken). Out at 15:15: the close of the 15:14 minute."""
     with connect() as c:
         syms = pd.read_sql("SELECT symbol FROM bt_symbols WHERE dataset = 'fno' ORDER BY symbol", c)["symbol"].tolist()
     fills = []
@@ -41,42 +53,42 @@ def _build():
         with connect() as c:
             d = pd.read_sql("SELECT day, low, close FROM bt_daily WHERE symbol = %s AND day >= '2014-01-01' ORDER BY day", c,
                             params=[sym], parse_dates=["day"]).set_index("day")
-            m = pd.read_sql("SELECT (datetime AT TIME ZONE 'Asia/Kolkata') AS t, open, high, low, close FROM bt_15m "
-                            "WHERE symbol = %s AND datetime >= %s ORDER BY datetime", c, params=[sym, START])
-        if len(d) < 250 or m.empty:
+            cur = c.cursor()
+            cur.execute("SELECT day, minute, open, high, low, close FROM bt_1m WHERE symbol = %s AND day >= %s ORDER BY day", [sym, START])
+            data = cur.fetchall()
+        if len(d) < 250 or not data:
             continue
         prev_low = d["low"].shift(1)
         up = d["close"].shift(1) > d["close"].shift(1).rolling(200, min_periods=180).mean()
-        m["t"] = pd.to_datetime(m["t"])
-        m["hm"] = m["t"].dt.strftime("%H:%M")
-        for day, g in m.groupby(m["t"].dt.normalize()):
-            if day not in d.index or len(g) < 10:
+        for day, mi, o, h, l, cl in data:
+            ts = pd.Timestamp(day)
+            if ts not in prev_low.index or not mi or mi[0] != 0:
                 continue
-            pl = prev_low[day]
-            rows = list(zip(g["hm"], g["open"], g["high"], g["low"]))
-            closes = dict(zip(g["hm"], g["close"]))
-            if not (pl > 0) or not (rows[0][1] > 0) or rows[0][1] >= pl:  # must open below yesterday's low
+            pl = prev_low[ts]
+            if not (pl > 0) or not (o[0] > 0) or o[0] >= pl:  # must open below yesterday's low
                 continue
-            low_so_far, fill = np.inf, None
-            for j, (hm, o, h, l) in enumerate(rows):
-                if hm >= EXIT_AT:
-                    break
-                if h >= pl:
-                    fill = (hm, max(o, pl), min(low_so_far, l) if low_so_far < np.inf else l, j)
-                    break
-                low_so_far = min(low_so_far, l)
-            if fill is None:
+            mi, o, h, l, cl = map(np.asarray, (mi, o, h, l, cl))
+            before_exit = np.nonzero(mi < EXIT_MIN)[0]
+            if not len(before_exit):
                 continue
-            hm_fill, entry, low_at_fill, j = fill
-            exit_px = closes.get("15:00") if hm_fill < "15:00" else None  # the price at 15:15
-            if exit_px is None or not (exit_px > 0):
+            last = before_exit[-1]
+            k = np.nonzero(h[: last + 1] >= pl)[0]
+            if not len(k):
                 continue
-            stop = low_at_fill * STOP_BELOW
-            hit_row = next(((hm, min(o, stop)) for (hm, o, h, l) in rows[j + 1:] if hm < EXIT_AT and l <= stop), None)
-            hit, hit_at = (hit_row[1], hit_row[0]) if hit_row else (None, None)
-            if abs(exit_px / entry - 1) > 0.25:  # a bad print
+            j = k[0]
+            entry = max(o[j], pl)
+            known_low = min(l[:j].min(), o[j]) if j else o[j]
+            stop = known_low * STOP_BELOW
+            exit_px = cl[last]
+            if not (exit_px > 0) or abs(exit_px / entry - 1) > 0.25:  # a bad print
                 continue
-            fills.append((day, hm_fill, sym, bool(up.get(day, False)), float(pl), float(rows[0][1]), float(entry),
+            hits = np.nonzero(l[j: last + 1] <= stop)[0]
+            if len(hits):
+                i = j + hits[0]
+                hit, hit_at = (stop if i == j else min(o[i], stop)), _hm(mi[i])
+            else:
+                hit, hit_at = None, None
+            fills.append((day, _hm(mi[j]), sym, bool(up.get(ts, False)), float(pl), float(o[0]), float(entry),
                           float(stop), float(exit_px), float(hit) if hit is not None else None, hit_at))
     f = pd.DataFrame(fills, columns=["day", "fill_at", "symbol", "up", "prev_low", "open", "entry", "stop", "exit_time", "exit_stop", "stop_at"])
     days = v2common.trading_days("fno", pd.Timestamp(START))
@@ -106,7 +118,7 @@ def warm():
     threading.Thread(target=_fills, daemon=True, name="oops-warm").start()
 
 
-def _sized(stop="low", trend="any", max_open=3, slippage=0.0002):
+def _sized(stop="none", trend="any", max_open=3, slippage=0.0002):
     f, days = _fills()
     t = f if trend == "any" else f[f["up"]]
     n = max_open or BOOK_OPEN
@@ -126,7 +138,7 @@ def _sized(stop="low", trend="any", max_open=3, slippage=0.0002):
     return t.reset_index(drop=True), days
 
 
-def results(stop="low", trend="any", max_open=3, slippage=0.0002):
+def results(stop="none", trend="any", max_open=3, slippage=0.0002):
     t, days = _sized(stop, trend, max_open, slippage)
     extra = {}
     if len(t):
@@ -137,7 +149,7 @@ def results(stop="low", trend="any", max_open=3, slippage=0.0002):
     return v2common.build_results(t, days, slippage, extra)
 
 
-def month_trades(month, stop="low", trend="any", max_open=3, slippage=0.0002):
+def month_trades(month, stop="none", trend="any", max_open=3, slippage=0.0002):
     t, _ = _sized(stop, trend, max_open, slippage)
     t = t[t["day"].dt.strftime("%Y-%m") == month]
     return [{"day": r.day.date().isoformat(), "entry_at": f"{r.day.date().isoformat()} {r.fill_at}",

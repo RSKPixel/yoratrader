@@ -1,19 +1,26 @@
-"""Oops gap reversal paper trading (Larry Williams; the v2 backtest's book: stop below the day's low,
-any trend, the day's first N fills, N = max open, 3 by default). Run by gapwatch's production scheduler
-every minute (tick()), from the open to 15:15. Nothing here places orders.
+"""Oops gap reversal paper trading (Larry Williams; the v2 backtest's book: no stop by default,
+any trend, the day's first N fills, N = max open, 3 by default), on the F&O stocks' current-month
+FUTURES: every price here (yesterday's low, the open, the fill, the exit) is the future's, the stock only
+names it. Run by gapwatch's production scheduler every minute. Nothing here places orders.
 
-- 09:15:01 (the open is known): every F&O stock that opened below yesterday's low goes on the day's
-  watchlist (oops_paper_watch), with yesterday's low from the stored daily candles.
-- Every minute after: the watchlist and the open positions are quoted. A watched stock whose high of the
-  day has reached yesterday's low is bought at that level (as a resting buy-stop order would fill), at
-  most N a day, the earliest first; its stop is 0.1% below the day's low at that moment. An open position
-  whose low of the day has gone through its stop is sold at the stop.
+- 09:10: yesterday's low of each current-month future, from its own daily candle (not the continuous
+  series, which the day after an expiry would give the old contract's low). Fallback if that hasn't run:
+  the stored continuous futures daily candles.
+- 09:15:01 (the open is known): every future that opened below yesterday's low goes on the day's
+  watchlist (oops_paper_watch).
+- From the open: Kite's live tick stream (WebSocket) on the watched and held futures. The first tick
+  whose price (or day high) reaches yesterday's low is the buy, at that level (as a resting buy-stop
+  order would fill), stamped with the exchange time; at most N a day, in the order they touch. The
+  once-a-minute quote stays as a backup (a dropped stream, a missed tick). Stop (a setting, OOPS_PAPER_STOP, off by default): 0.1% below the
+  day's low at that moment; an open position whose low of the day goes through it is sold at the stop.
 - 15:15:01: whatever is still open is sold at the price then.
 
-Prices are the stocks' (one F&O lot each on the page). A buy is seen within a minute of happening.
+One lot each on the page. A buy is seen within a minute of happening.
 """
 
+import threading
 import time
+from datetime import datetime, timedelta
 from datetime import time as clock
 
 import db
@@ -22,11 +29,29 @@ import kite_auth
 import v2margin
 import v2paper
 import xsmr
+import xsmrwatch
 from db import connect
 
-OPEN_AT, EXIT_AT, UNTIL = clock(9, 15, 1), clock(15, 15), clock(15, 30)
+PREPARE_AT, OPEN_AT, EXIT_AT, UNTIL = clock(9, 10), clock(9, 15, 1), clock(15, 15), clock(15, 30)
 STOP_BELOW = 0.999
 MAX_OPEN, MAX_OPEN_LIMIT, MAX_OPEN_KEY = 3, 10, "OOPS_PAPER_MAX_OPEN"
+STOP_KEY, STOPS = "OOPS_PAPER_STOP", ("none", "low")
+
+
+def stop_mode():
+    """'none' (out at 15:15 only) or 'low' (0.1% under the day's low at the buy), for new buys."""
+    try:
+        v = db.get_settings([STOP_KEY]).get(STOP_KEY)
+    except Exception:
+        v = None
+    return v if v in STOPS else "none"
+
+
+def set_stop_mode(mode):
+    if mode not in STOPS:
+        raise ValueError("Stop must be 'none' or 'low'.")
+    db.set_settings({STOP_KEY: mode})
+    return mode
 
 
 def max_open():
@@ -60,34 +85,93 @@ def _ensure_tables(cursor):
         CREATE TABLE IF NOT EXISTS oops_paper_days (
             day DATE PRIMARY KEY, recorded_at TIMESTAMPTZ NOT NULL, quoted INTEGER, gapped INTEGER, note TEXT
         );
+        ALTER TABLE oops_paper ALTER COLUMN stop DROP NOT NULL;  -- NULL: bought with no stop
+        ALTER TABLE oops_paper_watch ADD COLUMN IF NOT EXISTS fut TEXT;  -- the future traded
+        ALTER TABLE oops_paper ADD COLUMN IF NOT EXISTS fut TEXT;
+        CREATE TABLE IF NOT EXISTS oops_paper_prev (
+            day DATE NOT NULL, symbol TEXT NOT NULL, fut TEXT NOT NULL, prev_low DOUBLE PRECISION NOT NULL,
+            PRIMARY KEY (day, symbol)
+        );
         """
     )
 
 
-def _prev_lows(cursor, today):
-    """Yesterday's low for every F&O stock (the latest stored daily candle before today)."""
-    cursor.execute(
-        "SELECT DISTINCT ON (d.symbol) d.symbol, d.low FROM bt_daily d JOIN bt_symbols s ON s.symbol = d.symbol "
-        "WHERE s.dataset = 'fno' AND d.day < %s AND d.day >= %s::date - 10 AND d.low > 0 ORDER BY d.symbol, d.day DESC",
-        (today, today))
-    return dict(cursor.fetchall())
+_preparing = threading.Lock()
+
+
+def prepare(today=None):
+    """09:10: each current-month future's own previous-day low (one daily-candle call per future, about
+    a minute and a half at Kite's rate limit), into oops_paper_prev."""
+    today = today or gapwatch._now().date()
+    if not _preparing.acquire(blocking=False):
+        return {"prepared": False, "reason": "already running"}
+    try:
+        with connect() as conn, conn.cursor() as cursor:
+            _ensure_tables(cursor)
+            conn.commit()
+            cursor.execute("SELECT count(*) FROM oops_paper_prev WHERE day = %s", (today,))
+            if cursor.fetchone()[0]:
+                return {"prepared": False, "reason": "done"}
+        kite = kite_auth.trading_client()
+        futs = xsmrwatch._current_futures(kite, today)
+        rows, errors = [], 0
+        for stock, (fut, token) in sorted(futs.items()):
+            try:
+                bars = kite.historical_data(token, datetime.combine(today - timedelta(days=10), clock(9, 0)),
+                                            datetime.combine(today - timedelta(days=1), clock(15, 30)), "day")
+                prev = [b for b in bars if b["date"].date() < today and b["low"] > 0]
+                if prev:
+                    rows.append((today, stock, fut, float(prev[-1]["low"])))
+            except Exception as error:
+                if "access_token" in str(error) or "api_key" in str(error):
+                    raise
+                errors += 1
+            time.sleep(0.35)
+        with connect() as conn, conn.cursor() as cursor:
+            cursor.executemany("INSERT INTO oops_paper_prev (day, symbol, fut, prev_low) VALUES (%s, %s, %s, %s) "
+                               "ON CONFLICT (day, symbol) DO NOTHING", rows)
+            conn.commit()
+        return {"prepared": len(rows), "errors": errors}
+    finally:
+        _preparing.release()
+
+
+def _prev_lows(cursor, kite, today):
+    """{stock: (future, yesterday's low of that future)}: from prepare(), else the stored continuous
+    futures daily candles (exchange 'NSE' in eod: the near-month future, rolled at expiry)."""
+    cursor.execute("SELECT symbol, fut, prev_low FROM oops_paper_prev WHERE day = %s", (today,))
+    got = {s: (f, pl) for s, f, pl in cursor.fetchall()}
+    if got:
+        return got
+    futs = xsmrwatch._current_futures(kite, today)
+    cursor.execute("SELECT DISTINCT ON (symbol) symbol, low FROM eod WHERE exchange = 'NSE' AND datetime < %s "
+                   "AND datetime >= %s::date - 10 AND low > 0 ORDER BY symbol, datetime DESC", (today, today))
+    return {s: (futs[s][0], low) for s, low in cursor.fetchall() if s in futs}
+
+
+def _fut_quotes(kite, futs):
+    """{future: quote} for the given future tradingsymbols."""
+    keys, quotes = [f"NFO:{f}" for f in futs], {}
+    for i in range(0, len(keys), 400):
+        quotes.update(kite.quote(keys[i:i + 400]))
+    return {k.split(":", 1)[1]: v for k, v in quotes.items()}
 
 
 def _record_open(kite, today, stamp):
-    """09:15:01: the watchlist, every stock that opened below yesterday's low."""
+    """09:15:01: the watchlist, every future that opened below its yesterday's low."""
     with connect() as conn, conn.cursor() as cursor:
-        lows = _prev_lows(cursor, today)
-    quotes = gapwatch._quotes(kite, list(lows))
+        lows = _prev_lows(cursor, kite, today)
+    quotes = _fut_quotes(kite, [f for f, _ in lows.values()])
     traded = sum(1 for q in quotes.values() if q.get("last_trade_time") and q["last_trade_time"].date() == today)
     watch = []
-    for s, q in quotes.items():
-        o = (q.get("ohlc") or {}).get("open")
-        if o and s in lows and o < lows[s]:
-            watch.append((today, s, float(lows[s]), float(o)))
-    note = None if traded >= 0.5 * max(1, len(quotes)) else f"market closed (only {traded} of {len(quotes)} stocks traded today)"
+    for s, (fut, pl) in lows.items():
+        o = ((quotes.get(fut) or {}).get("ohlc") or {}).get("open")
+        if o and o < pl:
+            watch.append((today, s, float(pl), float(o), fut))
+    note = None if traded >= 0.5 * max(1, len(quotes)) else f"market closed (only {traded} of {len(quotes)} futures traded today)"
     with connect() as conn, conn.cursor() as cursor:
         if watch and not note:
-            cursor.executemany("INSERT INTO oops_paper_watch (day, symbol, prev_low, open) VALUES (%s, %s, %s, %s) "
+            cursor.executemany("INSERT INTO oops_paper_watch (day, symbol, prev_low, open, fut) VALUES (%s, %s, %s, %s, %s) "
                                "ON CONFLICT (day, symbol) DO NOTHING", watch)
         cursor.execute("INSERT INTO oops_paper_days (day, recorded_at, quoted, gapped, note) VALUES (%s, %s, %s, %s, %s) "
                        "ON CONFLICT (day) DO NOTHING", (today, stamp, len(quotes), 0 if note else len(watch), note))
@@ -95,11 +179,126 @@ def _record_open(kite, today, stamp):
     return {"gapped": 0 if note else len(watch), "note": note}
 
 
-def tick(force=False):
-    """One minute of the day: the open's watchlist once, then fills, stops and the 15:15 exit."""
+_book_lock = threading.Lock()  # the stream and the minute check both fill: one decision at a time
+
+
+def _fill(today, s, pl, o, stamp, low, fut, slots, with_stop):
+    """Buy s at yesterday's low if a slot is free; True if bought."""
+    with _book_lock, connect() as conn, conn.cursor() as cursor:
+        cursor.execute("SELECT symbol FROM oops_paper WHERE day = %s", (today,))
+        have = {r[0] for r in cursor.fetchall()}
+        if s in have or len(have) >= slots:
+            return False
+        cursor.execute("INSERT INTO oops_paper (day, symbol, prev_low, open, filled_at, entry, low_at_fill, stop, slots, fut) "
+                       "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT (day, symbol) DO NOTHING",
+                       (today, s, pl, o, stamp, pl, low, low * STOP_BELOW if with_stop else None, slots, fut))
+        conn.commit()
+        return cursor.rowcount == 1
+
+
+def _exit(today, s, stamp, px, reason):
+    with _book_lock, connect() as conn, conn.cursor() as cursor:
+        cursor.execute("UPDATE oops_paper SET exit_at = %s, exit = %s, reason = %s WHERE day = %s AND symbol = %s AND exit_at IS NULL",
+                       (stamp, px, reason, today, s))
+        conn.commit()
+        return cursor.rowcount == 1
+
+
+# ---- the live tick stream (production only: the scheduler starts it) ----------------------------
+
+_stream = {"day": None, "ticker": None, "by_token": {}, "watch": {}, "held": {}, "slots": MAX_OPEN, "with_stop": False}
+_stream_lock = threading.Lock()
+
+
+def _on_ticks(ws, ticks):
+    st = _stream
+    today = st["day"]
+    for tk in ticks:
+        s = st["by_token"].get(tk.get("instrument_token"))
+        if s is None:
+            continue
+        ltp, ohlc = tk.get("last_price"), tk.get("ohlc") or {}
+        ts = tk.get("exchange_timestamp") or tk.get("last_trade_time")
+        stamp = ts.replace(tzinfo=gapwatch.IST) if ts else gapwatch._now()
+        if stamp.time() >= EXIT_AT:
+            continue
+        try:
+            if s in st["held"]:
+                stop, low = st["held"][s], ohlc.get("low")
+                if stop is not None and low and low <= stop and _exit(today, s, stamp, float(stop), "stop"):
+                    st["held"][s] = None
+                    print("Oops paper (stream): stopped", s, stamp.strftime("%H:%M:%S"))
+            elif s in st["watch"]:
+                pl, o, fut = st["watch"][s]
+                high = max(ltp or 0, ohlc.get("high") or 0)
+                if high >= pl:
+                    low = ohlc.get("low") or ltp
+                    del st["watch"][s]
+                    if _fill(today, s, pl, o, stamp, float(low), fut, st["slots"], st["with_stop"]):
+                        st["held"][s] = float(low) * STOP_BELOW if st["with_stop"] else None
+                        print("Oops paper (stream): bought", s, "at", pl, stamp.strftime("%H:%M:%S"))
+        except Exception as error:
+            print("Oops paper (stream):", s, error)
+
+
+def _close_stream():
+    t = _stream["ticker"]
+    _stream.update(ticker=None, by_token={}, watch={}, held={})
+    if t is not None:
+        try:
+            from twisted.internet import reactor
+            reactor.callFromThread(t.close)
+        except Exception as error:
+            print("Oops paper: closing the stream failed:", error)
+
+
+def _sync_stream(kite, today, watch, fut_of, held, bought, slots, with_stop):
+    """Start today's stream if it isn't running, and refresh what it watches from the stored book."""
+    from kiteconnect import KiteTicker
+    with _stream_lock:
+        if _stream["day"] != today:
+            _close_stream()
+            _stream["day"] = today
+        futs = xsmrwatch._current_futures(kite, today)
+        token_of = {f: tok for f, tok in futs.values()}
+        _stream["watch"] = {s: (pl, o, fut_of[s]) for s, (pl, o) in watch.items() if s not in bought and fut_of.get(s)}
+        _stream["held"] = dict(held)
+        _stream["slots"], _stream["with_stop"] = slots, with_stop
+        if len(bought) >= slots:
+            _stream["watch"] = {}
+        wanted = {token_of[fut_of[s]]: s for s in set(_stream["watch"]) | set(held) if token_of.get(fut_of.get(s))}
+        _stream["by_token"] = wanted
+        t = _stream["ticker"]
+        if t is None and wanted:
+            t = KiteTicker(kite.api_key, kite.access_token)
+            t.on_ticks = _on_ticks
+            t.on_connect = lambda ws, resp: (ws.subscribe(list(_stream["by_token"])), ws.set_mode(ws.MODE_FULL, list(_stream["by_token"])))
+            t.on_error = lambda ws, code, reason: print("Oops paper stream error:", code, reason)
+            t.on_reconnect = lambda ws, n: print("Oops paper stream: reconnecting", n)
+            _stream["ticker"] = t
+            t.connect(threaded=True)
+            print("Oops paper: tick stream started,", len(wanted), "futures")
+        elif t is not None and t.is_connected():
+            from twisted.internet import reactor
+            toks = list(wanted)
+            if toks:
+                reactor.callFromThread(lambda: (t.subscribe(toks), t.set_mode(t.MODE_FULL, toks)))
+
+
+def stream_status():
+    t = _stream["ticker"]
+    return {"day": _stream["day"].isoformat() if _stream["day"] else None, "connected": bool(t and t.is_connected()),
+            "watching": len(_stream["watch"]), "held": len(_stream["held"])}
+
+
+def tick(force=False, stream=True):
+    """Once a minute: the open's watchlist once, the tick stream kept running, the backup check of
+    fills and stops from a quote, and the 15:15 exit."""
     now = gapwatch._now()
     today, t = now.date(), now.time()
     if today.weekday() >= 5 or not (OPEN_AT <= t < UNTIL or force):
+        if _stream["ticker"] is not None:
+            _close_stream()
         return {"done": False}
     kite = kite_auth.trading_client()
     with connect() as conn, conn.cursor() as cursor:
@@ -114,28 +313,40 @@ def tick(force=False):
     if day[0]:  # market closed
         return {"done": False, "reason": day[0]}
     with connect() as conn, conn.cursor() as cursor:
-        cursor.execute("SELECT symbol, prev_low, open FROM oops_paper_watch WHERE day = %s", (today,))
-        watch = {s: (pl, o) for s, pl, o in cursor.fetchall()}
+        cursor.execute("SELECT symbol, prev_low, open, fut FROM oops_paper_watch WHERE day = %s", (today,))
+        rows = cursor.fetchall()
+        watch = {s: (pl, o) for s, pl, o, _ in rows}
+        fut_of = {s: f for s, _, _, f in rows}
         cursor.execute("SELECT symbol, stop FROM oops_paper WHERE day = %s AND exit_at IS NULL", (today,))
         held = dict(cursor.fetchall())
         cursor.execute("SELECT symbol FROM oops_paper WHERE day = %s", (today,))
         bought = {r[0] for r in cursor.fetchall()}
+    slots = max_open()
+    with_stop = stop_mode() == "low"
+    if stream and t < EXIT_AT:
+        try:
+            _sync_stream(kite, today, watch, fut_of, held, bought, slots, with_stop)
+        except Exception as error:
+            print("Oops paper: tick stream failed (the minute check carries on):", error)
+    elif t >= EXIT_AT and _stream["ticker"] is not None:
+        _close_stream()
     waiting = [s for s in watch if s not in bought]
     if not waiting and not held:
         return {**out, "done": True}
-    quotes = gapwatch._quotes(kite, sorted(set(waiting) | set(held)))
+    fq = _fut_quotes(kite, sorted({fut_of[s] for s in set(waiting) | set(held) if fut_of.get(s)}))
+    quotes = {s: fq.get(fut_of.get(s)) or {} for s in set(waiting) | set(held)}
     stamp = gapwatch._now()
-    exits, fills = [], []
+    sold, got = [], []
     for s, stop in held.items():
         q = quotes.get(s) or {}
         low, ltp = (q.get("ohlc") or {}).get("low"), q.get("last_price")
-        if low is not None and low <= stop:
-            exits.append((stamp, float(stop), "stop", today, s))
+        if stop is not None and low is not None and low <= stop:
+            if _exit(today, s, stamp, float(stop), "stop"):
+                sold.append((s, "stop"))
         elif t >= EXIT_AT and ltp:
-            exits.append((stamp, float(ltp), "15:15", today, s))
-    slots = max_open()
-    free = slots - len(bought)
-    if t < EXIT_AT and free > 0:
+            if _exit(today, s, stamp, float(ltp), "15:15"):
+                sold.append((s, "15:15"))
+    if t < EXIT_AT and len(bought) < slots:
         cands = []
         for s in waiting:
             q = quotes.get(s) or {}
@@ -143,18 +354,11 @@ def tick(force=False):
             pl, o = watch[s]
             if high is not None and high >= pl:
                 cands.append((pl / o - 1, s, pl, o, float(low)))
-        for _, s, pl, o, low in sorted(cands)[:free]:  # several at once: the smallest gap first
-            fills.append((today, s, pl, o, stamp, pl, low, low * STOP_BELOW, slots))
-    with connect() as conn, conn.cursor() as cursor:
-        if fills:
-            cursor.executemany("INSERT INTO oops_paper (day, symbol, prev_low, open, filled_at, entry, low_at_fill, stop, slots) "
-                               "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT (day, symbol) DO NOTHING", fills)
-        if exits:
-            cursor.executemany("UPDATE oops_paper SET exit_at = %s, exit = %s, reason = %s WHERE day = %s AND symbol = %s AND exit_at IS NULL",
-                               exits)
-        conn.commit()
-    if fills or exits:
-        out.update(bought=[f[1] for f in fills], sold=[(e[4], e[2]) for e in exits])
+        for _, s, pl, o, low in sorted(cands):  # missed by the stream: the smallest gap first
+            if _fill(today, s, pl, o, stamp, low, fut_of.get(s), slots, with_stop):
+                got.append(s)
+    if got or sold:
+        out.update(bought=got, sold=sold)
     return {**out, "done": True}
 
 
@@ -167,35 +371,38 @@ def paper(slippage=0.0002):
     with connect() as conn, conn.cursor() as cursor:
         _ensure_tables(cursor)
         conn.commit()
-        cursor.execute("SELECT day, symbol, prev_low, open, filled_at, entry, low_at_fill, stop, exit_at, exit, reason, slots "
+        cursor.execute("SELECT day, symbol, prev_low, open, filled_at, entry, low_at_fill, stop, exit_at, exit, reason, slots, fut "
                        "FROM oops_paper ORDER BY day DESC, filled_at")
         trades = cursor.fetchall()
         cursor.execute("SELECT day, recorded_at, quoted, gapped, note FROM oops_paper_days ORDER BY day DESC LIMIT 60")
         day_rows = cursor.fetchall()
-        cursor.execute("SELECT symbol, prev_low, open FROM oops_paper_watch WHERE day = %s ORDER BY symbol", (today,))
-        watch = cursor.fetchall()
+        cursor.execute("SELECT symbol, prev_low, open, fut FROM oops_paper_watch WHERE day = %s ORDER BY symbol", (today,))
+        watch_rows = cursor.fetchall()
+    watch = [w[:3] for w in watch_rows]
+    fut_of = {w[0]: w[3] for w in watch_rows if w[3]}
+    fut_of.update({t[1]: t[12] for t in trades if t[0] == today and t[12]})
     live = {}
     open_today = [r[1] for r in trades if r[0] == today and r[8] is None]
     want = sorted(set(open_today) | {w[0] for w in watch})
     ltp_at = None
     if want and kite_auth.status().get("connected"):
         try:
-            q = kite_auth.trading_client().quote([f"NSE:{s}" for s in want])
-            live = {k.split(":", 1)[1]: v for k, v in q.items()}
+            fq = _fut_quotes(kite_auth.trading_client(), sorted({fut_of[s] for s in want if s in fut_of}))
+            live = {s: fq[fut_of[s]] for s in want if fut_of.get(s) in fq}
             ltp_at = gapwatch._now().strftime("%H:%M:%S")
         except Exception as error:
             print("Oops paper: live prices failed:", error)
     lots = v2margin.table()
     by_day = {}
-    for day, s, pl, o, filled_at, entry, low_fill, stop, exit_at, exit_, reason, slots in trades:
+    for day, s, pl, o, filled_at, entry, low_fill, stop, exit_at, exit_, reason, slots, fut in trades:
         closed = exit_at is not None
         px = exit_ if closed else (live.get(s) or {}).get("last_price")
         w = 1.0 / slots
         ret = px / entry - 1 if px else None
         cost = (1 + (px / entry if px else 1)) * cps
         by_day.setdefault(day.isoformat(), []).append({
-            "symbol": s, "side": "long", "gap_pct": round(100 * (o / pl - 1), 2), "prev_low": round(pl, 2), "open": round(o, 2),
-            "filled_at": filled_at.astimezone(gapwatch.IST).strftime("%H:%M:%S"), "entry": round(entry, 2), "stop": round(stop, 2),
+            "symbol": s, "fut": fut, "side": "long", "gap_pct": round(100 * (o / pl - 1), 2), "prev_low": round(pl, 2), "open": round(o, 2),
+            "filled_at": filled_at.astimezone(gapwatch.IST).strftime("%H:%M:%S"), "entry": round(entry, 2), "stop": round(stop, 2) if stop is not None else None,
             "entry_at": f"{day.isoformat()} {filled_at.astimezone(gapwatch.IST).strftime('%H:%M:%S')}",
             "exit_at": f"{day.isoformat()} {exit_at.astimezone(gapwatch.IST).strftime('%H:%M:%S')}" if exit_at else f"{day.isoformat()} open",
             "exit": round(px, 2) if px else None, "reason": reason or ("live" if px else "open"), "closed": closed,
@@ -215,7 +422,7 @@ def paper(slippage=0.0002):
                   "bought": s in held}
                  for s, pl, o in watch]
     return {"now": now.strftime("%Y-%m-%d %H:%M:%S"), "today": today.isoformat(), "ltp_at": ltp_at,
-            "market_open": today.weekday() < 5 and OPEN_AT <= now.time() < UNTIL, "max_open": max_open(), "max_open_limit": MAX_OPEN_LIMIT,
+            "market_open": today.weekday() < 5 and OPEN_AT <= now.time() < UNTIL, "max_open": max_open(), "stop_mode": stop_mode(), "stream": stream_status(), "max_open_limit": MAX_OPEN_LIMIT,
             "watchlist": sorted(watchlist, key=lambda w: (w["bought"], w["to_trigger_pct"] if w["to_trigger_pct"] is not None else 99)),
             "days": days, "summary": {**v2paper._summary(days), **v2paper._lot_summary(days, lots)},
             "log": [{"day": d.isoformat(), "recorded_at": r.astimezone(gapwatch.IST).strftime("%H:%M:%S"), "quoted": q, "gapped": g, "note": n}

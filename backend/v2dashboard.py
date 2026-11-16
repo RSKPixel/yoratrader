@@ -229,8 +229,8 @@ MODELS = [
     ("quant-momentum", "Quantitative momentum", "Positional", "F&O · book · max 5", lambda: v2qmom.results("fno", "book", "none", 5)),
     ("short-term-reversion", "Short-term mean reversion", "Positional", "F&O · RSI(2) · max 3 · close",
      lambda: v2connors.results("fno", "rsi2", "5d", 3, "none", "close", "all")),
-    ("oops", "Oops gap reversal", "Intraday", "F&O · stop below the low · first 3 a day",
-     lambda: v2oops.results("low", "any", 3)),
+    ("oops", "Oops gap reversal", "Intraday", "F&O · no stop, out at 15:15 · first 3 a day",
+     lambda: v2oops.results("none", "any", 3)),
     ("cumulative-rsi", "Cumulative RSI(2) · exit on strength", "Positional", "F&O · cumulative RSI(2) · max 3 · close",
      lambda: v2connors.results("fno", "cumrsi2", "0d", 3, "none", "close", "all")),
 ]
