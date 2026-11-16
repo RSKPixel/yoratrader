@@ -1,3 +1,4 @@
+import { StatusButtons } from "./modelStatus";
 import { useCallback, useEffect, useState } from "react";
 import V2BacktestParams, { useBacktestParams } from "./V2BacktestParams";
 import V2PaperConnors from "./V2PaperConnors";
@@ -110,6 +111,9 @@ export default function V2Paper({ model, onSelect }) {
         <div className="mt-1 flex flex-wrap items-center gap-3">
           <h1 className="text-xl font-semibold tracking-tight">{m.label}</h1>
           <StyleTag style={m.style} />
+          <span className="ml-auto">
+            <StatusButtons id={m.id} />
+          </span>
         </div>
         <div className="mt-4">
           {(!m.live || ls) && <V2BacktestParams params={modelParams} onChange={setParams} universes={["fno"]} step={step} live={live} lots />}

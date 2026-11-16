@@ -3,6 +3,7 @@ import { Card, Panel, tone } from "./V2BacktestView";
 import { formatRs } from "./V2Controls";
 import { savedParams } from "./V2BacktestParams";
 import { useSettings } from "./settings";
+import { STATUS, statusOf, useModelStatuses } from "./modelStatus";
 import { findPaper, paperDefaults } from "./V2Paper";
 
 // v2 Dashboard: today at a glance. Refreshes every minute while the market is open (every 5 outside).
@@ -149,11 +150,14 @@ function PaperCard({ title, href, style, lines, error }) {
 }
 
 function Paper({ p, today }) {
+  const statuses = useModelStatuses();
+  const shown = (id) => statusOf(statuses, id) !== "archived";
   // one F&O lot a position: rupees, with % of the day's margin where there is one
   const rs = (v, m) => (v == null ? "—" : `${v > 0 ? "+" : ""}${formatRs(v)}${m == null ? "" : ` · ${pct(m, 2)}`}`);
   const g = p.gap || {}, x = p.xsmr || {}, c = p.connors || {}, cc = p.connors_cum || {}, op = p.oops || {};
   return (
     <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+      {shown("buy-on-gap") && (
       <PaperCard
         title="Buy/Sell on gap"
         href="/v2/paper/buy-on-gap"
@@ -168,6 +172,8 @@ function Paper({ p, today }) {
           ["Watchlist", `${g.watchlist ?? "—"} stocks for ${g.session === today ? "today" : g.session}`],
         ]}
       />
+      )}
+      {shown("xs-mean-reversion") && (
       <PaperCard
         title="Cross-sectional mean reversion"
         href="/v2/paper/xs-mean-reversion"
@@ -181,6 +187,8 @@ function Paper({ p, today }) {
           ["Capital required", x.capital_rs ? formatRs(x.capital_rs) : "—"],
         ]}
       />
+      )}
+      {shown("oops") && (
       <PaperCard
         title="Oops gap reversal"
         href="/v2/paper/oops"
@@ -194,6 +202,8 @@ function Paper({ p, today }) {
           ["Capital required", op.capital_rs ? formatRs(op.capital_rs) : "—"],
         ]}
       />
+      )}
+      {shown("short-term-reversion") && (
       <PaperCard
         title="Short-term mean reversion"
         href="/v2/paper/short-term-reversion"
@@ -208,6 +218,8 @@ function Paper({ p, today }) {
           ["Capital required", c.capital_rs ? formatRs(c.capital_rs) : "—"],
         ]}
       />
+      )}
+      {shown("cumulative-rsi") && (
       <PaperCard
         title="Cumulative RSI(2) · exit on strength"
         href="/v2/paper/cumulative-rsi"
@@ -222,11 +234,13 @@ function Paper({ p, today }) {
           ["Capital required", cc.capital_rs ? formatRs(cc.capital_rs) : "—"],
         ]}
       />
+      )}
     </div>
   );
 }
 
 function Models() {
+  const statuses = useModelStatuses();
   const [data, setData] = useState(null);
   useEffect(() => {
     let timer;
@@ -261,12 +275,17 @@ function Models() {
           </tr>
         </thead>
         <tbody>
-          {data.models.map((m) => (
+          {data.models.filter((m) => statusOf(statuses, m.id) !== "archived").map((m) => (
             <tr key={`${m.id}-${m.label}`} className="border-t" style={{ borderColor: "var(--border)" }}>
               <td className="px-3 py-2">
-                <a href={`/v2/backtesting/${m.id}`} onClick={go(`/v2/backtesting/${m.id}`)} className="font-medium hover:underline">
+                <a href={m.link || `/v2/backtesting/${m.id}`} onClick={go(m.link || `/v2/backtesting/${m.id}`)} className="font-medium hover:underline">
                   {m.label}
                 </a>
+                {statusOf(statuses, m.id) !== "research" && (
+                  <span className="ml-2 text-[0.625rem] font-semibold uppercase tracking-[0.08em]" style={{ color: STATUS[statusOf(statuses, m.id)].color }}>
+                    {STATUS[statusOf(statuses, m.id)].label}
+                  </span>
+                )}
                 <span className="ml-2 text-[0.625rem] font-medium uppercase tracking-[0.08em]" style={{ color: m.style === "Intraday" ? "var(--accent)" : "var(--muted)" }}>
                   {m.style}
                 </span>

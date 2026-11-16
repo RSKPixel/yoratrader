@@ -45,6 +45,7 @@ import v2pnl
 import v2oops
 import oopswatch
 import usersettings
+import modelstatus
 import connors
 import xsmrwatch
 import connorswatch
@@ -167,6 +168,26 @@ def auth_logout(request: Request, response: Response):
 @app.get("/api/auth/me")
 def auth_me(request: Request):
     return {"user": request.state.user}
+
+
+class ModelStatusRequest(BaseModel):
+    model: str
+    status: str
+
+
+@app.get("/api/v2/models/status")
+def models_status():
+    """Every model's status (research when not listed): testing, live or archived."""
+    return {"status": "success", "statuses": modelstatus.all_statuses()}
+
+
+@app.put("/api/v2/models/status")
+def models_status_put(req: ModelStatusRequest, request: Request):
+    try:
+        return {"status": "success", "model": req.model,
+                "model_status": modelstatus.set_status(req.model, req.status, request.state.user.get("username"))}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 @app.get("/api/settings")

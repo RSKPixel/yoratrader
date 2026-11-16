@@ -231,7 +231,7 @@ MODELS = [
      lambda: v2connors.results("fno", "rsi2", "5d", 3, "none", "close", "all")),
     ("oops", "Oops gap reversal", "Intraday", "F&O · stop below the low · first 3 a day",
      lambda: v2oops.results("low", "any", 3)),
-    ("short-term-reversion", "Cumulative RSI(2) · exit on strength", "Positional", "F&O · cumulative RSI(2) · max 3 · close",
+    ("cumulative-rsi", "Cumulative RSI(2) · exit on strength", "Positional", "F&O · cumulative RSI(2) · max 3 · close",
      lambda: v2connors.results("fno", "cumrsi2", "0d", 3, "none", "close", "all")),
 ]
 
@@ -245,6 +245,7 @@ def _build_models():
             s = r.get("summary")
             this_year = next((y for y in r.get("years", []) if str(y["year"]) == year), None)
             rows.append({"id": mid, "label": label, "style": style, "settings": settings,
+                         "link": f"/v2/backtesting/{'short-term-reversion' if mid == 'cumulative-rsi' else mid}",
                          "net_year_pct": s["net_year_pct"] if s else None, "sharpe": s["sharpe"] if s else None,
                          "max_dd_pct": s["max_dd_pct"] if s else None, "green": f"{s['green_years']}/{s['years']}" if s else None,
                          "this_year_pct": this_year["net_pct"] if this_year else None, "from": s["from"] if s else None})

@@ -1,3 +1,4 @@
+import { StatusButtons } from "./modelStatus";
 import { SideNav, StyleTag, useSideNav } from "./V2SideNav";
 import V2BacktestParams, { useBacktestParams } from "./V2BacktestParams";
 import V2BuyOnGap from "./V2BuyOnGap";
@@ -73,6 +74,9 @@ export default function V2Backtesting({ model, onSelect }) {
         <div className="mt-1 flex flex-wrap items-center gap-3">
           <h1 className="text-xl font-semibold tracking-tight">{m.label}</h1>
           <StyleTag style={m.style} />
+          <span className="ml-auto">
+            <StatusButtons id={m.id} />
+          </span>
         </div>
         <div className="mt-4">
           <V2BacktestParams params={modelParams} onChange={setParams} universes={m.universes} step={step} />

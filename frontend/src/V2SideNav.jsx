@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useSetting } from "./settings";
+import { STATUS, statusOf, useModelStatuses } from "./modelStatus";
 
 // The v2 side nav, used by Backtesting and Paper trading: a rail of short codes. On wide screens,
 // hovering the rail slides the full list (grouped by source) out over the page, and moving the mouse
@@ -44,7 +45,12 @@ function Chevron({ left }) {
   );
 }
 
-function Rail({ groups, title, current, item, onToggle }) {
+function Dot({ status }) {
+  if (status !== "testing" && status !== "live") return null;
+  return <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: STATUS[status].color }} title={STATUS[status].label} aria-hidden="true" />;
+}
+
+function Rail({ groups, title, current, item, onToggle, statuses = {} }) {
   return (
     <nav
       className="flex h-full w-12 shrink-0 flex-col items-center gap-1 overflow-y-auto border-r py-3"
@@ -76,11 +82,14 @@ function Rail({ groups, title, current, item, onToggle }) {
               <a
                 key={m.id}
                 {...item(m, active)}
-                title={`${m.label} · ${m.style} (${g.title})`}
-                className="grid h-8 w-8 place-items-center rounded-md text-[0.6875rem] font-semibold transition-colors hover:bg-[var(--surface-2)]"
+                title={`${m.label} · ${m.style} (${g.title}) · ${STATUS[statusOf(statuses, m.id)].label}`}
+                className="relative grid h-8 w-8 place-items-center rounded-md text-[0.6875rem] font-semibold transition-colors hover:bg-[var(--surface-2)]"
                 style={active ? { background: "var(--accent-soft)", color: "var(--accent)" } : { color: "var(--muted)" }}
               >
                 {m.short}
+                <span className="absolute right-0.5 top-0.5">
+                  <Dot status={statusOf(statuses, m.id)} />
+                </span>
               </a>
             );
           })}
@@ -98,7 +107,8 @@ function PinIcon({ on }) {
   );
 }
 
-function List({ groups, title, current, item, onClose, closeLabel, pinned, onPin }) {
+function List({ groups, title, current, item, onClose, closeLabel, pinned, onPin, statuses = {}, archived = [] }) {
+  const [showArchived, setShowArchived] = useState(archived.some((m) => m.id === current));
   return (
     <nav className="flex h-full w-80 flex-col overflow-y-auto border-r" style={{ borderColor: "var(--border)", background: "var(--surface)" }} aria-label={title}>
       <div className="flex items-center justify-between px-4 pb-1 pt-3">
@@ -149,7 +159,10 @@ function List({ groups, title, current, item, onClose, closeLabel, pinned, onPin
                     className="flex items-center justify-between gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-[var(--surface-2)]"
                     style={active ? { background: "var(--accent-soft)", color: "var(--accent)", fontWeight: 500 } : { color: "var(--text)" }}
                   >
-                    <span className="truncate">{m.label}</span>
+                    <span className="flex min-w-0 items-center gap-1.5">
+                      <span className="truncate">{m.label}</span>
+                      <Dot status={statusOf(statuses, m.id)} />
+                    </span>
                     <StyleTag style={m.style} active={active} />
                   </a>
                 );
@@ -157,13 +170,50 @@ function List({ groups, title, current, item, onClose, closeLabel, pinned, onPin
             </div>
           </div>
         ))}
+        {archived.length > 0 && (
+          <div>
+            <button
+              type="button"
+              onClick={() => setShowArchived((v) => !v)}
+              className="px-2 text-[0.6875rem] font-semibold uppercase tracking-[0.14em]"
+              style={{ color: "var(--faint)" }}
+              aria-expanded={showArchived}
+            >
+              {showArchived ? "▾" : "▸"} Archived ({archived.length})
+            </button>
+            {showArchived && (
+              <div className="mt-1.5 flex flex-col gap-0.5">
+                {archived.map((m) => {
+                  const active = m.id === current;
+                  return (
+                    <a
+                      key={m.id}
+                      {...item(m, active)}
+                      className="flex items-center justify-between gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-[var(--surface-2)]"
+                      style={active ? { background: "var(--accent-soft)", color: "var(--accent)" } : { color: "var(--muted)" }}
+                    >
+                      <span className="truncate">{m.label}</span>
+                      <StyleTag style={m.style} active={active} />
+                    </a>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </nav>
   );
 }
 
-export function SideNav({ groups, base, title, current, onSelect, open, onToggle, pinKey = "nav" }) {
+export function SideNav({ groups: allGroups, base, title, current, onSelect, open, onToggle, pinKey = "nav" }) {
   const wide = useWide();
+  const statuses = useModelStatuses();
+  // archived models leave their groups for an "Archived" section at the bottom (the rail hides them)
+  const archived = allGroups.flatMap((g) => g.models.filter((m) => statusOf(statuses, m.id) === "archived"));
+  const groups = allGroups
+    .map((g) => ({ ...g, models: g.models.filter((m) => statusOf(statuses, m.id) !== "archived") }))
+    .filter((g) => g.models.length);
   const [pinned, setPinned] = useSetting(`nav.pinned.${pinKey}`, false);
   const [hover, setHover] = useState(false);
   const timer = useRef(null);
@@ -181,7 +231,7 @@ export function SideNav({ groups, base, title, current, onSelect, open, onToggle
     // pinned: the list stays open beside the page
     return (
       <div className="h-full shrink-0">
-        <List groups={groups} title={title} current={current} item={item} pinned onPin={() => setPinned(false)} />
+        <List groups={groups} title={title} current={current} item={item} pinned onPin={() => setPinned(false)} statuses={statuses} archived={archived} />
       </div>
     );
   }
@@ -199,7 +249,7 @@ export function SideNav({ groups, base, title, current, onSelect, open, onToggle
           timer.current = setTimeout(() => setHover(false), 150); // a short grace, so a slip past the edge doesn't close it
         }}
       >
-        <Rail groups={groups} title={title} current={current} item={item} />
+        <Rail groups={groups} title={title} current={current} item={item} statuses={statuses} />
         {hover && (
           <div className="absolute inset-y-0 left-0 z-30 shadow-2xl">
             <List
@@ -207,6 +257,8 @@ export function SideNav({ groups, base, title, current, onSelect, open, onToggle
               title={title}
               current={current}
               item={item}
+              statuses={statuses}
+              archived={archived}
               pinned={false}
               onPin={() => {
                 setPinned(true);
@@ -218,12 +270,12 @@ export function SideNav({ groups, base, title, current, onSelect, open, onToggle
       </div>
     );
   }
-  if (!open) return <Rail groups={groups} title={title} current={current} item={item} onToggle={onToggle} />;
+  if (!open) return <Rail groups={groups} title={title} current={current} item={item} onToggle={onToggle} statuses={statuses} />;
   return (
     <>
       <button type="button" className="fixed inset-0 z-10 bg-black/40" onClick={onToggle} aria-label="Close the model list" />
       <div className="absolute inset-y-0 left-0 z-20">
-        <List groups={groups} title={title} current={current} item={item} onClose={onToggle} closeLabel="Collapse the model list" />
+        <List groups={groups} title={title} current={current} item={item} onClose={onToggle} closeLabel="Collapse the model list" statuses={statuses} archived={archived} />
       </div>
     </>
   );
