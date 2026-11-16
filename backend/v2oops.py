@@ -94,6 +94,11 @@ def _fills():
         return f, days
 
 
+def invalidate():
+    with _lock:
+        _cache.update(at=0)
+
+
 def warm():
     threading.Thread(target=_fills, daemon=True, name="oops-warm").start()
 

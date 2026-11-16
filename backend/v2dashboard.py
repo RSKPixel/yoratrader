@@ -81,6 +81,7 @@ def _schedule(cursor, today, now):
     xs_open = _one(cursor, "SELECT count(*) FROM xsmr_paper WHERE day = %s AND status = 'open'", (today,)) if xs is not None else None
     daily = _one(cursor, "SELECT max(day) FROM bt_daily WHERE symbol IN (SELECT symbol FROM bt_symbols WHERE dataset = 'fno')")
     exits_done = (gap is not None or xs is not None) and not gap_open and not xs_open
+    bt15 = _one(cursor, "SELECT (max(datetime) AT TIME ZONE 'Asia/Kolkata')::date FROM bt_15m WHERE symbol = 'NIFTY 50'")
     # the live download counts as done when most futures have today's candles (not just one symbol)
     live_n = _one(cursor, "SELECT count(DISTINCT symbol) FROM eod WHERE exchange = 'NSE' AND datetime >= %s - 10", (today,)) or 0
     eod_today = _one(cursor, "SELECT count(DISTINCT symbol) FROM eod WHERE exchange = 'NSE' AND datetime = %s", (today,)) or 0
@@ -103,6 +104,7 @@ def _schedule(cursor, today, now):
         step((15, 45), "Daily candles refreshed", daily is not None and daily >= today, f"to {daily}" if daily else None, until=(16, 30)),
         step((15, 50), "Live futures download (EOD + 15 min)", live_n > 0 and min(eod_today, m15_today) >= 0.8 * live_n,
              f"today: EOD {eod_today}/{live_n} · 15 min {m15_today}/{live_n}" if eod_today or m15_today else None, until=(16, 45)),
+        step((16, 0), "Backtest data top-up (15 min + daily)", bt15 is not None and bt15 >= today, f"to {bt15}" if bt15 else None, until=(17, 0)),
     ]
 
 
