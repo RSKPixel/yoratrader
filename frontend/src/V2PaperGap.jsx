@@ -30,6 +30,7 @@ export default function V2PaperGap({ params }) {
 
   const columns = [
     ...AT_COLUMNS,
+    { h: "Reason", cell: (t) => t.reason ?? "—", style: (t) => ({ color: t.reason?.startsWith("stop") ? "var(--negative)" : "var(--muted)" }) },
     { h: "#", cell: (t) => t.rank, style: () => ({ color: "var(--faint)" }) },
     { h: "Stock", cell: (t) => <span className="font-medium">{t.symbol}</span> },
     { h: "Side", cell: (t) => t.side, style: (t) => ({ color: t.side === "long" ? "var(--positive)" : "var(--negative)" }) },
@@ -38,7 +39,6 @@ export default function V2PaperGap({ params }) {
     lot.qty,
     { h: "Stop", cell: (t) => t.stop, style: () => ({ color: "var(--muted)" }) },
     { h: t_exit(), cell: (t) => t.exit ?? "—" },
-    { h: "Reason", cell: (t) => t.reason ?? "—", style: (t) => ({ color: t.reason?.startsWith("stop") ? "var(--negative)" : "var(--muted)" }) },
     { h: "Return", cell: (t) => (t.ret_pct == null ? "—" : `${t.ret_pct.toFixed(2)}%`), style: (t) => ({ color: tone(t.ret_pct) }) },
     { h: "Net", cell: (t) => (t.net_pct == null ? "—" : `${t.net_pct.toFixed(2)}%`), style: (t) => ({ color: tone(t.net_pct) }) },
     lot.value,

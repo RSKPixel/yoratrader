@@ -164,6 +164,7 @@ export default function V2PaperXsmr({ params }) {
 
   const columns = [
     ...AT_COLUMNS,
+    { h: "Reason", cell: (t) => t.reason ?? "—", style: (t) => ({ color: t.reason?.startsWith("stop") ? "var(--negative)" : "var(--muted)" }) },
     { h: "Side", cell: (t) => `${t.side} #${t.rank}`, style: (t) => ({ color: t.side === "long" ? "var(--positive)" : "var(--negative)" }) },
     { h: "Stock", cell: (t) => <span className="font-medium">{t.symbol}</span> },
     { h: "Signal", cell: (t) => (t.signal_pct == null ? "—" : `${t.signal_pct > 0 ? "+" : ""}${t.signal_pct}%`), style: () => ({ color: "var(--muted)" }), title: () => "Open vs previous close: the move the model fades" },
@@ -171,7 +172,6 @@ export default function V2PaperXsmr({ params }) {
     lot.qty,
     ...(stop === "1sd" ? [{ h: "Stop", cell: (t) => t.stop ?? "—", style: () => ({ color: "var(--muted)" }) }] : []),
     { h: "Exit / last", cell: (t) => t.exit ?? "—" },
-    { h: "Reason", cell: (t) => t.reason ?? "—", style: (t) => ({ color: t.reason?.startsWith("stop") ? "var(--negative)" : "var(--muted)" }) },
     { h: "Return", cell: (t) => (t.ret_pct == null ? "—" : `${t.ret_pct.toFixed(2)}%`), style: (t) => ({ color: tone(t.ret_pct) }) },
     { h: "Net", cell: (t) => (t.net_pct == null ? "—" : `${t.net_pct.toFixed(2)}%`), style: (t) => ({ color: tone(t.net_pct) }) },
     lot.value,

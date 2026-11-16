@@ -66,6 +66,7 @@ export default function V2Connors({ params }) {
 
   const columns = [
     ...AT_COLUMNS,
+    { h: "Reason", cell: (t) => t.reason, style: (t) => ({ color: t.reason.startsWith("stop") ? "var(--negative)" : "var(--muted)" }) },
     { h: "Days", cell: (t) => t.days, style: () => ({ color: "var(--muted)" }), title: (t) => (t.rolls ? `${t.rolls} futures roll` : undefined) },
     { h: "Stock", cell: (t) => <span className="font-medium">{t.symbol}</span> },
     ...(side !== "long"
@@ -80,7 +81,6 @@ export default function V2Connors({ params }) {
     },
     ...(stop !== "none" ? [{ h: "Stop", cell: (t) => t.stop ?? "—", style: () => ({ color: "var(--muted)" }) }] : []),
     { h: "Sell", cell: (t) => t.exit },
-    { h: "Reason", cell: (t) => t.reason, style: (t) => ({ color: t.reason.startsWith("stop") ? "var(--negative)" : "var(--muted)" }) },
     { h: "Return", cell: (t) => `${t.ret_pct.toFixed(2)}%`, style: (t) => ({ color: tone(t.ret_pct) }) },
     { h: "Net", cell: (t) => `${t.net_pct.toFixed(2)}%`, style: (t) => ({ color: tone(t.net_pct) }) },
     { h: "Size", cell: (t) => value(t.weight_pct), style: () => ({ color: "var(--muted)" }) },

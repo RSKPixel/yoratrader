@@ -164,7 +164,7 @@ export default function V2PaperConnors({ params, version = 0, book = "rsi2" }) {
   const closedCols = [
     { h: "Stock", cell: (t) => <span className="font-medium">{t.symbol}</span> },
     ...AT_COLUMNS,
-    ...(strength ? [{ h: "Exit", cell: (t) => t.reason, style: (t) => ({ color: t.reason === "strength" ? "var(--positive)" : "var(--muted)" }) }] : []),
+    ...(strength ? [{ h: "Reason", cell: (t) => t.reason, style: (t) => ({ color: t.reason === "strength" ? "var(--positive)" : "var(--muted)" }) }] : []),
     { h: strength ? "Cum RSI" : "RSI", cell: (t) => t.rsi, style: () => ({ color: "var(--muted)" }) },
     { h: "Buy", cell: (t) => (fut ? t.fut_buy ?? "—" : t.buy) },
     lot.qty,

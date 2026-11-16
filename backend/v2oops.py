@@ -141,7 +141,7 @@ def month_trades(month, stop="low", trend="any", max_open=3, slippage=0.0002):
     t, _ = _sized(stop, trend, max_open, slippage)
     t = t[t["day"].dt.strftime("%Y-%m") == month]
     return [{"day": r.day.date().isoformat(), "entry_at": f"{r.day.date().isoformat()} {r.fill_at}",
-             "exit_at": f"{r.day.date().isoformat()} {r.exit_hm}" + (" (the candle the stop was hit in)" if r.reason == "stop" else ""),
+             "exit_at": f"{r.day.date().isoformat()} {r.exit_hm}",
              "symbol": r.symbol, "fill_at": r.fill_at, "gap_pct": round(float(r.gap_pct), 2),
              "prev_low": round(r.prev_low, 2), "open": round(r.open, 2), "entry": round(r.entry, 2),
              "stop": round(r.stop, 2) if stop == "low" else None, "exit": round(float(r.exit), 2), "reason": r.reason,
