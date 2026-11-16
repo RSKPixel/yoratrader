@@ -31,6 +31,11 @@ const STOPS = [
   ["7pc", "7%"],
   ["10pc", "10%"],
 ];
+const SIDES = [
+  ["long", "Long (book)"],
+  ["short", "Short"],
+  ["both", "Long & short"],
+];
 const TAKES = [
   ["all", "All signals"],
   ["top5", "Lowest 5 RSI"],
@@ -43,11 +48,12 @@ export default function V2Connors({ params }) {
   const [timing, setTiming] = useSetting("bt.connors.timing", "close");
   const [stop, setStop] = useSetting("bt.connors.stop", "none");
   const [take, setTake] = useSetting("bt.connors.take", "all");
+  const [side, setSide] = useSetting("bt.connors.side", "long");
   const [slippage, setSlippage] = useSetting("bt.connors.slippage", 0.02);
   const [month, setMonth] = useState(null);
 
   const book = !params.maxOpen;
-  const query = `dataset=${params.universe}&setup=${setup}&hold=${hold}&timing=${timing}&stop=${stop}&take=${book ? take : "all"}&slippage=${slippage}&max_open=${params.maxOpen}`;
+  const query = `dataset=${params.universe}&setup=${setup}&hold=${hold}&timing=${timing}&stop=${stop}&take=${book ? take : "all"}&slippage=${slippage}&max_open=${params.maxOpen}&side=${side}`;
   const { data, error, loading } = useBacktest(`/api/v2/backtest/connors?${query}`);
   const value = useMemo(() => makeValue(params.show, params.capital), [params.show, params.capital]);
   const chartFormat = useCallback((v) => value(v, 1), [value]);
@@ -61,6 +67,9 @@ export default function V2Connors({ params }) {
     { h: "Sold", cell: (t) => t.exit_day, style: () => ({ color: "var(--muted)" }) },
     { h: "Days", cell: (t) => t.days, style: () => ({ color: "var(--muted)" }), title: (t) => (t.rolls ? `${t.rolls} futures roll` : undefined) },
     { h: "Stock", cell: (t) => <span className="font-medium">{t.symbol}</span> },
+    ...(side !== "long"
+      ? [{ h: "Side", cell: (t) => t.side, style: (t) => ({ color: t.side === "long" ? "var(--positive)" : "var(--negative)" }) }]
+      : []),
     { h: "RSI", cell: (t) => t.rsi, style: () => ({ color: "var(--muted)" }), title: () => "2-day RSI on the day bought" },
     { h: "Buy", cell: (t) => t.entry },
     {
@@ -89,6 +98,12 @@ export default function V2Connors({ params }) {
         </Field>
         <Field label="Prices" hint="Close: official closes for the signal, buy and sale (daily candles, 2004 on). 15:15: today's 15:15 price, what you can trade (15m candles, 2015 on); its first load takes ~45 s.">
           <Segmented label="Prices" options={TIMINGS} value={timing} onChange={setTiming} />
+        </Field>
+        <Field
+          label="Side"
+          hint="Long (the book): above the 200-day average, 2-day RSI below 10. Short: the mirror image, below the 200-day average with the 2-day RSI above 90, sold short and bought back after the hold. Long & short: either, the most extreme first."
+        >
+          <Segmented label="Side" options={SIDES} value={side} onChange={setSide} />
         </Field>
         <Field label="Stop" hint="Not in the book. 1σ / 2σ of the stock's last 90 daily returns below the buy price, or a fixed % below it.">
           <Segmented label="Stop" options={STOPS} value={stop} onChange={setStop} />
