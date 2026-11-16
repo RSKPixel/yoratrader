@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { useSetting } from "./settings";
 import V2CandleChart from "./V2CandleChart";
+import V2PnlChart from "./V2PnlChart";
 import { Field, formatRs, Segmented } from "./V2Controls";
 import { tone } from "./V2BacktestView";
 import { SLIPPAGE, useBacktest, useLiveRefresh } from "./V2BuyOnGap";
@@ -193,13 +194,18 @@ export default function V2PaperConnors({ params, version = 0 }) {
             money={money}
             extra={[{ label: "Open", value: `${data.open.length} / ${maxOpen}`, hint: L.capital_rs ? undefined : `Capital required is an estimate until trades are recorded: ${maxOpen} × the average lot margin (${formatRs(data.lots?.avg_lot_margin_rs)})` }]}
           />
-          <Candidates live={live} />
           <Panel
             title="Open positions"
             right={`sold at 15:15 on the ${data.hold}th trading day${data.ltp_at ? ` · live prices at ${data.ltp_at}` : ""}${open.length ? ` · net now ${netBoth(open.reduce((a, t) => a + (t.net_rs || 0), 0), null)}` : ""}`}
           >
+            {open.length > 0 && (
+              <div className="mb-3">
+                <V2PnlChart url={`/api/connors/paper/pnl?slippage=${slippage}&n=${open.map((t) => t.symbol).join(",")}`} refreshMs={live} />
+              </div>
+            )}
             <PositionsTable rows={open.map((t) => ({ ...t, entry: t.buy, exit: t.ltp }))} columns={[chart.column, ...openCols]} minWidth={760} empty="No open positions." />
           </Panel>
+          <Candidates live={live} />
           <Panel title="Closed trades" right="after charges and slippage on both sides">
             <PositionsTable rows={closed} columns={closedCols} minWidth={900} empty="No closed trades yet." />
           </Panel>

@@ -1091,6 +1091,18 @@ class ConnorsUniverseRequest(BaseModel):
     universe: str
 
 
+@app.get("/api/connors/paper/pnl")
+def connors_paper_pnl(slippage: float = Query(0.02, ge=0, le=1)):
+    """Short-term mean reversion's open positions marked every 15 minutes since the earliest buy (stock prices, one lot each)."""
+    try:
+        data = connorswatch.paper(slippage / 100)
+        rows = [{**t, "qty": t.get("stock_qty")} for t in data["open"]]
+        return {"status": "success", "size": 1, **v2pnl.held_curve(rows, xsmr.cost_per_side(slippage / 100))}
+    except Exception as error:
+        print("Connors paper pnl failed:", error)
+        return {"status": "error", "message": str(error)}
+
+
 @app.get("/api/connors/paper/watchlist")
 def connors_paper_watchlist():
     """Today's short-term mean reversion candidates, live (what 15:15 would buy if it were now)."""

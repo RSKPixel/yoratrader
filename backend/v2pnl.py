@@ -30,7 +30,7 @@ def _bars(kite, symbol, day):
     if not token:
         return []
     d = datetime.fromisoformat(day)
-    bars = kite.historical_data(token, from_date=d.replace(hour=9, minute=15), to_date=d.replace(hour=15, minute=30), interval="15minute")
+    bars = kite.historical_data(token, from_date=d.replace(hour=9, minute=15), to_date=d.replace(hour=15, minute=31), interval="15minute")  # 15:31: Kite leaves out the 15:15 candle at 15:30
     time.sleep(0.35)  # Kite allows ~3 historical calls a second
     out = [{"t": b["date"].replace(tzinfo=None), "high": float(b["high"]), "low": float(b["low"]), "close": float(b["close"]),
             "open": float(b["open"])} for b in bars]
@@ -97,3 +97,49 @@ def curve(day, picks, cps, size=1):
 def _epoch(t):
     t = t.replace(tzinfo=None)
     return int((t - datetime(1970, 1, 1)).total_seconds())  # naive IST clock as if UTC: the chart reads IST
+
+
+def held_curve(positions, cps):
+    """Open positions held over several days (short-term mean reversion): the book marked every
+    15 minutes from the earliest buy to now. positions: symbol, buy_day (ISO), buy_at (HH:MM:SS),
+    buy (price), qty (the lot). Each position counts from its own buy, with its entry-side cost;
+    returns points with the net, gross and each position's net, and each position's net now."""
+    kite = kite_auth.trading_client()
+    pos = [p for p in positions if p.get("qty") and p.get("buy")]
+    if not pos:
+        return {"points": [], "positions": 0, "by_position": [], "symbols": []}
+    today = gapwatch._now().date()
+    first = min(datetime.fromisoformat(p["buy_day"]).date() for p in pos)
+    days = [first + timedelta(days=i) for i in range((today - first).days + 1)]
+    days = [d.isoformat() for d in days if d.weekday() < 5]
+    marks = {}  # time -> {symbol: (gross, cost)}
+    for p in pos:
+        bought = datetime.fromisoformat(f"{p['buy_day']}T{p['buy_at']}")
+        lot, entry = p["qty"], p["buy"]
+        for day in days:
+            if day < p["buy_day"]:
+                continue
+            for b in _bars(kite, p["symbol"], day):
+                t = b["t"] + timedelta(minutes=15)  # the candle's close
+                if t <= bought:
+                    continue
+                marks.setdefault(t, {})[p["symbol"]] = (lot * (b["close"] - entry), cps * lot * entry)
+    first_buy = min(datetime.fromisoformat(f"{p['buy_day']}T{p['buy_at']}") for p in pos).replace(second=0)
+    start_cost = sum(cps * p["qty"] * p["buy"] for p in pos if datetime.fromisoformat(f"{p['buy_day']}T{p['buy_at']}").replace(second=0) == first_buy)
+    points, last = [{"time": _epoch(first_buy), "gross_rs": 0.0, "net_rs": round(-start_cost, 2), "by": {}}], {}
+    for t in sorted(marks):
+        last.update(marks[t])  # a position without this candle keeps its last mark
+        held = {s: v for s, v in last.items()}
+        g = sum(v[0] for v in held.values())
+        points.append({"time": _epoch(t), "gross_rs": round(g, 2), "net_rs": round(g - sum(v[1] for v in held.values()), 2),
+                       "by": {s: round(v[0] - v[1], 2) for s, v in held.items()}})
+    # the live price as the last point (Kite only serves finished candles)
+    now = gapwatch._now().replace(tzinfo=None, second=0, microsecond=0)
+    live = {p["symbol"]: (p["qty"] * (p["ltp"] - p["buy"]), cps * p["qty"] * p["buy"]) for p in pos if p.get("ltp")}
+    if live and (not marks or now > max(marks)):
+        last.update(live)
+        g = sum(v[0] for v in last.values())
+        points.append({"time": _epoch(now), "gross_rs": round(g, 2), "net_rs": round(g - sum(v[1] for v in last.values()), 2),
+                       "by": {s: round(v[0] - v[1], 2) for s, v in last.items()}, "live": True})
+    by_position = sorted(({"symbol": s, "side": "long", "net_rs": round(v[0] - v[1], 2)} for s, v in last.items()), key=lambda x: -x["net_rs"])
+    return {"points": points, "positions": len(pos), "by_position": by_position, "symbols": [p["symbol"] for p in pos], "sides": ["long"]}

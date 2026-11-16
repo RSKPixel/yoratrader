@@ -8,6 +8,14 @@ import { baseOptions, Chart, themeColors, watchTheme } from "./chartjs";
 // the day is live. `compact` (the paper log) makes the charts shorter.
 
 const hhmm = (t) => new Date(t * 1000).toISOString().slice(11, 16);
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+// over several days the axis needs the date too
+const stamp = (t, multi) => {
+  if (!multi) return hhmm(t);
+  const d = new Date(t * 1000);
+  return `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]} ${hhmm(t)}`;
+};
+const multiDay = (points) => points.length > 1 && new Date(points[0].time * 1000).toISOString().slice(0, 10) !== new Date(points[points.length - 1].time * 1000).toISOString().slice(0, 10);
 
 function compactOptions(c, opts = {}) {
   const o = baseOptions(c, (v) => formatRs(v));
@@ -48,11 +56,12 @@ function Card({ title, note, height, children }) {
 }
 
 function NetChart({ points, height }) {
+  const multi = multiDay(points);
   const canvas = useChart(
     (c) => ({
       type: "line",
       data: {
-        labels: points.map((p) => hhmm(p.time)),
+        labels: points.map((p) => stamp(p.time, multi)),
         datasets: [
           {
             label: "Net",
@@ -78,7 +87,7 @@ function NetChart({ points, height }) {
   return (
     <Card
       title="Net P&L"
-      note={`${hhmm(last.time)} ${formatRs(last.net_rs)} · high ${formatRs(best.net_rs)} ${hhmm(best.time)} · low ${formatRs(worst.net_rs)} ${hhmm(worst.time)}`}
+      note={`${last.live ? "now" : stamp(last.time, multi)} ${formatRs(last.net_rs)} · high ${formatRs(best.net_rs)} ${stamp(best.time, multi)} · low ${formatRs(worst.net_rs)} ${stamp(worst.time, multi)}`}
       height={height}
     >
       <canvas ref={canvas} />
@@ -108,6 +117,38 @@ function SidesChart({ points, sides, height }) {
       note={[sides.includes("long") && `longs ${formatRs(last.long_rs)}`, sides.includes("short") && `shorts ${formatRs(last.short_rs)}`].filter(Boolean).join(" · ")}
       height={height}
     >
+      <canvas ref={canvas} />
+    </Card>
+  );
+}
+
+// Held positions (short-term mean reversion): one line a stock, its net since its own buy
+function EachChart({ points, symbols, height }) {
+  const multi = multiDay(points);
+  const canvas = useChart(
+    (c) => {
+      const palette = [c.accent, c.warning, c.up, c.down, c.faint, "#8b5cf6", "#ec4899", "#0ea5e9", "#84cc16", "#f97316"];
+      return {
+        type: "line",
+        data: {
+          labels: points.map((p) => stamp(p.time, multi)),
+          datasets: symbols.map((s, i) => ({
+            label: s,
+            data: points.map((p) => (p.by && s in p.by ? p.by[s] : null)),
+            borderColor: palette[i % palette.length],
+            borderWidth: 2,
+            pointRadius: points.length < 3 ? 3 : 0,
+            tension: 0.15,
+            spanGaps: true,
+          })),
+        },
+        options: compactOptions(c),
+      };
+    },
+    [points, symbols],
+  );
+  return (
+    <Card title="Each position" note={symbols.join(" · ")} height={height}>
       <canvas ref={canvas} />
     </Card>
   );
@@ -170,17 +211,21 @@ export default function V2PnlChart({ url, refreshMs = 0, compact = false }) {
   const pts = data?.points || [];
   if (error) return <p className="text-xs" style={{ color: "var(--negative)" }}>{error}</p>;
   if (!data) return <p className="text-xs" style={{ color: "var(--muted)" }}>Loading the day's P&L…</p>;
-  if (!pts.length) return <p className="text-xs" style={{ color: "var(--muted)" }}>No 15-minute candles yet.</p>;
+  if (!pts.length) return <p className="text-xs" style={{ color: "var(--muted)" }}>{data.positions === 0 ? "No open positions." : "No 15-minute candles yet."}</p>;
   const height = compact ? "h-36" : "h-44";
   return (
     <div>
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
         <NetChart points={pts} height={height} />
-        <SidesChart points={pts} sides={data.sides || []} height={height} />
+        {data.symbols ? (
+          <EachChart points={pts} symbols={data.symbols} height={height} />
+        ) : (
+          <SidesChart points={pts} sides={data.sides || []} height={height} />
+        )}
         <PositionsChart rows={data.by_position || []} height={height} />
       </div>
       <p className="mt-1.5 text-[0.6875rem]" style={{ color: "var(--faint)" }}>
-        One lot each{data.size > 1 ? ` (× ${data.size})` : ""}, after costs · every 15-minute close from Kite, IST · hover for values
+        One lot each{data.size > 1 ? ` (× ${data.size})` : ""}, after costs · every 15-minute close from Kite{data.symbols ? ", stock prices, the last point live" : ""}, IST · hover for values
       </p>
     </div>
   );
