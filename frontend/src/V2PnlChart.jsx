@@ -1,23 +1,18 @@
 import { useEffect, useRef, useState } from "react";
-import { BaselineSeries, createChart, LineSeries, LineStyle } from "lightweight-charts";
 import { formatRs } from "./V2Controls";
+import { baseOptions, Chart, themeColors, watchTheme } from "./chartjs";
 
-// A paper day's P&L through the session, every 15 minutes (v2pnl): net after costs, green above zero
-// and red below, with the gross move as a faint line. `url` is the /api/v2/paper/<model>/pnl query;
+// A paper day's P&L through the session, every 15 minutes (v2pnl), on Chart.js: net after costs,
+// green above zero and red below, with the gross move as a faint dashed line; hover for each point. `url` is the /api/v2/paper/<model>/pnl query;
 // `refreshMs` re-fetches while the day is live.
 
-function colors(el) {
-  const css = getComputedStyle(el.closest(".v2") || document.body);
-  const v = (n) => css.getPropertyValue(n).trim();
-  return { text: v("--muted"), grid: v("--border"), up: v("--positive"), down: v("--negative"), faint: v("--faint") };
-}
-
 export default function V2PnlChart({ url, refreshMs = 0, height = "h-56" }) {
-  const box = useRef(null);
+  const canvas = useRef(null);
+  const [theme, setTheme] = useState(0);
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
   const [tick, setTick] = useState(0);
-  const [hover, setHover] = useState(null);
+  useEffect(() => watchTheme(canvas.current, () => setTheme((n) => n + 1)), []);
 
   useEffect(() => {
     if (!refreshMs) return undefined;
@@ -34,41 +29,37 @@ export default function V2PnlChart({ url, refreshMs = 0, height = "h-56" }) {
   }, [url, tick]);
 
   useEffect(() => {
-    if (!box.current || !data?.points?.length) return undefined;
-    const c = colors(box.current);
-    const chart = createChart(box.current, {
-      autoSize: true,
-      layout: { background: { color: "transparent" }, textColor: c.text, fontFamily: "IBM Plex Sans, sans-serif" },
-      grid: { vertLines: { visible: false }, horzLines: { color: c.grid } },
-      rightPriceScale: { borderVisible: false },
-      timeScale: { borderVisible: false, timeVisible: true, secondsVisible: false },
-      localization: { priceFormatter: (v) => formatRs(v) },
+    if (!canvas.current || !data?.points?.length) return undefined;
+    const c = themeColors(canvas.current);
+    const hhmm = (t) => new Date(t * 1000).toISOString().slice(11, 16);
+    const chart = new Chart(canvas.current, {
+      type: "line",
+      data: {
+        labels: data.points.map((p) => hhmm(p.time)),
+        datasets: [
+          {
+            label: "Net",
+            data: data.points.map((p) => p.net_rs),
+            borderWidth: 2,
+            pointRadius: 2,
+            tension: 0.15,
+            // green above zero, red below; the area to zero tinted the same way
+            segment: { borderColor: (ctx) => (ctx.p1.parsed.y >= 0 ? c.up : c.down) },
+            pointBackgroundColor: data.points.map((p) => (p.net_rs >= 0 ? c.up : c.down)),
+            pointBorderWidth: 0,
+            fill: { target: "origin", above: `${c.up}22`, below: `${c.down}22` },
+          },
+          { label: "Gross", data: data.points.map((p) => p.gross_rs), borderColor: c.faint, borderWidth: 1, borderDash: [3, 3], pointRadius: 0, tension: 0.15 },
+        ],
+      },
+      options: baseOptions(c, (v) => formatRs(v)),
     });
-    const gross = chart.addSeries(LineSeries, { color: c.faint, lineWidth: 1, lineStyle: LineStyle.Dotted, priceLineVisible: false, lastValueVisible: false });
-    const net = chart.addSeries(BaselineSeries, {
-      baseValue: { type: "price", price: 0 },
-      topLineColor: c.up,
-      topFillColor1: `${c.up}33`,
-      topFillColor2: `${c.up}05`,
-      bottomLineColor: c.down,
-      bottomFillColor1: `${c.down}05`,
-      bottomFillColor2: `${c.down}33`,
-      lineWidth: 2,
-    });
-    gross.setData(data.points.map((p) => ({ time: p.time, value: p.gross_rs })));
-    net.setData(data.points.map((p) => ({ time: p.time, value: p.net_rs })));
-    net.createPriceLine({ price: 0, color: c.text, lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: false, title: "" });
-    chart.timeScale().fitContent();
-    chart.subscribeCrosshairMove((p) => {
-      const n = p.seriesData?.get(net);
-      setHover(n ? { time: p.time, net: n.value, gross: p.seriesData.get(gross)?.value } : null);
-    });
-    return () => chart.remove();
-  }, [data]);
+    return () => chart.destroy();
+  }, [data, theme]);
 
   const pts = data?.points || [];
   const last = pts[pts.length - 1];
-  const show = hover || (last && { time: last.time, net: last.net_rs, gross: last.gross_rs });
+  const show = last && { time: last.time, net: last.net_rs, gross: last.gross_rs };
   const hhmm = (t) => new Date(t * 1000).toISOString().slice(11, 16);
   const best = pts.length ? pts.reduce((a, p) => (p.net_rs > a.net_rs ? p : a)) : null;
   const worst = pts.length ? pts.reduce((a, p) => (p.net_rs < a.net_rs ? p : a)) : null;
@@ -89,7 +80,9 @@ export default function V2PnlChart({ url, refreshMs = 0, height = "h-56" }) {
           </>
         )}
       </p>
-      <div ref={box} className={`${height} w-full`} />
+      <div className={`relative ${height} w-full`}>
+        <canvas ref={canvas} />
+      </div>
     </div>
   );
 }
