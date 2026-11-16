@@ -170,7 +170,7 @@ export function MonthTradesModal({ month, url, columns, value, note, onClose, mi
         role="dialog"
         aria-modal="true"
         aria-label={`Trades in ${MONTHS[Number(m) - 1]} ${y}`}
-        className="flex max-h-[85vh] w-full max-w-6xl flex-col overflow-hidden rounded-lg border"
+        className="flex max-h-[85vh] w-full max-w-[79.2rem] flex-col overflow-hidden rounded-lg border"
         style={{ borderColor: "var(--border)", background: "var(--surface)" }}
         onClick={(e) => e.stopPropagation()}
       >
