@@ -4,7 +4,7 @@
 - "rsi2" (the backtest page's book): 2-day RSI below 10 in a stock above its 200-day average, sold on
   its 5th trading day. Tables connors_paper / connors_paper_days.
 - "cum" (Connors & Alvarez's cumulative RSI): today's + yesterday's 2-day RSI below 35 above the
-  200-day average; sold on strength, at the first 15:15 its 2-day RSI is above 65, or on the 10th
+  200-day average; sold on strength, at the first 15:15 its 2-day RSI is above 65, or on the 5th
   trading day at the latest. Tables connors_paper_cum / connors_paper_cum_days.
 
 Each book has its own universe (F&O stocks or Nifty 50) and max open (1-10, set from its paper page,

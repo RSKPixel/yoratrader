@@ -95,7 +95,7 @@ export default function V2Connors({ params }) {
         <Field label="Setup" hint="In a stock above its 200-day average. No threshold: the day's lowest RSIs whatever their level (the control).">
           <Segmented label="Setup" options={SETUPS} value={setup} onChange={setSetup} />
         </Field>
-        <Field label="Hold" hint="Sold this many trading days after the buy (5 = the book's week), or on strength: at the first close the 2-day RSI is above 65 (10 days at most)">
+        <Field label="Hold" hint="Sold this many trading days after the buy (5 = the book's week), or on strength: at the first close the 2-day RSI is above 65 (5 days at most)">
           <Segmented label="Hold" options={HOLDS} value={hold} onChange={setHold} />
         </Field>
         <Field label="Prices" hint="Close: official closes for the signal, buy and sale (daily candles, 2004 on). 15:15: today's 15:15 price, what you can trade (15m candles, 2015 on); its first load takes ~45 s.">

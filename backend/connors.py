@@ -51,7 +51,7 @@ SETUPS = {"rsi2": "2-day RSI below 10 (book)", "low10": "New 10-day low", "down3
 # hold 0 = exit on strength: out at the first close the 2-day RSI is above EXIT_RSI (below 100 - it for
 # a short), STRENGTH_MAX_DAYS at most
 HOLDS = {5: "hold 5 days (book)", 2: "hold 2 days", 0: "out when RSI(2) > 65"}
-CUM_RSI_MAX, EXIT_RSI, STRENGTH_MAX_DAYS = 35.0, 65.0, 10
+CUM_RSI_MAX, EXIT_RSI, STRENGTH_MAX_DAYS = 35.0, 65.0, 5  # 5 days at most: the book's hold, a fixed rule
 # "-max<N>": at most N trades open at once (for a margin budget: each futures lot ties up its own
 # margin). Each trade gets 1/N of capital (one lot in one-lot mode). A new trade starts only when a
 # slot is free: the most oversold qualifying stocks not already held, from that 15:15 on (a slot
