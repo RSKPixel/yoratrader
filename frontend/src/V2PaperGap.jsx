@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { Field, formatRs, Segmented } from "./V2Controls";
 import { tone } from "./V2BacktestView";
 import { SLIPPAGE, useBacktest, useLiveRefresh } from "./V2BuyOnGap";
-import { DayLog, LotCards, lotColumns, lotMoney, netBoth, Panel, PositionsTable, StatusLine } from "./V2PaperView";
+import { DayLog, LotCards, lotColumns, lotMoney, netBoth, usePaperChart, Panel, PositionsTable, StatusLine } from "./V2PaperView";
 
 // Buy/Sell on gap paper trading on v2: the picks the production scheduler records at 09:15 (every
 // qualifying F&O stock), the max open biggest gaps, one lot each. Nothing here places orders.
@@ -24,6 +24,7 @@ export default function V2PaperGap({ params }) {
   const { data, error, loading } = useBacktest(`/api/v2/paper/gap?side=${side}&stop=${stop}&slippage=${slippage}&max_open=${params.maxOpen}`, { refreshMs: live });
   const money = useMemo(() => lotMoney(params.show), [params.show]);
   const lot = lotColumns(money);
+  const chart = usePaperChart();
 
   const columns = [
     { h: "#", cell: (t) => t.rank, style: () => ({ color: "var(--faint)" }) },
@@ -57,6 +58,7 @@ export default function V2PaperGap({ params }) {
 
   return (
     <div className="mt-4 flex flex-col gap-4">
+      {chart.dialog}
       <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
         <Field label="Side" hint="Long: buy gaps down (the book). Long & short: also short the mirror image.">
           <Segmented label="Side" options={SIDES} value={side} onChange={setSide} />
@@ -82,7 +84,7 @@ export default function V2PaperGap({ params }) {
           </StatusLine>
           <LotCards s={{ ...data.summary, win_rate: data.summary.win_rate_lots, win_days: data.summary.win_days_lots }} money={money} />
           <Panel title={`Today · ${data.today}`} right={today ? `${today.status === "open" ? "open, live" : "closed"} · margin ${formatRs(today.margin_rs)} · net ${netBoth(today.net_rs, today.net_value_pct)}` : undefined}>
-            <PositionsTable rows={today?.picks || []} columns={columns} minWidth={1050} empty="No picks today." />
+            <PositionsTable rows={today?.picks || []} columns={[chart.column, ...columns]} minWidth={1050} empty="No picks today." />
           </Panel>
           <Panel title={`Watchlist for ${data.session}`} right={`${data.watchlist.length} stocks · a pick if it opens past its level and stays on the right side of its 20-day average`}>
             <div className="max-h-96 overflow-auto">

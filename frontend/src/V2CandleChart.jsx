@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { CandlestickSeries, createChart, HistogramSeries } from "lightweight-charts";
+import { CandlestickSeries, createChart, HistogramSeries, LineStyle } from "lightweight-charts";
 import { Segmented } from "./V2Controls";
 
-// A candlestick chart with volume for one symbol (v2 Data page), on the v2 theme. Daily or 15 min.
+// A candlestick chart with volume for one symbol, on the v2 theme. Daily or 15 min.
+// source "kite": the stock straight from Kite with today's candles (paper pages), refreshed while open;
+// lines: price lines to mark, e.g. [{ price, label, color }] for a position's entry / stop / exit.
 
 const DAILY_RANGES = [
   [90, "3M"],
@@ -15,6 +17,11 @@ const INTRADAY_RANGES = [
   [30, "1M"],
   [90, "3M"],
 ];
+const KITE_RANGES = [
+  [1, "Today"],
+  [5, "5D"],
+  [30, "1M"],
+];
 
 function colors(el) {
   const css = getComputedStyle(el.closest(".v2") || document.body);
@@ -22,14 +29,21 @@ function colors(el) {
   return { text: v("--muted"), grid: v("--border"), up: v("--positive"), down: v("--negative"), faint: v("--faint") };
 }
 
-export default function V2CandleChart({ row, source, onClose }) {
+export default function V2CandleChart({ row, source, onClose, lines = [], initialInterval = "day", initialDays = null }) {
   const box = useRef(null);
-  const [interval, setInterval] = useState("day");
-  const [days, setDays] = useState(365);
+  const kite = source === "kite";
+  const [interval, setInterval] = useState(initialInterval);
+  const [days, setDays] = useState(initialDays ?? (initialInterval === "day" ? 365 : kite ? 1 : 30));
+  const [tick, setTick] = useState(0);
   const [candles, setCandles] = useState(null);
   const [hover, setHover] = useState(null);
   const [theme, setTheme] = useState(0);
-  const has15 = row.m15?.bars > 0;
+  const has15 = kite || row.m15?.bars > 0;
+  useEffect(() => {
+    if (!kite) return undefined;
+    const timer = window.setInterval(() => setTick((n) => n + 1), 30000); // today's candle keeps forming
+    return () => window.clearInterval(timer);
+  }, [kite]);
 
   useEffect(() => {
     const onKey = (e) => e.key === "Escape" && onClose();
@@ -45,16 +59,26 @@ export default function V2CandleChart({ row, source, onClose }) {
   }, []);
   useEffect(() => {
     const controller = new AbortController();
-    setCandles(null);
+    if (!tick) setCandles(null);
     const ex = row.exchange || "NSE";
-    fetch(`/api/v2/data/candles?symbol=${encodeURIComponent(row.symbol)}&interval=${interval}&source=${source}&exchange=${ex}&days=${days}`, {
+    // "Today" asks Kite for a few days (weekends, holidays) and shows the latest session
+    const ask = kite && days === 1 ? 5 : days;
+    fetch(`/api/v2/data/candles?symbol=${encodeURIComponent(row.symbol)}&interval=${interval}&source=${source}&exchange=${ex}&days=${ask}`, {
       signal: controller.signal,
     })
       .then((r) => r.json())
-      .then((p) => setCandles(p.status === "success" ? p.candles : []))
+      .then((p) => {
+        let k = p.status === "success" ? p.candles : [];
+        if (kite && days === 1 && interval === "15m" && k.length) {
+          const lastDay = new Date(k[k.length - 1].time * 1000).toISOString().slice(0, 10);
+          k = k.filter((c) => new Date(c.time * 1000).toISOString().slice(0, 10) === lastDay);
+        }
+        setCandles(k);
+      })
       .catch(() => {});
     return () => controller.abort();
-  }, [row, source, interval, days]);
+  }, [row, source, interval, days, tick, kite]);
+  useEffect(() => setTick(0), [interval, days]);
 
   useEffect(() => {
     if (!box.current || !candles?.length) return undefined;
@@ -73,17 +97,23 @@ export default function V2CandleChart({ row, source, onClose }) {
     chart.priceScale("vol").applyOptions({ scaleMargins: { top: 0.8, bottom: 0 } });
     price.setData(candles.map(({ volume: _, ...k }) => k));
     volume.setData(candles.map((k) => ({ time: k.time, value: k.volume, color: k.close >= k.open ? `${c.up}55` : `${c.down}55` })));
+    for (const l of lines) {
+      if (l.price != null) {
+        price.createPriceLine({ price: l.price, color: l.color || c.text, lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: l.label || "" });
+      }
+    }
     chart.timeScale().fitContent();
     chart.subscribeCrosshairMove((p) => {
       const k = p.seriesData?.get(price);
       setHover(k ? { ...k, volume: p.seriesData.get(volume)?.value } : null);
     });
     return () => chart.remove();
-  }, [candles, interval, theme]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [candles, interval, theme, lines]);
 
   const last = candles?.[candles.length - 1];
   const show = hover || last;
-  const ranges = interval === "day" ? DAILY_RANGES : INTRADAY_RANGES;
+  const ranges = interval === "day" ? DAILY_RANGES : kite ? KITE_RANGES : INTRADAY_RANGES;
   const fmt = (v) => (v == null ? "—" : v.toLocaleString("en-IN", { maximumFractionDigits: 2 }));
   const when = (t) => (typeof t === "number" ? new Date(t * 1000).toISOString().slice(0, 16).replace("T", " ") : t);
   return (
@@ -110,7 +140,7 @@ export default function V2CandleChart({ row, source, onClose }) {
             value={interval}
             onChange={(v) => {
               setInterval(v);
-              setDays(v === "day" ? 365 : 30);
+              setDays(v === "day" ? 365 : kite ? 1 : 30);
             }}
           />
           <Segmented label="Range" options={ranges} value={days} onChange={setDays} />
@@ -131,6 +161,7 @@ export default function V2CandleChart({ row, source, onClose }) {
             "No candles."
           )}
           {interval !== "day" && " · times in IST"}
+          {kite && " · live from Kite, refreshed every 30 s"}
         </p>
         <div ref={box} className="min-h-0 w-full flex-1 px-2 pb-3" />
       </div>

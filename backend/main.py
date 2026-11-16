@@ -974,9 +974,11 @@ def v2_data_symbols(source: str = Query("backtest"), refresh: bool = Query(False
 @app.get("/api/v2/data/candles")
 def v2_data_candles(symbol: str = Query(..., min_length=1, max_length=40), interval: str = Query("day"),
                     source: str = Query("backtest"), exchange: str = Query("NSE"), days: int = Query(365, ge=0, le=20000)):
-    if interval not in ("day", "15m") or source not in ("backtest", "live") or exchange not in ("NSE", "MCX"):
+    if interval not in ("day", "15m") or source not in ("backtest", "live", "kite") or exchange not in ("NSE", "MCX"):
         raise HTTPException(status_code=400, detail="unknown interval, source or exchange")
     try:
+        if source == "kite":  # the stock straight from Kite, today's candles included (paper pages)
+            return {"status": "success", "candles": v2data.kite_candles(symbol, interval, days)}
         return {"status": "success", "candles": v2data.candles(symbol, interval, source, exchange, days)}
     except Exception as error:
         print("v2 data candles failed:", error)

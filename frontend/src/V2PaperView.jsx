@@ -1,9 +1,61 @@
 import { useState } from "react";
+import V2CandleChart from "./V2CandleChart";
 import { Card, Panel, tone } from "./V2BacktestView";
 import { formatRs } from "./V2Controls";
 
 // Pieces the v2 paper pages share: the summary cards, the day's positions table and the daily log
 // (a row a day, expandable to its positions). API values are fractions of capital in %.
+
+// A position's chart: the stock's 15-minute candles from Kite (today's included), with its entry,
+// stop and exit / last price marked. usePaperChart() gives the chart column and the open dialog.
+export function usePaperChart({ days = 1 } = {}) {
+  const [row, setRow] = useState(null);
+  const column = {
+    h: "",
+    cell: (t) => (
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          setRow(t);
+        }}
+        className="grid h-6 w-6 place-items-center rounded border transition-colors hover:bg-[var(--surface-2)]"
+        style={{ borderColor: "var(--border)", color: "var(--muted)" }}
+        title={`${t.symbol}: 15-minute chart`}
+        aria-label={`${t.symbol} chart`}
+      >
+        <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+          <path d="M2 13h12M4 10V6M7 11V4M10 9V5M13 8V3" />
+        </svg>
+      </button>
+    ),
+  };
+  const dialog = row ? (
+    <V2CandleChart
+      row={{ symbol: row.symbol, exchange: "NSE" }}
+      source="kite"
+      initialInterval="15m"
+      initialDays={days}
+      lines={[
+        { price: row.entry ?? row.buy, label: row.side === "short" ? "Sell" : "Buy", color: "var(--accent)" },
+        row.stop != null ? { price: row.stop, label: "Stop", color: "var(--negative)" } : null,
+        (row.exit ?? row.sell) != null ? { price: row.exit ?? row.sell, label: row.closed || row.sell ? "Exit" : "Last", color: "var(--muted)" } : null,
+      ]
+        .filter(Boolean)
+        .map((l) => ({ ...l, color: cssVar(l.color) }))}
+      onClose={() => setRow(null)}
+    />
+  ) : null;
+  return { column, dialog };
+}
+
+function cssVar(v) {
+  // lightweight-charts needs a real colour, not var(--x)
+  const m = /^var\((--[\w-]+)\)$/.exec(v || "");
+  if (!m) return v;
+  const el = document.querySelector(".v2") || document.body;
+  return getComputedStyle(el).getPropertyValue(m[1]).trim() || undefined;
+}
 
 // One F&O lot a position: results in rupees, or as % of the contract value traded (the % of margin is in the hover).
 export function lotMoney(show) {

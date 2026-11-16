@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Field, formatRs, Segmented } from "./V2Controls";
 import { tone } from "./V2BacktestView";
 import { SLIPPAGE, useBacktest, useLiveRefresh } from "./V2BuyOnGap";
-import { DayLog, LotCards, lotColumns, lotMoney, netBoth, Panel, PositionsTable, StatusLine } from "./V2PaperView";
+import { DayLog, LotCards, lotColumns, lotMoney, netBoth, usePaperChart, Panel, PositionsTable, StatusLine } from "./V2PaperView";
 
 // Cross-sectional mean reversion paper trading on v2: the 5 long + 5 short the production scheduler
 // records at the 09:15 open, k + k of them by Pairs, one lot each; plus the pre-open
@@ -126,6 +126,7 @@ export default function V2PaperXsmr({ params }) {
   const { data, error, loading } = useBacktest(`/api/v2/paper/xsmr?pairs=${k}&stop=${stop}&slippage=${slippage}&max_open=${params.maxOpen}`, { refreshMs: live });
   const money = useMemo(() => lotMoney(params.show), [params.show]);
   const lot = lotColumns(money);
+  const chart = usePaperChart();
 
   const columns = [
     { h: "Side", cell: (t) => `${t.side} #${t.rank}`, style: (t) => ({ color: t.side === "long" ? "var(--positive)" : "var(--negative)" }) },
@@ -147,6 +148,7 @@ export default function V2PaperXsmr({ params }) {
 
   return (
     <div className="mt-4 flex flex-col gap-4">
+      {chart.dialog}
       <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
         <Field label="Pairs" hint="k long + k short of the recorded 5 + 5 (the furthest from the day's average move first); one lot each.">
           <Segmented label="Pairs" options={pairOptions} value={params.maxOpen ? k : null} onChange={setPairs} />
@@ -172,7 +174,7 @@ export default function V2PaperXsmr({ params }) {
           </StatusLine>
           <LotCards s={{ ...data.summary, win_rate: data.summary.win_rate_lots, win_days: data.summary.win_days_lots }} money={money} />
           <Panel title={`Today · ${data.today}`} right={today ? `${today.status === "open" ? "open, live" : "closed"} · margin ${formatRs(today.margin_rs)} · net ${netBoth(today.net_rs, today.net_value_pct)}` : undefined}>
-            <PositionsTable rows={today?.picks || []} columns={columns} minWidth={1000} empty="No positions today." />
+            <PositionsTable rows={today?.picks || []} columns={[chart.column, ...columns]} minWidth={1000} empty="No positions today." />
           </Panel>
           <Panel title="Paper log" right="a row a day · click for its positions">
             <DayLog days={data.days} columns={columns} dayValue={(d) => netBoth(d.net_rs, d.net_value_pct)} dayNote={(d) => `margin ${formatRs(d.margin_rs)}`} minWidth={1000} empty="Nothing recorded yet: the first paper day is the next trading day at 09:15 (Kite login needed)." />

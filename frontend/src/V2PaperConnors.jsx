@@ -3,7 +3,7 @@ import { Field, formatRs, Segmented } from "./V2Controls";
 import { tone } from "./V2BacktestView";
 import { SLIPPAGE, useBacktest, useLiveRefresh } from "./V2BuyOnGap";
 import { UNIVERSES } from "./V2BacktestParams";
-import { LotCards, lotColumns, lotMoney, netBoth, Panel, PositionsTable, StatusLine } from "./V2PaperView";
+import { LotCards, lotColumns, lotMoney, netBoth, Panel, usePaperChart, PositionsTable, StatusLine } from "./V2PaperView";
 
 // Short-term mean reversion paper trading on v2: what the production scheduler records at 15:15 (2-day
 // RSI below 10, above the 200-day average, hold 5 trading days, at most N open; N is a server setting
@@ -27,6 +27,7 @@ export default function V2PaperConnors({ params, version = 0 }) {
   // each trade's one-lot fields for the chosen prices (stock_* or fut_*), under the shared names
   const pick = (t) => ({ ...t, qty: t[`${key}_qty`], margin_rs: t[`${key}_margin_rs`], contract_rs: t[`${key}_contract_rs`], pnl_rs: t[`${key}_pnl_rs`], cost_rs: t[`${key}_cost_rs`], net_rs: t[`${key}_net_rs`], net_margin_pct: t[`${key}_net_margin_pct`], net_value_pct: t[`${key}_net_value_pct`] });
   const lot = lotColumns(money);
+  const chart = usePaperChart({ days: 5 });
   const open = (data?.open || []).map(pick);
   const closed = (data?.closed || []).map(pick).map((t) => ({ ...t, net: fut ? t.fut_net_pct : t.net_pct }));
   const L = data?.lots?.[key] || {};
@@ -85,6 +86,7 @@ export default function V2PaperConnors({ params, version = 0 }) {
 
   return (
     <div className="mt-4 flex flex-col gap-4">
+      {chart.dialog}
       <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
         <Field label="Prices" hint="Each trade is recorded at both the stock's and its future's price at the same moment (the future expiring at least 10 days out, so a hold never crosses expiry).">
           <Segmented label="Prices" options={PRICES} value={prices} onChange={setPrices} />
@@ -111,7 +113,7 @@ export default function V2PaperConnors({ params, version = 0 }) {
             title="Open positions"
             right={`sold at 15:15 on the ${data.hold}th trading day${data.ltp_at ? ` · live prices at ${data.ltp_at}` : ""}${open.length ? ` · net now ${netBoth(open.reduce((a, t) => a + (t.net_rs || 0), 0), null)}` : ""}`}
           >
-            <PositionsTable rows={open} columns={openCols} minWidth={760} empty="No open positions." />
+            <PositionsTable rows={open.map((t) => ({ ...t, entry: t.buy, exit: t.ltp }))} columns={[chart.column, ...openCols]} minWidth={760} empty="No open positions." />
           </Panel>
           <Panel title="Closed trades" right="after charges and slippage on both sides">
             <PositionsTable rows={closed} columns={closedCols} minWidth={900} empty="No closed trades yet." />

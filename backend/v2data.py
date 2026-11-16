@@ -188,6 +188,31 @@ def symbols(source="backtest", refresh=False):
                        "last": max((r["daily"]["last"] for r in rows if r["daily"]["last"]), default=None)}}
 
 
+def kite_candles(symbol, interval="15m", days=5):
+    """The NSE stock's candles straight from Kite, today's included (the paper pages' charts: stored
+    15m data is only downloaded after the close). 15m: up to 60 days; daily: up to 2000."""
+    from datetime import datetime, timedelta
+
+    import gapwatch
+    import kite_auth
+
+    kite = kite_auth.trading_client()
+    token = gapwatch._token(kite, symbol)
+    if not token:
+        raise ValueError(f"No NSE instrument for {symbol}")
+    now = gapwatch._now().replace(tzinfo=None)
+    span = min(days or 5, 60) if interval == "15m" else min(days or 365, 2000)
+    bars = kite.historical_data(token, from_date=now - timedelta(days=span), to_date=now,
+                                interval="15minute" if interval == "15m" else "day")
+    out = []
+    for b in bars:
+        d = b["date"]
+        t = (int(d.timestamp()) + 19800) if interval == "15m" else d.strftime("%Y-%m-%d")
+        out.append({"time": t, "open": float(b["open"]), "high": float(b["high"]), "low": float(b["low"]),
+                    "close": float(b["close"]), "volume": int(b.get("volume") or 0)})
+    return out
+
+
 def candles(symbol, interval="day", source="backtest", exchange="NSE", days=365):
     """OHLCV for one symbol: daily (last `days` calendar days, 0 = all) or 15m (last `days`, at most 365)."""
     with connect() as conn:
