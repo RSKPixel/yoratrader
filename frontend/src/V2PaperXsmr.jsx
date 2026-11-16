@@ -169,11 +169,11 @@ export default function V2PaperXsmr({ params }) {
             {bt ? ` · backtest ${bt.all_bps} bps a day net (${bt.year}: ${bt.year_bps})` : ""} · costs {data.cost_per_side_bps} bps a side · nothing places orders
           </StatusLine>
           <LotCards s={{ ...data.summary, win_rate: data.summary.win_rate_lots, win_days: data.summary.win_days_lots }} money={money} />
-          <Panel title={`Today · ${data.today}`} right={today ? `${today.status === "open" ? "open, live" : "closed"} · margin ${formatRs(today.margin_rs)} · net ${money(today.net_rs, today.net_margin_pct)}` : undefined}>
+          <Panel title={`Today · ${data.today}`} right={today ? `${today.status === "open" ? "open, live" : "closed"} · margin ${formatRs(today.margin_rs)} · net ${money(today.net_rs, today.net_value_pct)}` : undefined}>
             <PositionsTable rows={today?.picks || []} columns={columns} minWidth={1000} empty="No positions today." />
           </Panel>
           <Panel title="Paper log" right="a row a day · click for its positions">
-            <DayLog days={data.days} columns={columns} dayValue={(d) => money(d.net_rs, d.net_margin_pct)} dayNote={(d) => `margin ${formatRs(d.margin_rs)}`} minWidth={1000} empty="Nothing recorded yet: the first paper day is the next trading day at 09:15 (Kite login needed)." />
+            <DayLog days={data.days} columns={columns} dayValue={(d) => money(d.net_rs, d.net_value_pct)} dayNote={(d) => `margin ${formatRs(d.margin_rs)}`} minWidth={1000} empty="Nothing recorded yet: the first paper day is the next trading day at 09:15 (Kite login needed)." />
           </Panel>
           <PreopenTest slippage={slippage} />
         </>

@@ -5,7 +5,7 @@ import { formatRs } from "./V2Controls";
 // Pieces the v2 paper pages share: the summary cards, the day's positions table and the daily log
 // (a row a day, expandable to its positions). API values are fractions of capital in %.
 
-// One F&O lot a position: results in rupees, or as % of the margin (capital required) they used.
+// One F&O lot a position: results in rupees, or as % of the contract value traded (the % of margin is in the hover).
 export function lotMoney(show) {
   return (rs, pct, digits = 2) => {
     if (show === "rs") return rs == null ? "—" : `${rs > 0 ? "+" : ""}${formatRs(rs)}`;
@@ -26,9 +26,14 @@ export function LotCards({ s, money, extra = [] }) {
       <Card label="Days" value={s.days ?? "—"} hint="Closed paper days" />
       <Card label="Trades" value={s.trades ?? "—"} hint="Closed positions" />
       <Card label="Win rate" value={s.win_rate == null ? "—" : `${s.win_rate}%`} hint={s.win_days == null ? undefined : `${s.win_days}% of days net positive`} />
-      <Card label="Net" value={money(s.net_rs, s.net_margin_pct)} color={tone(s.net_rs)} hint="One lot each, after charges and slippage on both sides; % of the capital required" />
-      <Card label="Net / day" value={money(s.avg_day_rs, s.avg_day_margin_pct, 3)} color={tone(s.avg_day_rs)} />
-      <Card label="Costs" value={money(s.cost_rs == null ? null : -s.cost_rs, s.cost_margin_pct == null ? null : -s.cost_margin_pct)} color="var(--negative)" />
+      <Card
+        label="Net"
+        value={money(s.net_rs, s.net_value_pct)}
+        color={tone(s.net_rs)}
+        hint={`One lot each, after charges and slippage on both sides; % of the contract value (busiest day)${s.net_margin_pct == null ? "" : ` · ${s.net_margin_pct > 0 ? "+" : ""}${s.net_margin_pct.toFixed(2)}% of the margin`}`}
+      />
+      <Card label="Net / day" value={money(s.avg_day_rs, s.avg_day_value_pct, 3)} color={tone(s.avg_day_rs)} />
+      <Card label="Costs" value={money(s.cost_rs == null ? null : -s.cost_rs, s.cost_value_pct == null ? null : -s.cost_value_pct)} color="var(--negative)" />
       {extra.map((c) => (
         <Card key={c.label} {...c} />
       ))}
@@ -43,9 +48,12 @@ export function lotColumns(money) {
     margin: { h: "Margin", cell: (t) => formatRs(t.margin_rs), style: () => ({ color: "var(--muted)" }), title: (t) => (t.contract_rs ? `Contract value ${formatRs(t.contract_rs)}` : undefined) },
     result: {
       h: "Net result",
-      cell: (t) => <span className="font-medium">{money(t.net_rs, t.net_margin_pct)}</span>,
+      cell: (t) => <span className="font-medium">{money(t.net_rs, t.net_value_pct)}</span>,
       style: (t) => ({ color: tone(t.net_rs) }),
-      title: (t) => (t.net_rs == null ? undefined : `P&L ${formatRs(t.pnl_rs)} − costs ${formatRs(t.cost_rs)}`),
+      title: (t) =>
+        t.net_rs == null
+          ? undefined
+          : `P&L ${formatRs(t.pnl_rs)} − costs ${formatRs(t.cost_rs)} = ${formatRs(t.net_rs)} · ${t.net_value_pct}% of the value ${formatRs(t.contract_rs)} · ${t.net_margin_pct}% of the margin ${formatRs(t.margin_rs)}`,
     },
   };
 }

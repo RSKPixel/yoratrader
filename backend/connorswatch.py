@@ -203,16 +203,21 @@ def _lot_sizing(out_open, out_closed, cost, today):
         for t in out_open + out_closed:
             z = v2margin.size(rows, t["symbol"], "long", t.get(buy), t.get(sell), cost)
             z["net_margin_pct"] = v2margin.margin_pct(z["net_rs"], z["margin_rs"])
+            z["net_value_pct"] = v2margin.margin_pct(z["net_rs"], z["contract_rs"])
             t.update({f"{key}_{k}": v for k, v in z.items()})
             if z["margin_rs"]:
-                held.append((t["buy_day"], t.get("sell_day") or "9999-12-31", z["margin_rs"]))  # open: held to now
+                held.append((t["buy_day"], t.get("sell_day") or "9999-12-31", z["margin_rs"], z["contract_rs"]))  # open: held to now
         # Sells come before buys at the same 15:15, so a day's holdings are those bought by it and not
         # yet sold on it; the capital required is the most margin held on any day.
-        peak = max((sum(m for b, e, m in held if b <= d < e) for d in {b for b, _, _ in held}), default=0)
+        starts = {h[0] for h in held}
+        peak = max((sum(h[2] for h in held if h[0] <= d < h[1]) for d in starts), default=0)
+        peak_value = max((sum(h[3] for h in held if h[0] <= d < h[1]) for d in starts), default=0)
         closed = [t for t in out_closed if t.get(f"{key}_net_rs") is not None]
         net = sum(t[f"{key}_net_rs"] for t in closed)
-        out[key] = {"capital_rs": round(peak), "net_rs": round(net, 2), "cost_rs": round(sum(t[f"{key}_cost_rs"] for t in closed), 2),
-                    "net_margin_pct": v2margin.margin_pct(net, peak), "trades": len(closed),
+        cost_rs = sum(t[f"{key}_cost_rs"] for t in closed)
+        out[key] = {"capital_rs": round(peak), "value_rs": round(peak_value), "net_rs": round(net, 2), "cost_rs": round(cost_rs, 2),
+                    "net_margin_pct": v2margin.margin_pct(net, peak), "net_value_pct": v2margin.margin_pct(net, peak_value),
+                    "cost_value_pct": v2margin.margin_pct(cost_rs, peak_value), "trades": len(closed),
                     "win_rate": round(100 * sum(t[f"{key}_net_rs"] > 0 for t in closed) / len(closed), 1) if closed else None}
     return out
 

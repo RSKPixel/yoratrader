@@ -30,25 +30,33 @@ def _lots(rows, lots, cps):
     for r in rows:
         r.update(v2margin.size(lots, r["symbol"], r["side"], r["entry"], r.get("exit"), cps))
         r["net_margin_pct"] = v2margin.margin_pct(r["net_rs"], r["margin_rs"])
+        r["net_value_pct"] = v2margin.margin_pct(r["net_rs"], r["contract_rs"])
     margin = sum(r["margin_rs"] or 0 for r in rows)
+    contract = sum(r["contract_rs"] or 0 for r in rows)
     net = sum(r["net_rs"] or 0 for r in rows)
-    return {"margin_rs": round(margin), "contract_rs": round(sum(r["contract_rs"] or 0 for r in rows)),
+    return {"margin_rs": round(margin), "contract_rs": round(contract),
             "net_rs": round(net, 2), "cost_rs": round(sum(r["cost_rs"] or 0 for r in rows), 2),
-            "net_margin_pct": v2margin.margin_pct(net, margin), "unsized": [r["symbol"] for r in rows if r["lot"] is None]}
+            "net_margin_pct": v2margin.margin_pct(net, margin), "net_value_pct": v2margin.margin_pct(net, contract),
+            "unsized": [r["symbol"] for r in rows if r["lot"] is None]}
 
 
 def _lot_summary(days, lots):
     """Rupee totals over the closed days; capital required = the biggest day's margin (open days too)."""
     closed = [d for d in days if d["status"] == "closed"]
     capital = max((d["margin_rs"] for d in days), default=0)
+    value = max((d["contract_rs"] for d in days), default=0)
     net = sum(d["net_rs"] for d in closed)
+    cost = sum(d["cost_rs"] for d in closed)
     trades = [p for d in closed for p in d["picks"] if p["net_rs"] is not None]
     return {"capital_rs": capital, "contract_peak_rs": max((d["contract_rs"] for d in days), default=0),
             "net_rs": round(net, 2), "cost_rs": round(sum(d["cost_rs"] for d in closed), 2),
             "avg_day_rs": round(net / len(closed), 2) if closed else None,
             "net_margin_pct": v2margin.margin_pct(net, capital),
             "avg_day_margin_pct": v2margin.margin_pct(net / len(closed), capital) if closed else None,
-            "cost_margin_pct": v2margin.margin_pct(sum(d["cost_rs"] for d in closed), capital),
+            "cost_margin_pct": v2margin.margin_pct(cost, capital),
+            "net_value_pct": v2margin.margin_pct(net, value),
+            "avg_day_value_pct": v2margin.margin_pct(net / len(closed), value) if closed else None,
+            "cost_value_pct": v2margin.margin_pct(cost, value),
             "win_rate_lots": round(100 * sum(p["net_rs"] > 0 for p in trades) / len(trades), 1) if trades else None,
             "win_days_lots": round(100 * sum(d["net_rs"] > 0 for d in closed) / len(closed)) if closed else None,
             "margins_as_of": v2margin.as_of(lots)}

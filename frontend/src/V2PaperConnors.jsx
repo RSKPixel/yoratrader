@@ -24,7 +24,7 @@ export default function V2PaperConnors({ params, version = 0 }) {
   const key = fut ? "fut" : "stock";
   const maxOpen = data?.max_open ?? 3;
   // each trade's one-lot fields for the chosen prices (stock_* or fut_*), under the shared names
-  const pick = (t) => ({ ...t, qty: t[`${key}_qty`], margin_rs: t[`${key}_margin_rs`], contract_rs: t[`${key}_contract_rs`], pnl_rs: t[`${key}_pnl_rs`], cost_rs: t[`${key}_cost_rs`], net_rs: t[`${key}_net_rs`], net_margin_pct: t[`${key}_net_margin_pct`] });
+  const pick = (t) => ({ ...t, qty: t[`${key}_qty`], margin_rs: t[`${key}_margin_rs`], contract_rs: t[`${key}_contract_rs`], pnl_rs: t[`${key}_pnl_rs`], cost_rs: t[`${key}_cost_rs`], net_rs: t[`${key}_net_rs`], net_margin_pct: t[`${key}_net_margin_pct`], net_value_pct: t[`${key}_net_value_pct`] });
   const lot = lotColumns(money);
   const open = (data?.open || []).map(pick);
   const closed = (data?.closed || []).map(pick).map((t) => ({ ...t, net: fut ? t.fut_net_pct : t.net_pct }));
@@ -38,9 +38,10 @@ export default function V2PaperConnors({ params, version = 0 }) {
     win_rate: L.win_rate,
     net_rs: L.net_rs,
     net_margin_pct: L.net_margin_pct,
+    net_value_pct: L.net_value_pct,
     avg_day_rs: null,
     cost_rs: L.cost_rs,
-    cost_margin_pct: L.capital_rs ? (100 * L.cost_rs) / L.capital_rs : null,
+    cost_value_pct: L.cost_value_pct,
     margins_as_of: data?.lots?.margins_as_of,
   };
 

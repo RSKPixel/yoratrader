@@ -180,7 +180,7 @@ export default function V2BacktestParams({ params, onChange, universes = ["fno"]
           <MaxOpenStepper value={params.maxOpen} onChange={(maxOpen) => onChange({ maxOpen })} step={step} />
         )}
       </Field>
-      <Field label="Show" hint={lots ? "Results in rupees (one lot each), or as % of the capital required (the margin)" : "Results as % of capital or in rupees"}>
+      <Field label="Show" hint={lots ? "Results in rupees (one lot each), or as % of the contract value traded" : "Results as % of capital or in rupees"}>
         <Segmented
           label="Show results as"
           options={[
