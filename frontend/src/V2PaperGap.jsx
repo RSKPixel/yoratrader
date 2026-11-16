@@ -101,7 +101,7 @@ export default function V2PaperGap({ params }) {
             <DayLog
               days={data.days}
               columns={columns}
-              extra={(d) => <V2PnlChart url={`/api/v2/paper/gap/pnl?day=${d.day}&side=${side}&stop=${stop}&slippage=${slippage}&max_open=${params.maxOpen}`} height="h-40" />} dayValue={(d) => netBoth(d.net_rs, d.net_value_pct)} dayNote={(d) => `margin ${formatRs(d.margin_rs)}`} minWidth={1050} empty="Nothing recorded yet: the first paper day is the next trading day at 09:15 (Kite login needed)." />
+              extra={(d) => <V2PnlChart url={`/api/v2/paper/gap/pnl?day=${d.day}&side=${side}&stop=${stop}&slippage=${slippage}&max_open=${params.maxOpen}`} compact />} dayValue={(d) => netBoth(d.net_rs, d.net_value_pct)} dayNote={(d) => `margin ${formatRs(d.margin_rs)}`} minWidth={1050} empty="Nothing recorded yet: the first paper day is the next trading day at 09:15 (Kite login needed)." />
           </Panel>
         </>
       )}

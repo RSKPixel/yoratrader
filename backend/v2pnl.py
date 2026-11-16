@@ -61,7 +61,7 @@ def curve(day, picks, cps, size=1):
                 px = p["exit"] if p.get("closed") and p.get("exit") else b["open"]
                 out_px = out_px or px
                 t = b["t"]
-                series.setdefault(t, []).append((sign * lot * (out_px - entry), cps * lot * (entry + out_px)))
+                series.setdefault(t, []).append((sign * lot * (out_px - entry), cps * lot * (entry + out_px), p["side"], p["symbol"]))
                 break
             if out_px is None and stopped and p.get("stop"):
                 hit = (sign == 1 and b["low"] <= p["stop"]) or (sign == -1 and b["high"] >= p["stop"])
@@ -70,19 +70,28 @@ def curve(day, picks, cps, size=1):
             px = out_px if out_px is not None else b["close"]
             exit_cost = cps * lot * px if out_px is not None else 0
             t = b["t"] + timedelta(minutes=15)  # marked at the candle's close
-            series.setdefault(t, []).append((sign * lot * (px - entry), cps * lot * entry + exit_cost))
+            series.setdefault(t, []).append((sign * lot * (px - entry), cps * lot * entry + exit_cost, p["side"], p["symbol"]))
     if not series:
         return {"points": [], "positions": 0}
     start = min(series) - timedelta(minutes=15)
     entry_cost = sum(cps * p["qty"] * size * p["entry"] for p in picks if p.get("qty") and p.get("entry"))
-    points = [{"time": _epoch(start), "gross_rs": 0.0, "net_rs": round(-entry_cost, 2)}]
+    side_cost = {s_: -sum(cps * p["qty"] * size * p["entry"] for p in picks if p.get("qty") and p.get("entry") and p["side"] == s_)
+                 for s_ in ("long", "short")}
+    points = [{"time": _epoch(start), "gross_rs": 0.0, "net_rs": round(-entry_cost, 2),
+               "long_rs": round(side_cost["long"], 2), "short_rs": round(side_cost["short"], 2)}]
+    latest = {}
     for t in sorted(series):
         rows = series[t]
         if len(rows) < sized:  # a position without this candle (no trade in it): skip the point
             continue
         g = sum(r[0] for r in rows)
-        points.append({"time": _epoch(t), "gross_rs": round(g, 2), "net_rs": round(g - sum(r[1] for r in rows), 2)})
-    return {"points": points, "positions": sized}
+        net_by = lambda side: round(sum(r[0] - r[1] for r in rows if r[2] == side), 2)
+        points.append({"time": _epoch(t), "gross_rs": round(g, 2), "net_rs": round(g - sum(r[1] for r in rows), 2),
+                       "long_rs": net_by("long"), "short_rs": net_by("short")})
+        latest = {(r[3], r[2]): round(r[0] - r[1], 2) for r in rows}
+    by_position = sorted(({"symbol": s_, "side": side, "net_rs": v} for (s_, side), v in latest.items()), key=lambda x: -x["net_rs"])
+    return {"points": points, "positions": sized, "by_position": by_position,
+            "sides": [s_ for s_ in ("long", "short") if any(p["side"] == s_ for p in picks)]}
 
 
 def _epoch(t):
