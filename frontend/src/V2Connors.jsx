@@ -28,12 +28,9 @@ const STOPS = [
   ["2sd", "2σ"],
 ];
 const TAKES = [
-  ["all", "All"],
-  ["top1", "1"],
-  ["top2", "2"],
-  ["top3", "3"],
-  ["top4", "4"],
-  ["top5", "5"],
+  ["all", "All signals"],
+  ["top5", "Lowest 5 RSI"],
+  ["top3", "Lowest 3 RSI"],
 ];
 
 export default function V2Connors({ params }) {
@@ -46,7 +43,7 @@ export default function V2Connors({ params }) {
   const [month, setMonth] = useState(null);
 
   const book = !params.maxOpen;
-  const query = `dataset=${params.universe}&setup=${setup}&hold=${hold}&timing=${timing}&stop=${stop}&take=${take}&slippage=${slippage}&max_open=${params.maxOpen}`;
+  const query = `dataset=${params.universe}&setup=${setup}&hold=${hold}&timing=${timing}&stop=${stop}&take=${book ? take : "all"}&slippage=${slippage}&max_open=${params.maxOpen}`;
   const { data, error, loading } = useBacktest(`/api/v2/backtest/connors?${query}`);
   const value = useMemo(() => makeValue(params.show, params.capital), [params.show, params.capital]);
   const chartFormat = useCallback((v) => value(v, 1), [value]);
@@ -92,16 +89,11 @@ export default function V2Connors({ params }) {
         <Field label="Stop" hint="Not in the book. 1σ / 2σ of the stock's last 90 daily returns below the buy price.">
           <Segmented label="Stop" options={STOPS} value={stop} onChange={setStop} />
         </Field>
-        <Field
-          label="New a day"
-          hint={
-            book
-              ? "As per model: each day's picks share a fifth of capital. All signals, or only the day's lowest RSIs."
-              : "At most this many new positions a day (lowest RSIs first), on top of the free slots: e.g. max open 10 with 3 a day spreads the buys over more days."
-          }
-        >
-          <Segmented label="New positions a day" options={TAKES} value={take} onChange={setTake} />
-        </Field>
+        {book && (
+          <Field label="Take" hint="As per model: each day's picks share a fifth of capital. All signals, or only the day's lowest RSIs.">
+            <Segmented label="Take" options={TAKES} value={take} onChange={setTake} />
+          </Field>
+        )}
         <Field label="Slippage" hint="Per side, on top of NSE futures charges">
           <Segmented label="Slippage" options={SLIPPAGE} value={slippage} onChange={setSlippage} />
         </Field>
