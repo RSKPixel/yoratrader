@@ -1,11 +1,11 @@
 import { useMemo, useState } from "react";
 import { Field, formatRs, Segmented } from "./V2Controls";
-import { makeValue, tone } from "./V2BacktestView";
+import { tone } from "./V2BacktestView";
 import { SLIPPAGE, useBacktest } from "./V2BuyOnGap";
-import { DayLog, Panel, PaperCards, PositionsTable, StatusLine } from "./V2PaperView";
+import { DayLog, LotCards, lotColumns, lotMoney, Panel, PositionsTable, StatusLine } from "./V2PaperView";
 
 // Buy/Sell on gap paper trading on v2: the picks the production scheduler records at 09:15 (every
-// qualifying F&O stock), sized by capital and max open. Nothing here places orders.
+// qualifying F&O stock), the max open biggest gaps, one lot each. Nothing here places orders.
 
 const SIDES = [
   ["long", "Long (book)"],
@@ -21,8 +21,8 @@ export default function V2PaperGap({ params }) {
   const [stop, setStop] = useState("none");
   const [slippage, setSlippage] = useState(0.02);
   const { data, error, loading } = useBacktest(`/api/v2/paper/gap?side=${side}&stop=${stop}&slippage=${slippage}&max_open=${params.maxOpen}`);
-  const value = useMemo(() => makeValue(params.show, params.capital), [params.show, params.capital]);
-  const capital = params.capital;
+  const money = useMemo(() => lotMoney(params.show), [params.show]);
+  const lot = lotColumns(money);
 
   const columns = [
     { h: "#", cell: (t) => t.rank, style: () => ({ color: "var(--faint)" }) },
@@ -30,18 +30,14 @@ export default function V2PaperGap({ params }) {
     { h: "Side", cell: (t) => t.side, style: (t) => ({ color: t.side === "long" ? "var(--positive)" : "var(--negative)" }) },
     { h: "Gap", cell: (t) => `${t.gap_pct.toFixed(2)}%`, style: () => ({ color: "var(--muted)" }), title: (t) => `1σ = ${t.sigma_pct}%` },
     { h: "Open", cell: (t) => t.entry, title: (t) => (t.entry_live ? `Live fill ${t.entry_live} at ${t.live_at}` : undefined) },
-    {
-      h: "Qty",
-      cell: (t) => Math.round(((t.weight_pct / 100) * capital) / t.entry).toLocaleString("en-IN"),
-      title: (t) => `${t.weight_pct}% of ${formatRs(capital)} ÷ ${t.entry}`,
-    },
+    lot.qty,
     { h: "Stop", cell: (t) => t.stop, style: () => ({ color: "var(--muted)" }) },
     { h: t_exit(), cell: (t) => t.exit ?? "—" },
     { h: "Reason", cell: (t) => t.reason ?? "—", style: (t) => ({ color: t.reason?.startsWith("stop") ? "var(--negative)" : "var(--muted)" }) },
     { h: "Return", cell: (t) => (t.ret_pct == null ? "—" : `${t.ret_pct.toFixed(2)}%`), style: (t) => ({ color: tone(t.ret_pct) }) },
     { h: "Net", cell: (t) => (t.net_pct == null ? "—" : `${t.net_pct.toFixed(2)}%`), style: (t) => ({ color: tone(t.net_pct) }) },
-    { h: "Size", cell: (t) => value(t.weight_pct), style: () => ({ color: "var(--muted)" }) },
-    { h: "Net result", cell: (t) => <span className="font-medium">{value(t.book_net_pct, 3)}</span>, style: (t) => ({ color: tone(t.book_net_pct) }) },
+    lot.margin,
+    lot.result,
   ];
   function t_exit() {
     return "Exit / last";
@@ -82,8 +78,8 @@ export default function V2PaperGap({ params }) {
               : `Next session ${data.session} · picks are recorded from the 09:15 open on trading days`}
             {data.daily_as_of ? ` · daily candles to ${data.daily_as_of}` : ""} · costs {data.cost_per_side_bps} bps a side · nothing places orders
           </StatusLine>
-          <PaperCards s={data.summary} value={value} />
-          <Panel title={`Today · ${data.today}`} right={today ? `${today.status === "open" ? "open, live" : "closed"} · net ${value(today.net_pct, 3)}` : undefined}>
+          <LotCards s={{ ...data.summary, win_rate: data.summary.win_rate_lots, win_days: data.summary.win_days_lots }} money={money} />
+          <Panel title={`Today · ${data.today}`} right={today ? `${today.status === "open" ? "open, live" : "closed"} · margin ${formatRs(today.margin_rs)} · net ${money(today.net_rs, today.net_margin_pct)}` : undefined}>
             <PositionsTable rows={today?.picks || []} columns={columns} minWidth={1050} empty="No picks today." />
           </Panel>
           <Panel title={`Watchlist for ${data.session}`} right={`${data.watchlist.length} stocks · a pick if it opens past its level and stays on the right side of its 20-day average`}>
@@ -92,7 +88,7 @@ export default function V2PaperGap({ params }) {
             </div>
           </Panel>
           <Panel title="Paper log" right="a row a day · click for its positions">
-            <DayLog days={data.days} columns={columns} value={value} minWidth={1050} empty="Nothing recorded yet: the first paper day is the next trading day at 09:15 (Kite login needed)." />
+            <DayLog days={data.days} columns={columns} dayValue={(d) => money(d.net_rs, d.net_margin_pct)} dayNote={(d) => `margin ${formatRs(d.margin_rs)}`} minWidth={1050} empty="Nothing recorded yet: the first paper day is the next trading day at 09:15 (Kite login needed)." />
           </Panel>
         </>
       )}

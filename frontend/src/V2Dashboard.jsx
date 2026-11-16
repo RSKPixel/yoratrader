@@ -11,7 +11,6 @@ const STATE = {
   late: { label: "Missed", color: "var(--negative)" },
   off: { label: "No session", color: "var(--faint)" },
 };
-const CAPITAL = 1000000; // the paper pages' default, for the rupee hints
 
 const pct = (v, d = 2) => (v == null ? "—" : `${v > 0 ? "+" : ""}${v.toFixed(d)}%`);
 const num = (v) => (v == null ? "—" : v.toLocaleString("en-IN", { maximumFractionDigits: 2 }));
@@ -147,7 +146,8 @@ function PaperCard({ title, href, style, lines, error }) {
 }
 
 function Paper({ p, today }) {
-  const rs = (v) => (v == null ? "—" : `${pct(v, 3)} · ${formatRs((v / 100) * CAPITAL)}`);
+  // one F&O lot a position: rupees, with % of the day's margin where there is one
+  const rs = (v, m) => (v == null ? "—" : `${v > 0 ? "+" : ""}${formatRs(v)}${m == null ? "" : ` · ${pct(m, 2)}`}`);
   const g = p.gap || {}, x = p.xsmr || {}, c = p.connors || {};
   return (
     <div className="grid gap-3 md:grid-cols-3">
@@ -158,8 +158,9 @@ function Paper({ p, today }) {
         error={g.error}
         lines={[
           ["Today", g.today_status ? `${g.today_positions} positions · ${g.today_status === "open" ? "live" : "closed"}` : "no picks yet"],
-          ["Today's net", rs(g.today_net_pct), tone(g.today_net_pct)],
-          ["Total net", `${rs(g.total_net_pct)}`, tone(g.total_net_pct)],
+          ["Today's net", rs(g.today_net_rs, g.today_margin_pct), tone(g.today_net_rs)],
+          ["Total net", rs(g.total_net_rs), tone(g.total_net_rs)],
+          ["Capital required", g.capital_rs ? formatRs(g.capital_rs) : "—"],
           ["Watchlist", `${g.watchlist ?? "—"} stocks for ${g.session === today ? "today" : g.session}`],
         ]}
       />
@@ -170,9 +171,9 @@ function Paper({ p, today }) {
         error={x.error}
         lines={[
           ["Today", x.today_status ? `${x.today_positions} positions · ${x.today_status === "open" ? "live" : "closed"}` : "not recorded yet"],
-          ["Today's net", rs(x.today_net_pct), tone(x.today_net_pct)],
-          ["Total net", rs(x.total_net_pct), tone(x.total_net_pct)],
-          ["Days", x.days ?? "—"],
+          ["Today's net", rs(x.today_net_rs, x.today_margin_pct), tone(x.today_net_rs)],
+          ["Total net", rs(x.total_net_rs), tone(x.total_net_rs)],
+          ["Capital required", x.capital_rs ? formatRs(x.capital_rs) : "—"],
         ]}
       />
       <PaperCard
@@ -183,8 +184,9 @@ function Paper({ p, today }) {
         lines={[
           ["Open", `${c.open ?? 0} / ${c.max_open ?? 3}${c.open_symbols?.length ? ` · ${c.open_symbols.join(", ")}` : ""}`],
           ["Closed trades", c.closed ?? 0],
-          ["Book net (stock)", rs(c.book_net_pct), tone(c.book_net_pct)],
-          ["Book net (futures)", rs(c.fut_book_net_pct), tone(c.fut_book_net_pct)],
+          ["Net (stock prices)", rs(c.net_rs), tone(c.net_rs)],
+          ["Net (futures prices)", rs(c.fut_net_rs), tone(c.fut_net_rs)],
+          ["Capital required", c.capital_rs ? formatRs(c.capital_rs) : "—"],
         ]}
       />
     </div>

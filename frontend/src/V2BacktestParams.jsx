@@ -127,7 +127,9 @@ export function LiveMaxOpen({ value, onChange, saving, limit = MAX_OPEN }) {
   );
 }
 
-export default function V2BacktestParams({ params, onChange, universes = ["fno"], step = 1, live = null }) {
+export default function V2BacktestParams({ params, onChange, universes = ["fno"], step = 1, live = null, lots = false }) {
+  // lots: paper trading in F&O, where each position is one lot: no capital input (the page shows the
+  // capital required, the margin), and % results are of that margin.
   // live: a paper trader whose universe and max open are server settings the scheduler reads
   // ({ universe, universes, maxOpen, limit, saving, onUniverse, onMaxOpen }); changes apply from its next run.
   const maxOpen = live ? live.maxOpen : params.maxOpen;
@@ -153,9 +155,15 @@ export default function V2BacktestParams({ params, onChange, universes = ["fno"]
           />
         </Field>
       )}
-      <Field label="Capital" hint="The value of the positions held (not margin: futures margin is roughly a fifth of it)">
-        <CapitalInput value={params.capital} onChange={(capital) => onChange({ capital })} />
-      </Field>
+      {lots ? (
+        <Field label="Size" hint="F&O trades in whole lots: each position is one lot of its future (today's lot sizes). The capital required is the margin, shown with the results.">
+          <span className="block py-1.5 text-sm">1 lot per position</span>
+        </Field>
+      ) : (
+        <Field label="Capital" hint="The value of the positions held (not margin: futures margin is roughly a fifth of it)">
+          <CapitalInput value={params.capital} onChange={(capital) => onChange({ capital })} />
+        </Field>
+      )}
       <Field
         label="Max open"
         hint={
@@ -172,7 +180,7 @@ export default function V2BacktestParams({ params, onChange, universes = ["fno"]
           <MaxOpenStepper value={params.maxOpen} onChange={(maxOpen) => onChange({ maxOpen })} step={step} />
         )}
       </Field>
-      <Field label="Show" hint="Results as % of capital or in rupees">
+      <Field label="Show" hint={lots ? "Results in rupees (one lot each), or as % of the capital required (the margin)" : "Results as % of capital or in rupees"}>
         <Segmented
           label="Show results as"
           options={[
@@ -184,7 +192,11 @@ export default function V2BacktestParams({ params, onChange, universes = ["fno"]
         />
       </Field>
       <div className="ml-auto text-right text-sm" style={{ color: "var(--muted)" }}>
-        {per ? (
+        {lots ? (
+          <>
+            1 lot each · {maxOpen ? `${maxOpen} max` : "as per model"}
+          </>
+        ) : per ? (
           <>
             <span className="font-medium tabular-nums" style={{ color: "var(--text)" }}>
               {formatRs(per)}

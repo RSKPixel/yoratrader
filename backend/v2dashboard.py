@@ -113,22 +113,27 @@ def _paper():
     try:
         g = v2paper.gap("long", "none", 5)
         today = next((d for d in g["days"] if d["day"] == g["today"]), None)
-        out["gap"] = {"today_positions": len(today["picks"]) if today else 0, "today_net_pct": today["net_pct"] if today else None,
-                      "today_status": today["status"] if today else None, "total_net_pct": g["summary"]["net_pct"], "days": g["summary"]["days"],
+        out["gap"] = {"today_positions": len(today["picks"]) if today else 0, "today_net_rs": today["net_rs"] if today else None,
+                      "today_margin_pct": today["net_margin_pct"] if today else None, "today_margin_rs": today["margin_rs"] if today else None,
+                      "today_status": today["status"] if today else None, "total_net_rs": g["summary"]["net_rs"],
+                      "capital_rs": g["summary"]["capital_rs"], "days": g["summary"]["days"],
                       "watchlist": len(g["watchlist"]), "session": g["session"]}
     except Exception as error:
         out["gap"] = {"error": str(error)}
     try:
         x = v2paper.xsmr_(5, "none", 10)
         today = next((d for d in x["days"] if d["day"] == x["today"]), None)
-        out["xsmr"] = {"today_positions": len(today["picks"]) if today else 0, "today_net_pct": today["net_pct"] if today else None,
-                       "today_status": today["status"] if today else None, "total_net_pct": x["summary"]["net_pct"], "days": x["summary"]["days"]}
+        out["xsmr"] = {"today_positions": len(today["picks"]) if today else 0, "today_net_rs": today["net_rs"] if today else None,
+                       "today_margin_pct": today["net_margin_pct"] if today else None, "today_margin_rs": today["margin_rs"] if today else None,
+                       "today_status": today["status"] if today else None, "total_net_rs": x["summary"]["net_rs"],
+                       "capital_rs": x["summary"]["capital_rs"], "days": x["summary"]["days"]}
     except Exception as error:
         out["xsmr"] = {"error": str(error)}
     try:
         c = connorswatch.paper()
         out["connors"] = {"open": len(c["open"]), "max_open": c["max_open"], "closed": c["summary"]["trades"],
-                          "book_net_pct": c["summary"]["book_net_pct"], "fut_book_net_pct": c["summary"]["fut_book_net_pct"],
+                          "net_rs": c["lots"]["stock"]["net_rs"], "fut_net_rs": c["lots"]["fut"]["net_rs"],
+                          "capital_rs": c["lots"]["stock"]["capital_rs"] or (c["max_open"] * (c["lots"]["avg_lot_margin_rs"] or 0)),
                           "open_symbols": [t["symbol"] for t in c["open"]]}
     except Exception as error:
         out["connors"] = {"error": str(error)}

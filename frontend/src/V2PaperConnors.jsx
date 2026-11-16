@@ -1,14 +1,14 @@
 import { useMemo, useState } from "react";
 import { Field, formatRs, Segmented } from "./V2Controls";
-import { makeValue, tone } from "./V2BacktestView";
+import { tone } from "./V2BacktestView";
 import { SLIPPAGE, useBacktest } from "./V2BuyOnGap";
 import { UNIVERSES } from "./V2BacktestParams";
-import { Panel, PaperCards, PositionsTable, StatusLine } from "./V2PaperView";
+import { LotCards, lotColumns, lotMoney, Panel, PositionsTable, StatusLine } from "./V2PaperView";
 
 // Short-term mean reversion paper trading on v2: what the production scheduler records at 15:15 (2-day
-// RSI below 10, above the 200-day average, hold 5 trading days, at most N open). N is a server
-// setting the 15:15 run reads each day; each trade keeps the N it was bought under (its size is 1/N of
-// capital). Stock and futures prices are recorded at the same moment. Nothing places orders.
+// RSI below 10, above the 200-day average, hold 5 trading days, at most N open; N is a server setting
+// the 15:15 run reads each day). One F&O lot a position; the capital required is the most margin held
+// on any day. Stock and futures prices are recorded at the same moment. Nothing places orders.
 
 const PRICES = [
   ["stock", "Stock prices"],
@@ -19,33 +19,29 @@ export default function V2PaperConnors({ params, version = 0 }) {
   const [slippage, setSlippage] = useState(0.02);
   const [prices, setPrices] = useState("stock");
   const { data, error, loading } = useBacktest(`/api/connors/paper?slippage=${slippage}&v=${version}`);
-  const value = useMemo(() => makeValue(params.show, params.capital), [params.show, params.capital]);
-  const capital = params.capital;
+  const money = useMemo(() => lotMoney(params.show), [params.show]);
   const fut = prices === "fut";
+  const key = fut ? "fut" : "stock";
   const maxOpen = data?.max_open ?? 3;
-  const sw = (t) => 100 / (t.slots || maxOpen); // a trade's share of capital, %: 1 / the max open it was bought under
-
-  const closed = (data?.closed || []).map((t) => {
-    const net = fut ? t.fut_net_pct : t.net_pct;
-    return { ...t, net, book_net_pct: net == null ? null : (sw(t) * net) / 100 };
-  });
-  const nets = closed.filter((t) => t.net != null);
+  // each trade's one-lot fields for the chosen prices (stock_* or fut_*), under the shared names
+  const pick = (t) => ({ ...t, qty: t[`${key}_qty`], margin_rs: t[`${key}_margin_rs`], contract_rs: t[`${key}_contract_rs`], pnl_rs: t[`${key}_pnl_rs`], cost_rs: t[`${key}_cost_rs`], net_rs: t[`${key}_net_rs`], net_margin_pct: t[`${key}_net_margin_pct`] });
+  const lot = lotColumns(money);
+  const open = (data?.open || []).map(pick);
+  const closed = (data?.closed || []).map(pick).map((t) => ({ ...t, net: fut ? t.fut_net_pct : t.net_pct }));
+  const L = data?.lots?.[key] || {};
+  const estimate = data?.lots?.avg_lot_margin_rs ? maxOpen * data.lots.avg_lot_margin_rs : null;
   const summary = {
+    capital_rs: L.capital_rs || estimate,
+    capital_estimate: !L.capital_rs && !!estimate,
     days: (data?.days || []).filter((d) => !d.note?.startsWith("market closed")).length,
-    trades: nets.length,
-    win_rate: nets.length ? Math.round((1000 * nets.filter((t) => t.net > 0).length) / nets.length) / 10 : null,
-    win_days: null,
-    net_pct: nets.reduce((a, t) => a + t.book_net_pct, 0),
-    avg_day_pct: null,
-    // charges + slippage on both sides: each trade's gross minus its net, at its slot's share of capital
-    cost_pct: nets.reduce((a, t) => {
-      const g = fut ? t.fut_gross_pct : t.gross_pct;
-      return a + (g == null ? 0 : (sw(t) * (g - t.net)) / 100);
-    }, 0),
-  };
-  const qty = (t) => {
-    const p = fut ? t.fut_buy : t.buy;
-    return p ? Math.round(((sw(t) / 100) * capital) / p).toLocaleString("en-IN") : "—";
+    trades: L.trades,
+    win_rate: L.win_rate,
+    net_rs: L.net_rs,
+    net_margin_pct: L.net_margin_pct,
+    avg_day_rs: null,
+    cost_rs: L.cost_rs,
+    cost_margin_pct: L.capital_rs ? (100 * L.cost_rs) / L.capital_rs : null,
+    margins_as_of: data?.lots?.margins_as_of,
   };
 
   const openCols = [
@@ -53,9 +49,9 @@ export default function V2PaperConnors({ params, version = 0 }) {
     { h: "Bought", cell: (t) => `${t.buy_day} ${t.buy_at}` },
     { h: "RSI", cell: (t) => t.rsi, style: () => ({ color: "var(--muted)" }) },
     { h: fut ? "Future" : "Buy", cell: (t) => (fut ? `${t.fut ?? "—"} @ ${t.fut_buy ?? "—"}` : t.buy) },
-    { h: "Qty", cell: qty, title: (t) => `${sw(t).toFixed(1)}% of ${formatRs(capital)} ÷ the buy price` },
+    lot.qty,
     { h: "Day", cell: (t) => `${t.day_of_hold} / ${data.hold}`, style: () => ({ color: "var(--muted)" }) },
-    { h: "Size", cell: (t) => value(sw(t)), style: () => ({ color: "var(--muted)" }), title: (t) => `1 / ${t.slots || maxOpen} of capital (the max open when bought)` },
+    lot.margin,
   ];
   const closedCols = [
     { h: "Stock", cell: (t) => <span className="font-medium">{t.symbol}</span> },
@@ -63,11 +59,12 @@ export default function V2PaperConnors({ params, version = 0 }) {
     { h: "Sold", cell: (t) => t.sell_day, style: () => ({ color: "var(--muted)" }) },
     { h: "RSI", cell: (t) => t.rsi, style: () => ({ color: "var(--muted)" }) },
     { h: "Buy", cell: (t) => (fut ? t.fut_buy ?? "—" : t.buy) },
-    { h: "Qty", cell: qty },
+    lot.qty,
     { h: "Sell", cell: (t) => (fut ? t.fut_sell ?? "—" : t.sell) },
     { h: "Gross", cell: (t) => { const g = fut ? t.fut_gross_pct : t.gross_pct; return g == null ? "—" : `${g.toFixed(2)}%`; }, style: (t) => ({ color: tone(fut ? t.fut_gross_pct : t.gross_pct) }) },
     { h: "Net", cell: (t) => (t.net == null ? "—" : `${t.net.toFixed(2)}%`), style: (t) => ({ color: tone(t.net) }) },
-    { h: "Net result", cell: (t) => <span className="font-medium">{t.book_net_pct == null ? "—" : value(t.book_net_pct, 3)}</span>, style: (t) => ({ color: tone(t.book_net_pct) }) },
+    lot.margin,
+    lot.result,
   ];
   const dayCols = [
     { h: "Day", cell: (d) => d.day },
@@ -96,12 +93,16 @@ export default function V2PaperConnors({ params, version = 0 }) {
         <>
           <StatusLine>
             Recorded at 15:15 each trading day: sell positions on their {data.hold}th trading day, then buy the most oversold signals
-            into the free slots (at most {maxOpen} open, {UNIVERSES[data.universe] || data.universe}, from the next run) · each position 1 / max open when bought · backtest {data.backtest_variant} · costs {data.summary.cost_per_side_bps} bps a side ·
+            into the free slots (at most {maxOpen} open, {UNIVERSES[data.universe] || data.universe}, from the next run) · one lot each · backtest {data.backtest_variant} · costs {data.summary.cost_per_side_bps} bps a side ·
             nothing places orders
           </StatusLine>
-          <PaperCards s={summary} value={value} extra={[{ label: "Open", value: `${data.open.length} / ${maxOpen}` }]} />
+          <LotCards
+            s={summary}
+            money={money}
+            extra={[{ label: "Open", value: `${data.open.length} / ${maxOpen}`, hint: L.capital_rs ? undefined : `Capital required is an estimate until trades are recorded: ${maxOpen} × the average lot margin (${formatRs(data.lots?.avg_lot_margin_rs)})` }]}
+          />
           <Panel title="Open positions" right={`sold at 15:15 on the ${data.hold}th trading day`}>
-            <PositionsTable rows={data.open} columns={openCols} minWidth={760} empty="No open positions." />
+            <PositionsTable rows={open} columns={openCols} minWidth={760} empty="No open positions." />
           </Panel>
           <Panel title="Closed trades" right="after charges and slippage on both sides">
             <PositionsTable rows={closed} columns={closedCols} minWidth={900} empty="No closed trades yet." />

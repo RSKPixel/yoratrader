@@ -27,6 +27,7 @@ import gapwatch
 import kite_auth
 import xsmr
 import db
+import v2margin
 from db import connect
 
 MAX_OPEN, HOLD = 3, 5  # MAX_OPEN: the default; max_open() is what the scheduler uses
@@ -190,6 +191,32 @@ def record(force=False):
     return {"recorded": True, "sold": len(to_sell), "bought": [b["symbol"] for b in buys], "signals": len(signals)}
 
 
+def _lot_sizing(out_open, out_closed, cost, today):
+    """One F&O lot a position (today's lots and margin rates), at the stock and at the futures prices:
+    each trade gets stock_* and fut_* rupee fields; the result, for each price set, the capital
+    required (the peak margin of the positions held on any day) and the closed trades' totals."""
+    rows = v2margin.table()
+    out = {"margins_as_of": v2margin.as_of(rows),
+           "avg_lot_margin_rs": round(sum(r["margin"] for r in rows.values()) / len(rows)) if rows else None}
+    for key, buy, sell in (("stock", "buy", "sell"), ("fut", "fut_buy", "fut_sell")):
+        held = []
+        for t in out_open + out_closed:
+            z = v2margin.size(rows, t["symbol"], "long", t.get(buy), t.get(sell), cost)
+            z["net_margin_pct"] = v2margin.margin_pct(z["net_rs"], z["margin_rs"])
+            t.update({f"{key}_{k}": v for k, v in z.items()})
+            if z["margin_rs"]:
+                held.append((t["buy_day"], t.get("sell_day") or "9999-12-31", z["margin_rs"]))  # open: held to now
+        # Sells come before buys at the same 15:15, so a day's holdings are those bought by it and not
+        # yet sold on it; the capital required is the most margin held on any day.
+        peak = max((sum(m for b, e, m in held if b <= d < e) for d in {b for b, _, _ in held}), default=0)
+        closed = [t for t in out_closed if t.get(f"{key}_net_rs") is not None]
+        net = sum(t[f"{key}_net_rs"] for t in closed)
+        out[key] = {"capital_rs": round(peak), "net_rs": round(net, 2), "cost_rs": round(sum(t[f"{key}_cost_rs"] for t in closed), 2),
+                    "net_margin_pct": v2margin.margin_pct(net, peak), "trades": len(closed),
+                    "win_rate": round(100 * sum(t[f"{key}_net_rs"] > 0 for t in closed) / len(closed), 1) if closed else None}
+    return out
+
+
 def paper(slippage=0.0002):
     """The log: open positions, closed trades (stock and futures, net of costs on both sides), the
     days, and totals. A position is 1/N of capital (N = the max open it was bought under), so a trade
@@ -225,6 +252,7 @@ def paper(slippage=0.0002):
     nets = [t["net_pct"] for t in out_closed]
     fnets = [t["fut_net_pct"] for t in out_closed if "fut_net_pct" in t]
     n = max_open()
+    lots = _lot_sizing(out_open, out_closed, cost, today)
     summary = {"trades": len(out_closed), "open": len(out_open),
                "win_rate": round(100 * sum(n > 0 for n in nets) / len(nets), 1) if nets else None,
                "avg_net_pct": round(sum(nets) / len(nets), 2) if nets else None,
@@ -232,7 +260,7 @@ def paper(slippage=0.0002):
                "fut_book_net_pct": round(sum(t["fut_net_pct"] / t["slots"] for t in out_closed if "fut_net_pct" in t), 2) if fnets else None,
                "cost_per_side_bps": round(10000 * cost, 2)}
     return {"open": out_open, "closed": out_closed, "summary": summary, "max_open": n, "max_open_limit": MAX_OPEN_LIMIT, "hold": HOLD,
-            "universe": universe(), "universes": list(UNIVERSES),
+            "universe": universe(), "universes": list(UNIVERSES), "lots": lots,
             "backtest_variant": backtest_variant(n),
             "days": [{"day": d.isoformat(), "recorded_at": r.astimezone(backtest.IST).strftime("%H:%M:%S"), "rankable": rk,
                       "above_average": aa, "signals": sg, "bought": bo, "sold": so, "note": nt, "universe": un}

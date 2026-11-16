@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { Field, formatRs, Segmented } from "./V2Controls";
-import { makeValue, tone } from "./V2BacktestView";
+import { tone } from "./V2BacktestView";
 import { SLIPPAGE, useBacktest } from "./V2BuyOnGap";
-import { DayLog, Panel, PaperCards, PositionsTable, StatusLine } from "./V2PaperView";
+import { DayLog, LotCards, lotColumns, lotMoney, Panel, PositionsTable, StatusLine } from "./V2PaperView";
 
 // Cross-sectional mean reversion paper trading on v2: the 5 long + 5 short the production scheduler
-// records at the 09:15 open, k + k of them by Pairs, sized by capital and max open; plus the pre-open
+// records at the 09:15 open, k + k of them by Pairs, one lot each; plus the pre-open
 // test (futures auction prices at 09:06 / 09:07 against the futures open). Nothing places orders.
 
 const STOPS = [
@@ -17,7 +17,9 @@ const PREOPEN_TAKES = [
   ["5", "5+5"],
 ];
 
-function PreopenTest({ slippage, value }) {
+const pctOf = (v, d = 2) => (v == null ? "—" : `${v > 0 ? "+" : ""}${v.toFixed(d)}%`);
+
+function PreopenTest({ slippage }) {
   const [data, setData] = useState(null);
   const [take, setTake] = useState("3");
   const [open, setOpen] = useState(null);
@@ -34,7 +36,7 @@ function PreopenTest({ slippage, value }) {
     ) : (
       <span>
         <span className="font-medium" style={{ color: tone(t.net_pct) }}>
-          {value(t.net_pct, 3)}
+          {pctOf(t.net_pct, 3)}
         </span>
         <span className="ml-2 text-[0.6875rem]" style={{ color: "var(--faint)" }}>
           {t.matched}/{t.picks} match
@@ -121,26 +123,22 @@ export default function V2PaperXsmr({ params }) {
     !params.maxOpen ? "As per model: the recorded 5 + 5" : 2 * n > params.maxOpen ? `Needs Max open ${2 * n} or more` : undefined,
   ]);
   const { data, error, loading } = useBacktest(`/api/v2/paper/xsmr?pairs=${k}&stop=${stop}&slippage=${slippage}&max_open=${params.maxOpen}`);
-  const value = useMemo(() => makeValue(params.show, params.capital), [params.show, params.capital]);
-  const capital = params.capital;
+  const money = useMemo(() => lotMoney(params.show), [params.show]);
+  const lot = lotColumns(money);
 
   const columns = [
     { h: "Side", cell: (t) => `${t.side} #${t.rank}`, style: (t) => ({ color: t.side === "long" ? "var(--positive)" : "var(--negative)" }) },
     { h: "Stock", cell: (t) => <span className="font-medium">{t.symbol}</span> },
     { h: "Signal", cell: (t) => (t.signal_pct == null ? "—" : `${t.signal_pct > 0 ? "+" : ""}${t.signal_pct}%`), style: () => ({ color: "var(--muted)" }), title: () => "Open vs previous close: the move the model fades" },
     { h: "Open", cell: (t) => t.entry, title: (t) => (t.entry_live ? `Live fill ${t.entry_live} at ${t.live_at}` : undefined) },
-    {
-      h: "Qty",
-      cell: (t) => Math.round(((t.weight_pct / 100) * capital) / t.entry).toLocaleString("en-IN"),
-      title: (t) => `${t.weight_pct}% of ${formatRs(capital)} ÷ ${t.entry}`,
-    },
+    lot.qty,
     ...(stop === "1sd" ? [{ h: "Stop", cell: (t) => t.stop ?? "—", style: () => ({ color: "var(--muted)" }) }] : []),
     { h: "Exit / last", cell: (t) => t.exit ?? "—" },
     { h: "Reason", cell: (t) => t.reason ?? "—", style: (t) => ({ color: t.reason?.startsWith("stop") ? "var(--negative)" : "var(--muted)" }) },
     { h: "Return", cell: (t) => (t.ret_pct == null ? "—" : `${t.ret_pct.toFixed(2)}%`), style: (t) => ({ color: tone(t.ret_pct) }) },
     { h: "Net", cell: (t) => (t.net_pct == null ? "—" : `${t.net_pct.toFixed(2)}%`), style: (t) => ({ color: tone(t.net_pct) }) },
-    { h: "Size", cell: (t) => value(t.weight_pct), style: () => ({ color: "var(--muted)" }) },
-    { h: "Net result", cell: (t) => <span className="font-medium">{value(t.book_net_pct, 3)}</span>, style: (t) => ({ color: tone(t.book_net_pct) }) },
+    lot.margin,
+    lot.result,
   ];
   const today = data?.days.find((d) => d.day === data.today);
   const bt = data?.backtest;
@@ -148,7 +146,7 @@ export default function V2PaperXsmr({ params }) {
   return (
     <div className="mt-4 flex flex-col gap-4">
       <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
-        <Field label="Pairs" hint="k long + k short of the recorded 5 + 5 (the furthest from the day's average move first); each capital ÷ Max open.">
+        <Field label="Pairs" hint="k long + k short of the recorded 5 + 5 (the furthest from the day's average move first); one lot each.">
           <Segmented label="Pairs" options={pairOptions} value={params.maxOpen ? k : null} onChange={setPairs} />
         </Field>
         <Field label="Stop" hint="Not in the book. 1σ: Buy on gap's stop, recorded alongside the book.">
@@ -170,14 +168,14 @@ export default function V2PaperXsmr({ params }) {
               : "Recorded from the 09:15 open on trading days, closed at 15:15"}
             {bt ? ` · backtest ${bt.all_bps} bps a day net (${bt.year}: ${bt.year_bps})` : ""} · costs {data.cost_per_side_bps} bps a side · nothing places orders
           </StatusLine>
-          <PaperCards s={data.summary} value={value} />
-          <Panel title={`Today · ${data.today}`} right={today ? `${today.status === "open" ? "open, live" : "closed"} · net ${value(today.net_pct, 3)}` : undefined}>
+          <LotCards s={{ ...data.summary, win_rate: data.summary.win_rate_lots, win_days: data.summary.win_days_lots }} money={money} />
+          <Panel title={`Today · ${data.today}`} right={today ? `${today.status === "open" ? "open, live" : "closed"} · margin ${formatRs(today.margin_rs)} · net ${money(today.net_rs, today.net_margin_pct)}` : undefined}>
             <PositionsTable rows={today?.picks || []} columns={columns} minWidth={1000} empty="No positions today." />
           </Panel>
           <Panel title="Paper log" right="a row a day · click for its positions">
-            <DayLog days={data.days} columns={columns} value={value} minWidth={1000} empty="Nothing recorded yet: the first paper day is the next trading day at 09:15 (Kite login needed)." />
+            <DayLog days={data.days} columns={columns} dayValue={(d) => money(d.net_rs, d.net_margin_pct)} dayNote={(d) => `margin ${formatRs(d.margin_rs)}`} minWidth={1000} empty="Nothing recorded yet: the first paper day is the next trading day at 09:15 (Kite login needed)." />
           </Panel>
-          <PreopenTest slippage={slippage} value={value} />
+          <PreopenTest slippage={slippage} />
         </>
       )}
     </div>

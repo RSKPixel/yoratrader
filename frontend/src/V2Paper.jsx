@@ -92,7 +92,7 @@ export default function V2Paper({ model, onSelect }) {
           <StyleTag style={m.style} />
         </div>
         <div className="mt-4">
-          {(!m.live || ls) && <V2BacktestParams params={modelParams} onChange={setParams} universes={["fno"]} step={step} live={live} />}
+          {(!m.live || ls) && <V2BacktestParams params={modelParams} onChange={setParams} universes={["fno"]} step={step} live={live} lots />}
           {liveSettings.error && (
             <p className="mt-2 text-sm" style={{ color: "var(--negative)" }}>
               {liveSettings.error}

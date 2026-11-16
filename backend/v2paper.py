@@ -10,13 +10,48 @@ places orders; the production scheduler records.
   capital / max open each; as per model = the recorded 5 + 5, a tenth of capital each.
 
 Costs: NSE futures charges + slippage on the buy and the sale (xsmr.cost_per_side).
+
+Lots: every position is also sized as one F&O lot (v2margin: today's lots and margin rates). Each
+row gets qty, contract value, margin and its rupee P&L after costs; each day its margin and net in
+rupees and as % of that margin; the summary the capital required (the peak day's margin) and the
+totals in rupees and as % of it. The % fields above stay for the backtest-style view.
 """
 
 import gapwatch
+import v2margin
 import xsmr
 import xsmrwatch
 
 TOP = gapwatch.TOP
+
+
+def _lots(rows, lots, cps):
+    """Add one-lot sizing to a day's rows; returns the day's rupee totals."""
+    for r in rows:
+        r.update(v2margin.size(lots, r["symbol"], r["side"], r["entry"], r.get("exit"), cps))
+        r["net_margin_pct"] = v2margin.margin_pct(r["net_rs"], r["margin_rs"])
+    margin = sum(r["margin_rs"] or 0 for r in rows)
+    net = sum(r["net_rs"] or 0 for r in rows)
+    return {"margin_rs": round(margin), "contract_rs": round(sum(r["contract_rs"] or 0 for r in rows)),
+            "net_rs": round(net, 2), "cost_rs": round(sum(r["cost_rs"] or 0 for r in rows), 2),
+            "net_margin_pct": v2margin.margin_pct(net, margin), "unsized": [r["symbol"] for r in rows if r["lot"] is None]}
+
+
+def _lot_summary(days, lots):
+    """Rupee totals over the closed days; capital required = the biggest day's margin (open days too)."""
+    closed = [d for d in days if d["status"] == "closed"]
+    capital = max((d["margin_rs"] for d in days), default=0)
+    net = sum(d["net_rs"] for d in closed)
+    trades = [p for d in closed for p in d["picks"] if p["net_rs"] is not None]
+    return {"capital_rs": capital, "contract_peak_rs": max((d["contract_rs"] for d in days), default=0),
+            "net_rs": round(net, 2), "cost_rs": round(sum(d["cost_rs"] for d in closed), 2),
+            "avg_day_rs": round(net / len(closed), 2) if closed else None,
+            "net_margin_pct": v2margin.margin_pct(net, capital),
+            "avg_day_margin_pct": v2margin.margin_pct(net / len(closed), capital) if closed else None,
+            "cost_margin_pct": v2margin.margin_pct(sum(d["cost_rs"] for d in closed), capital),
+            "win_rate_lots": round(100 * sum(p["net_rs"] > 0 for p in trades) / len(trades), 1) if trades else None,
+            "win_days_lots": round(100 * sum(d["net_rs"] > 0 for d in closed) / len(closed)) if closed else None,
+            "margins_as_of": v2margin.as_of(lots)}
 
 
 def _summary(days):
@@ -35,6 +70,7 @@ def _summary(days):
 def gap(side="long", stop="none", max_open=5, slippage=0.0002):
     data = gapwatch.paper(slippage)
     cps = xsmr.cost_per_side(slippage)
+    lots = v2margin.table()
     by_day = {}
     for p in data["picks"]:
         if side == "long" and p["side"] != "long":
@@ -62,19 +98,20 @@ def gap(side="long", stop="none", max_open=5, slippage=0.0002):
                          "book_cost_pct": round(100 * w * cost, 4)})
         status = "closed" if all(r["closed"] for r in rows) else "open"
         days.append({"day": day, "status": status, "picks": rows,
-                     "net_pct": round(sum(r["book_net_pct"] for r in rows), 4)})
+                     "net_pct": round(sum(r["book_net_pct"] for r in rows), 4), **_lots(rows, lots, cps)})
     watch = data["watchlist"]
     if side == "long":
         watch = [z for z in watch if z.get("buy_below")]
     return {"now": data["now"], "today": data["today"], "session": data["session"], "market_open": data["market_open"],
             "today_recorded": data["today_recorded"], "last_recorded": data["last_recorded"], "ltp_at": data["ltp_at"],
-            "daily_as_of": data["daily_as_of"], "watchlist": watch, "days": days, "summary": _summary(days),
+            "daily_as_of": data["daily_as_of"], "watchlist": watch, "days": days, "summary": {**_summary(days), **_lot_summary(days, lots)},
             "cost_per_side_bps": round(10000 * cps, 2)}
 
 
 def xsmr_(pairs=5, stop="none", max_open=10, slippage=0.0002):
     data = xsmrwatch.paper(slippage, stop=stop == "1sd")
     cps = xsmr.cost_per_side(slippage)
+    lots = v2margin.table()
     k = max(1, min(int(pairs or 1), xsmrwatch.PER_SIDE, (max_open // 2) if max_open else xsmrwatch.PER_SIDE))
     w = 1.0 / max_open if max_open else xsmrwatch.WEIGHT
     by_day = {}
@@ -97,8 +134,8 @@ def xsmr_(pairs=5, stop="none", max_open=10, slippage=0.0002):
                          "book_cost_pct": round(100 * w * cost, 4)})
         rows.sort(key=lambda r: (r["side"] != "long", r["rank"]))
         days.append({"day": day, "status": "closed" if all(r["closed"] for r in rows) else "open", "picks": rows,
-                     "net_pct": round(sum(r["book_net_pct"] for r in rows), 4)})
+                     "net_pct": round(sum(r["book_net_pct"] for r in rows), 4), **_lots(rows, lots, cps)})
     return {"now": data["now"], "today": data["today"], "market_open": data["market_open"],
-            "today_recorded": data["today_recorded"], "ltp_at": data["ltp_at"], "days": days, "summary": _summary(days),
+            "today_recorded": data["today_recorded"], "ltp_at": data["ltp_at"], "days": days, "summary": {**_summary(days), **_lot_summary(days, lots)},
             "per_side": k, "recorded_per_side": xsmrwatch.PER_SIDE, "backtest": data["backtest"],
             "cost_per_side_bps": round(10000 * cps, 2)}
