@@ -45,6 +45,19 @@ function Chevron({ left }) {
   );
 }
 
+// group heading colours: intraday teal, positional gold, archived grey
+const GROUP_COLOR = { Intraday: "var(--accent)", Positional: "var(--brand-gold)", Archived: "var(--faint)" };
+
+function GroupTitle({ title, children }) {
+  const color = GROUP_COLOR[title] || "var(--faint)";
+  return (
+    <span className="flex items-center gap-2 text-[0.6875rem] font-semibold uppercase tracking-[0.14em]" style={{ color }}>
+      <span className="h-3 w-0.5 rounded-full" style={{ background: color }} aria-hidden="true" />
+      {children || title}
+    </span>
+  );
+}
+
 function Dot({ status }) {
   if (status !== "testing" && status !== "live") return null;
   return <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: STATUS[status].color }} title={STATUS[status].label} aria-hidden="true" />;
@@ -75,7 +88,7 @@ function Rail({ groups, title, current, item, onToggle, statuses = {} }) {
       )}
       {groups.map((g, i) => (
         <div key={g.title} className="flex flex-col items-center gap-1">
-          {i > 0 && <span className="my-1 h-px w-6" style={{ background: "var(--border)" }} aria-hidden="true" />}
+          <span className={`${i > 0 ? "mt-1" : ""} mb-1 h-0.5 w-6 rounded-full`} style={{ background: GROUP_COLOR[g.title] || "var(--border)" }} title={g.title} aria-hidden="true" />
           {g.models.map((m) => {
             const active = m.id === current;
             return (
@@ -146,8 +159,8 @@ function List({ groups, title, current, item, onClose, closeLabel, pinned, onPin
       <div className="flex flex-col gap-4 px-3 pb-4 pt-2">
         {groups.map((g) => (
           <div key={g.title}>
-            <p className="px-2 text-[0.6875rem] font-semibold uppercase tracking-[0.14em]" style={{ color: g.title === "Intraday" ? "var(--accent)" : "var(--faint)" }}>
-              {g.title}
+            <p className="px-2">
+              <GroupTitle title={g.title} />
             </p>
             <div className="mt-1.5 flex flex-col gap-0.5">
               {g.models.map((m) => {
@@ -176,14 +189,10 @@ function List({ groups, title, current, item, onClose, closeLabel, pinned, onPin
         ))}
         {archived.length > 0 && (
           <div>
-            <button
-              type="button"
-              onClick={() => setShowArchived((v) => !v)}
-              className="px-2 text-[0.6875rem] font-semibold uppercase tracking-[0.14em]"
-              style={{ color: "var(--faint)" }}
-              aria-expanded={showArchived}
-            >
-              {showArchived ? "▾" : "▸"} Archived ({archived.length})
+            <button type="button" onClick={() => setShowArchived((v) => !v)} className="px-2" aria-expanded={showArchived}>
+              <GroupTitle title="Archived">
+                {showArchived ? "▾" : "▸"} Archived ({archived.length})
+              </GroupTitle>
             </button>
             {showArchived && (
               <div className="mt-1.5 flex flex-col gap-0.5">
