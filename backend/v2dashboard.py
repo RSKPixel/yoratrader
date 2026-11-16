@@ -22,6 +22,8 @@ import v2qmom
 import v2xsmom
 import v2xsmr
 import connorswatch
+import oopswatch
+import v2oops
 from db import connect
 
 INDICES = ["NIFTY 50", "NIFTY BANK", "NIFTY FIN SERVICE", "NIFTY MID SELECT", "NIFTY NEXT 50"]
@@ -62,6 +64,12 @@ def _schedule(cursor, today, now):
     pre = _one(cursor, "SELECT count(*) FROM xsmr_preopen_quotes WHERE day = %s AND snap = '0906'", (today,)) if _table_exists(cursor, "xsmr_preopen_quotes") else 0
     gap = _one(cursor, "SELECT candidates FROM gap_paper_days WHERE day = %s", (today,)) if _table_exists(cursor, "gap_paper_days") else None
     xs = _one(cursor, "SELECT quoted FROM xsmr_paper_days WHERE day = %s", (today,)) if _table_exists(cursor, "xsmr_paper_days") else None
+    oops_day = None
+    if _table_exists(cursor, "oops_paper_days"):
+        cursor.execute("SELECT gapped, note FROM oops_paper_days WHERE day = %s", (today,))
+        oops_day = cursor.fetchone()
+    oops_open = _one(cursor, "SELECT count(*) FROM oops_paper WHERE day = %s AND exit_at IS NULL", (today,)) if oops_day else None
+    oops_n = _one(cursor, "SELECT count(*) FROM oops_paper WHERE day = %s", (today,)) if oops_day else None
     con = con_cum = None
     if _table_exists(cursor, "connors_paper_days"):
         cursor.execute("SELECT bought, sold, note FROM connors_paper_days WHERE day = %s", (today,))
@@ -82,12 +90,15 @@ def _schedule(cursor, today, now):
         step((9, 6), "Pre-open snapshot (futures auction)", bool(pre), f"{pre} futures quoted" if pre else None, until=(9, 9)),
         step((9, 15), "Buy/Sell on gap: picks at the open", gap is not None, f"{gap} qualifying stocks" if gap is not None else None, until=(9, 20)),
         step((9, 15), "Cross-sectional mean reversion: 5 + 5 at the open", xs is not None, f"{xs} stocks quoted" if xs is not None else None, until=(9, 20)),
+        step((9, 15), "Oops gap reversal: watchlist, then buys through the day", oops_day is not None and not (oops_day[1] or "").startswith("market closed"),
+             (oops_day[1] if oops_day and oops_day[1] else f"{oops_day[0]} opened below yesterday's low · {oops_n} bought" if oops_day else None),
+             until=(9, 20)),
         step((15, 15), "Short-term mean reversion: sells and buys", con is not None and not (con[2] or "").startswith("market closed"),
              (f"{con[1] or 0} sold, {con[0] or 0} bought" if con and con[0] is not None else (con[2] if con else None)), until=(15, 25)),
         step((15, 15), "Cumulative RSI(2): sells on strength and buys", con_cum is not None and not (con_cum[2] or "").startswith("market closed"),
              (f"{con_cum[1] or 0} sold, {con_cum[0] or 0} bought" if con_cum and con_cum[0] is not None else (con_cum[2] if con_cum else None)),
              until=(15, 25)),
-        step((15, 16), "Intraday exits at 15:15", exits_done and (gap is not None or xs is not None),
+        step((15, 16), "Intraday exits at 15:15", exits_done and not oops_open and (gap is not None or xs is not None),
              "all closed" if exits_done and (gap is not None or xs is not None) else None, until=(15, 30)),
         step((15, 45), "Daily candles refreshed", daily is not None and daily >= today, f"to {daily}" if daily else None, until=(16, 30)),
         step((15, 50), "Live futures download (EOD + 15 min)", live_n > 0 and min(eod_today, m15_today) >= 0.8 * live_n,
@@ -144,6 +155,15 @@ def _paper(gap_max_open=5, xsmr_max_open=10):
                        "capital_rs": x["summary"]["capital_rs"], "days": x["summary"]["days"], "max_open": xsmr_max_open, "pairs": pairs}
     except Exception as error:
         out["xsmr"] = {"error": str(error)}
+    try:
+        o = oopswatch.paper()
+        today = next((d for d in o["days"] if d["day"] == o["today"]), None)
+        out["oops"] = {"watched": len(o["watchlist"]), "today_positions": len(today["picks"]) if today else 0,
+                       "today_status": today["status"] if today else None, "today_net_rs": today["net_rs"] if today else None,
+                       "today_value_pct": today["net_value_pct"] if today else None, "total_net_rs": o["summary"]["net_rs"],
+                       "capital_rs": o["summary"]["capital_rs"], "days": o["summary"]["days"], "max_open": o["max_open"]}
+    except Exception as error:
+        out["oops"] = {"error": str(error)}
     for key, book in (("connors", "rsi2"), ("connors_cum", "cum")):  # the two short-term mean reversion books
         try:
             c = connorswatch.paper(book=book)
@@ -207,6 +227,8 @@ MODELS = [
     ("quant-momentum", "Quantitative momentum", "Positional", "F&O · book · max 5", lambda: v2qmom.results("fno", "book", "none", 5)),
     ("short-term-reversion", "Short-term mean reversion", "Positional", "F&O · RSI(2) · max 3 · close",
      lambda: v2connors.results("fno", "rsi2", "5d", 3, "none", "close", "all")),
+    ("oops", "Oops gap reversal", "Intraday", "F&O · stop below the low · first 3 a day",
+     lambda: v2oops.results("low", "any", 3)),
     ("short-term-reversion", "Cumulative RSI(2) · exit on strength", "Positional", "F&O · cumulative RSI(2) · max 3 · close",
      lambda: v2connors.results("fno", "cumrsi2", "0d", 3, "none", "close", "all")),
 ]

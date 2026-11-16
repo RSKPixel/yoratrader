@@ -151,9 +151,9 @@ function PaperCard({ title, href, style, lines, error }) {
 function Paper({ p, today }) {
   // one F&O lot a position: rupees, with % of the day's margin where there is one
   const rs = (v, m) => (v == null ? "—" : `${v > 0 ? "+" : ""}${formatRs(v)}${m == null ? "" : ` · ${pct(m, 2)}`}`);
-  const g = p.gap || {}, x = p.xsmr || {}, c = p.connors || {}, cc = p.connors_cum || {};
+  const g = p.gap || {}, x = p.xsmr || {}, c = p.connors || {}, cc = p.connors_cum || {}, op = p.oops || {};
   return (
-    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
       <PaperCard
         title="Buy/Sell on gap"
         href="/v2/paper/buy-on-gap"
@@ -179,6 +179,19 @@ function Paper({ p, today }) {
           ["Today's net", rs(x.today_net_rs, x.today_margin_pct), tone(x.today_net_rs)],
           ["Total net", rs(x.total_net_rs), tone(x.total_net_rs)],
           ["Capital required", x.capital_rs ? formatRs(x.capital_rs) : "—"],
+        ]}
+      />
+      <PaperCard
+        title="Oops gap reversal"
+        href="/v2/paper/oops"
+        style="Intraday"
+        error={op.error}
+        lines={[
+          ["Watching", `${op.watched ?? 0} opened below yesterday's low`],
+          ["Today", op.today_status ? `${op.today_positions} bought · ${op.today_status === "open" ? "live" : "closed"}` : "no buys yet"],
+          ["Today's net", rs(op.today_net_rs, op.today_value_pct), tone(op.today_net_rs)],
+          ["Total net", rs(op.total_net_rs), tone(op.total_net_rs)],
+          ["Capital required", op.capital_rs ? formatRs(op.capital_rs) : "—"],
         ]}
       />
       <PaperCard
