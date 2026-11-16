@@ -80,8 +80,12 @@ export default function V2CandleChart({ row, source, onClose, lines = [], initia
   }, [row, source, interval, days, tick, kite]);
   useEffect(() => setTick(0), [interval, days]);
 
+  // The chart is built once per interval / range / theme; a refresh only updates the candles and the
+  // marked lines, so the zoom and scroll the user set are kept. It fits the view on its first data only.
+  const chartRef = useRef(null);
+  const linesKey = JSON.stringify(lines);
   useEffect(() => {
-    if (!box.current || !candles?.length) return undefined;
+    if (!box.current) return undefined;
     const c = colors(box.current);
     const chart = createChart(box.current, {
       autoSize: true,
@@ -95,21 +99,42 @@ export default function V2CandleChart({ row, source, onClose, lines = [], initia
     });
     const volume = chart.addSeries(HistogramSeries, { priceScaleId: "vol", priceFormat: { type: "volume" }, lastValueVisible: false, priceLineVisible: false });
     chart.priceScale("vol").applyOptions({ scaleMargins: { top: 0.8, bottom: 0 } });
-    price.setData(candles.map(({ volume: _, ...k }) => k));
-    volume.setData(candles.map((k) => ({ time: k.time, value: k.volume, color: k.close >= k.open ? `${c.up}55` : `${c.down}55` })));
-    for (const l of lines) {
-      if (l.price != null) {
-        price.createPriceLine({ price: l.price, color: l.color || c.text, lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: l.label || "" });
-      }
-    }
-    chart.timeScale().fitContent();
     chart.subscribeCrosshairMove((p) => {
       const k = p.seriesData?.get(price);
       setHover(k ? { ...k, volume: p.seriesData.get(volume)?.value } : null);
     });
-    return () => chart.remove();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [candles, interval, theme, lines]);
+    chartRef.current = { chart, price, volume, c, fitted: false, priceLines: [] };
+    return () => {
+      chartRef.current = null;
+      chart.remove();
+    };
+  }, [interval, days, theme]);
+
+  useEffect(() => {
+    const ref = chartRef.current;
+    if (!ref) return;
+    if (candles == null) {
+      ref.fitted = false; // a new range / interval is loading: fit its candles when they arrive
+      return;
+    }
+    if (!candles.length) return;
+    const { chart, price, volume, c } = ref;
+    price.setData(candles.map(({ volume: _, ...k }) => k));
+    volume.setData(candles.map((k) => ({ time: k.time, value: k.volume, color: k.close >= k.open ? `${c.up}55` : `${c.down}55` })));
+    if (!ref.fitted) {
+      chart.timeScale().fitContent();
+      ref.fitted = true;
+    }
+  }, [candles, interval, days, theme]);
+
+  useEffect(() => {
+    const ref = chartRef.current;
+    if (!ref) return;
+    ref.priceLines.forEach((pl) => ref.price.removePriceLine(pl));
+    ref.priceLines = JSON.parse(linesKey)
+      .filter((l) => l.price != null)
+      .map((l) => ref.price.createPriceLine({ price: l.price, color: l.color || ref.c.text, lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: l.label || "" }));
+  }, [linesKey, interval, days, theme]);
 
   const last = candles?.[candles.length - 1];
   const show = hover || last;
