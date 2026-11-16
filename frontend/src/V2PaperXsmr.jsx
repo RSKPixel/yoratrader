@@ -221,7 +221,7 @@ export default function V2PaperXsmr({ params }) {
             <DayLog
               days={data.days}
               columns={columns}
-              extra={(d) => <V2PnlChart url={`/api/v2/paper/xsmr/pnl?day=${d.day}&pairs=${k}&stop=${stop}&slippage=${slippage}&max_open=${params.maxOpen}`} height="h-44" />} dayValue={(d) => netBoth(d.net_rs, d.net_value_pct)} dayNote={(d) => `margin ${formatRs(d.margin_rs)}${d.meta ? ` · meta ${d.meta.size} lot${d.meta.size > 1 ? "s" : ""} (p ${d.meta.p.toFixed(2)}): ${netBoth(d.meta.net_rs, null)}` : ""}`} minWidth={1000} empty="Nothing recorded yet: the first paper day is the next trading day at 09:15 (Kite login needed)." />
+              extra={(d) => <V2PnlChart url={`/api/v2/paper/xsmr/pnl?day=${d.day}&pairs=${k}&stop=${stop}&slippage=${slippage}&max_open=${params.maxOpen}`} height="h-40" />} dayValue={(d) => netBoth(d.net_rs, d.net_value_pct)} dayNote={(d) => `margin ${formatRs(d.margin_rs)}${d.meta ? ` · meta ${d.meta.size} lot${d.meta.size > 1 ? "s" : ""} (p ${d.meta.p.toFixed(2)}): ${netBoth(d.meta.net_rs, null)}` : ""}`} minWidth={1000} empty="Nothing recorded yet: the first paper day is the next trading day at 09:15 (Kite login needed)." />
           </Panel>
           <PreopenTest slippage={slippage} />
         </>

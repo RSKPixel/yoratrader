@@ -6,7 +6,7 @@ import { baseOptions, Chart, themeColors, watchTheme } from "./chartjs";
 // green above zero and red below, with the gross move as a faint dashed line; hover for each point. `url` is the /api/v2/paper/<model>/pnl query;
 // `refreshMs` re-fetches while the day is live.
 
-export default function V2PnlChart({ url, refreshMs = 0, height = "h-56" }) {
+export default function V2PnlChart({ url, refreshMs = 0, height = "h-48" }) {
   const canvas = useRef(null);
   const [theme, setTheme] = useState(0);
   const [data, setData] = useState(null);
@@ -52,7 +52,13 @@ export default function V2PnlChart({ url, refreshMs = 0, height = "h-56" }) {
           { label: "Gross", data: data.points.map((p) => p.gross_rs), borderColor: c.faint, borderWidth: 1, borderDash: [3, 3], pointRadius: 0, tension: 0.15 },
         ],
       },
-      options: baseOptions(c, (v) => formatRs(v)),
+      options: (() => {
+        // a session is ~25 points: a compact chart with a light grid reads better than a wide one
+        const o = baseOptions(c, (v) => formatRs(v));
+        o.scales.y.ticks.maxTicksLimit = 5;
+        o.scales.x.ticks.maxTicksLimit = 7;
+        return o;
+      })(),
     });
     return () => chart.destroy();
   }, [data, theme]);
@@ -64,7 +70,7 @@ export default function V2PnlChart({ url, refreshMs = 0, height = "h-56" }) {
   const best = pts.length ? pts.reduce((a, p) => (p.net_rs > a.net_rs ? p : a)) : null;
   const worst = pts.length ? pts.reduce((a, p) => (p.net_rs < a.net_rs ? p : a)) : null;
   return (
-    <div>
+    <div className="max-w-xl">
       <p className="mb-1 text-xs tabular-nums" style={{ color: "var(--muted)" }}>
         {error ? (
           <span style={{ color: "var(--negative)" }}>{error}</span>
