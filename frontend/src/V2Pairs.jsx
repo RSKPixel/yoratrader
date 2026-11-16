@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useState } from "react";
+import { useSetting } from "./settings";
 import { Field, formatRs, Segmented } from "./V2Controls";
 import V2EquityChart from "./V2EquityChart";
 import { makeValue, MonthGrid, MonthTradesModal, Panel, SummaryCards, tone } from "./V2BacktestView";
@@ -18,10 +19,10 @@ const FILLS = [
 ];
 
 export default function V2Pairs({ params }) {
-  const [method, setMethod] = useState("bollinger");
-  const [fill, setFill] = useState("close");
-  const [slippage, setSlippage] = useState(0.02);
-  const [pairs, setPairs] = useState(3);
+  const [method, setMethod] = useSetting("bt.pairs.method", "bollinger");
+  const [fill, setFill] = useSetting("bt.pairs.fill", "close");
+  const [slippage, setSlippage] = useSetting("bt.pairs.slippage", 0.02);
+  const [pairs, setPairs] = useSetting("bt.pairs.pairs", 3);
   const [month, setMonth] = useState(null);
 
   const maxPairs = Math.min(5, Math.floor(params.maxOpen / 2));

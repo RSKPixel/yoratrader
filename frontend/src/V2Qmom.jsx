@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useState } from "react";
+import { useSetting } from "./settings";
 import { Field, formatRs, Segmented } from "./V2Controls";
 import V2EquityChart from "./V2EquityChart";
 import { makeValue, MonthGrid, MonthTradesModal, Panel, SummaryCards, tone } from "./V2BacktestView";
@@ -19,9 +20,9 @@ const HEDGES = [
 ];
 
 export default function V2Qmom({ params }) {
-  const [version, setVersion] = useState("book");
-  const [hedge, setHedge] = useState("none");
-  const [slippage, setSlippage] = useState(0.02);
+  const [version, setVersion] = useSetting("bt.qmom.version", "book");
+  const [hedge, setHedge] = useSetting("bt.qmom.hedge", "none");
+  const [slippage, setSlippage] = useSetting("bt.qmom.slippage", 0.02);
   const [month, setMonth] = useState(null);
 
   const query = `dataset=${params.universe}&version=${version}&hedge=${hedge}&slippage=${slippage}&max_open=${params.maxOpen}`;

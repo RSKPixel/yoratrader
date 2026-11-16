@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useState } from "react";
+import { useSetting } from "./settings";
 import { Field, formatRs, Segmented } from "./V2Controls";
 import V2EquityChart from "./V2EquityChart";
 import { makeValue, MonthGrid, MonthTradesModal, Panel, SummaryCards, tone } from "./V2BacktestView";
@@ -24,12 +25,12 @@ const STOPS = [
 ];
 
 export default function V2Xsmr({ params }) {
-  const [version, setVersion] = useState("intraday");
-  const [entry, setEntry] = useState("0915");
-  const [stop, setStop] = useState("none");
-  const [slippage, setSlippage] = useState(0.02);
+  const [version, setVersion] = useSetting("bt.xsmr.version", "intraday");
+  const [entry, setEntry] = useSetting("bt.xsmr.entry", "0915");
+  const [stop, setStop] = useSetting("bt.xsmr.stop", "none");
+  const [slippage, setSlippage] = useSetting("bt.xsmr.slippage", 0.02);
   const [month, setMonth] = useState(null);
-  const [pairs, setPairs] = useState(3);
+  const [pairs, setPairs] = useSetting("bt.xsmr.pairs", 3);
 
   const stopAllowed = version === "intraday" && entry === "0915";
   // k long + k short, within Max open (2k <= max open); As per model is the book (every stock).

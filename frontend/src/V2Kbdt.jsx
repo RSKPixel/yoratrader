@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useState } from "react";
+import { useSetting } from "./settings";
 import { Field, formatRs, Segmented } from "./V2Controls";
 import V2EquityChart from "./V2EquityChart";
 import { makeValue, MonthGrid, MonthTradesModal, Panel, SummaryCards, tone } from "./V2BacktestView";
@@ -26,10 +27,10 @@ const STOP_PCTS = [
 ];
 
 export default function V2Kbdt({ params }) {
-  const [hold, setHold] = useState("5d");
-  const [stopMode, setStopMode] = useState("model");
-  const [stopPct, setStopPct] = useState(1);
-  const [slippage, setSlippage] = useState(0.02);
+  const [hold, setHold] = useSetting("bt.kbdt.hold", "5d");
+  const [stopMode, setStopMode] = useSetting("bt.kbdt.stopMode", "model");
+  const [stopPct, setStopPct] = useSetting("bt.kbdt.stopPct", 1);
+  const [slippage, setSlippage] = useSetting("bt.kbdt.slippage", 0.02);
   const [month, setMonth] = useState(null);
 
   const query = `dataset=${params.universe}&hold=${hold}&stop_mode=${stopMode}&stop_pct=${stopPct}&slippage=${slippage}&max_open=${params.maxOpen}`;

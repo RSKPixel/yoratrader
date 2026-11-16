@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSetting } from "./settings";
 import { Field, formatRs, Segmented } from "./V2Controls";
 import V2EquityChart from "./V2EquityChart";
 import { makeValue, MonthGrid, MonthTradesModal, Panel, SummaryCards, tone } from "./V2BacktestView";
@@ -81,9 +82,9 @@ export function useLiveRefresh() {
 
 export default function V2BuyOnGap({ params, model = "gap" }) {
   const mom = model === "gapmom";
-  const [side, setSide] = useState(mom ? "both" : "long");
-  const [stop, setStop] = useState("none");
-  const [slippage, setSlippage] = useState(0.02);
+  const [side, setSide] = useSetting(`bt.${model}.side`, mom ? "both" : "long");
+  const [stop, setStop] = useSetting(`bt.${model}.stop`, "none");
+  const [slippage, setSlippage] = useSetting(`bt.${model}.slippage`, 0.02);
   const [month, setMonth] = useState(null);
 
   const query = `dataset=${params.universe}&side=${side}&stop=${stop}&slippage=${slippage}&max_open=${params.maxOpen}`;

@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useSetting } from "./settings";
 import V2CandleChart from "./V2CandleChart";
 import { Field, formatRs, Segmented } from "./V2Controls";
 import { tone } from "./V2BacktestView";
@@ -99,8 +100,8 @@ function Candidates({ live }) {
 }
 
 export default function V2PaperConnors({ params, version = 0 }) {
-  const [slippage, setSlippage] = useState(0.02);
-  const [prices, setPrices] = useState("stock");
+  const [slippage, setSlippage] = useSetting("paper.connors.slippage", 0.02);
+  const [prices, setPrices] = useSetting("paper.connors.prices", "stock");
   const live = useLiveRefresh();
   const { data, error, loading } = useBacktest(`/api/connors/paper?slippage=${slippage}&v=${version}`, { refreshMs: live });
   const money = useMemo(() => lotMoney(params.show), [params.show]);

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useSetting } from "./settings";
 import { Field, formatRs, Segmented } from "./V2Controls";
 import { tone } from "./V2BacktestView";
 import { SLIPPAGE, useBacktest, useLiveRefresh } from "./V2BuyOnGap";
@@ -22,7 +23,7 @@ const pctOf = (v, d = 2) => (v == null ? "—" : `${v > 0 ? "+" : ""}${v.toFixed
 
 function PreopenTest({ slippage }) {
   const [data, setData] = useState(null);
-  const [take, setTake] = useState("3");
+  const [take, setTake] = useSetting("paper.xsmr.preopen_take", "3");
   const [open, setOpen] = useState(null);
   useEffect(() => {
     fetch(`/api/xsmr/preopen?slippage=${slippage}`)
@@ -144,9 +145,9 @@ function MetaPanel({ meta, today }) {
 }
 
 export default function V2PaperXsmr({ params }) {
-  const [pairs, setPairs] = useState(5);
-  const [stop, setStop] = useState("none");
-  const [slippage, setSlippage] = useState(0.02);
+  const [pairs, setPairs] = useSetting("paper.xsmr.pairs", 5);
+  const [stop, setStop] = useSetting("paper.xsmr.stop", "none");
+  const [slippage, setSlippage] = useSetting("paper.xsmr.slippage", 0.02);
   const maxPairs = Math.min(5, Math.floor(params.maxOpen / 2));
   const k = params.maxOpen ? Math.max(1, Math.min(pairs, maxPairs || 1)) : 5;
   const pairOptions = [1, 2, 3, 4, 5].map((n) => [

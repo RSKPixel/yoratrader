@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useSetting } from "./settings";
 import { Field, formatRs, Segmented } from "./V2Controls";
 import { tone } from "./V2BacktestView";
 import { SLIPPAGE, useBacktest, useLiveRefresh } from "./V2BuyOnGap";
@@ -18,9 +19,9 @@ const STOPS = [
 ];
 
 export default function V2PaperGap({ params }) {
-  const [side, setSide] = useState("long");
-  const [stop, setStop] = useState("none");
-  const [slippage, setSlippage] = useState(0.02);
+  const [side, setSide] = useSetting("paper.gap.side", "long");
+  const [stop, setStop] = useSetting("paper.gap.stop", "none");
+  const [slippage, setSlippage] = useSetting("paper.gap.slippage", 0.02);
   const live = useLiveRefresh();
   const { data, error, loading } = useBacktest(`/api/v2/paper/gap?side=${side}&stop=${stop}&slippage=${slippage}&max_open=${params.maxOpen}`, { refreshMs: live });
   const money = useMemo(() => lotMoney(params.show), [params.show]);

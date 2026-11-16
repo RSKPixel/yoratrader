@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSetting } from "./settings";
 import { Card } from "./V2BacktestView";
 import { inputStyle, Segmented } from "./V2Controls";
 import V2CandleChart from "./V2CandleChart";
@@ -163,12 +164,12 @@ const COLUMNS = [
 ];
 
 export default function V2Data() {
-  const [source, setSource] = useState("backtest");
-  const [universe, setUniverse] = useState("all");
+  const [source, setSource] = useSetting("data.source", "backtest");
+  const [universe, setUniverse] = useSetting("data.universe", "all");
   const [query, setQuery] = useState("");
   const [gapsOnly, setGapsOnly] = useState(false);
   const [longGapsOnly, setLongGapsOnly] = useState(false);
-  const [sort, setSort] = useState({ key: "symbol", dir: 1 });
+  const [sort, setSort] = useSetting("data.sort", { key: "symbol", dir: 1 });
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
   const [chart, setChart] = useState(null);

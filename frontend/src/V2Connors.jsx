@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useState } from "react";
+import { useSetting } from "./settings";
 import { Field, formatRs, Segmented } from "./V2Controls";
 import V2EquityChart from "./V2EquityChart";
 import { makeValue, MonthGrid, MonthTradesModal, Panel, SummaryCards, tone } from "./V2BacktestView";
@@ -33,12 +34,12 @@ const TAKES = [
 ];
 
 export default function V2Connors({ params }) {
-  const [setup, setSetup] = useState("rsi2");
-  const [hold, setHold] = useState("5d");
-  const [timing, setTiming] = useState("close");
-  const [stop, setStop] = useState("none");
-  const [take, setTake] = useState("all");
-  const [slippage, setSlippage] = useState(0.02);
+  const [setup, setSetup] = useSetting("bt.connors.setup", "rsi2");
+  const [hold, setHold] = useSetting("bt.connors.hold", "5d");
+  const [timing, setTiming] = useSetting("bt.connors.timing", "close");
+  const [stop, setStop] = useSetting("bt.connors.stop", "none");
+  const [take, setTake] = useSetting("bt.connors.take", "all");
+  const [slippage, setSlippage] = useSetting("bt.connors.slippage", 0.02);
   const [month, setMonth] = useState(null);
 
   const book = !params.maxOpen;
