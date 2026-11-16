@@ -8,6 +8,10 @@ Guards on every order: LIMIT only, product NRML (carried overnight), DAY validit
 Nifty call 2-3.5% in the money of the plan's expiry; a sale only of a call the account holds, up to what
 it holds; 1 to MAX_LOTS lots; the price on the 0.05 tick and within PRICE_BAND of the live bid/ask mid.
 Every order is logged in live_orders (who, what, Kite's order id) and tagged on Kite (TAG).
+
+A buy only on the plan's buy day. Stop loss (optional): a Kite GTT (good till triggered, so it lasts
+the whole hold) on the held call: when its last price falls to the trigger, Kite sends a LIMIT sell
+STOP_LIMIT_BELOW under it. Selling from the page removes that call's GTT first, so it can't sell twice.
 """
 
 from datetime import datetime
@@ -20,6 +24,7 @@ MODEL = "turn-of-month"
 TAG = "yt-tom"
 MAX_LOTS = 5
 PRICE_BAND = 0.05  # a limit price more than 5% off the mid is refused (a typo, a stale price)
+STOP_LIMIT_BELOW = 0.10  # the stop's sell order: a LIMIT 10% under the trigger, so a fast fall still fills
 
 
 def _ensure(cursor):
@@ -73,6 +78,11 @@ def state():
                                      "ltp": ltp, "bid": x.get("bid"), "ask": x.get("ask"), "mid": x.get("mid"), "limit": x.get("limit"),
                                      "pnl": round((ltp - p["average_price"]) * p["quantity"], 2) if ltp else p.get("pnl"),
                                      "value": round((ltp or 0) * p["quantity"]), "lot": _lot(s)})
+        stops = _stops(kite)
+        for p in out["positions"]:
+            g = stops.get(p["tradingsymbol"])
+            p["stop"] = {"id": g["id"], "trigger": g["condition"]["trigger_values"][0], "limit": g["orders"][0]["price"],
+                         "quantity": g["orders"][0]["quantity"]} if g else None
         out["orders"] = [{"order_id": o["order_id"], "time": str(o.get("order_timestamp") or ""), "side": o["transaction_type"],
                           "tradingsymbol": o["tradingsymbol"], "quantity": o["quantity"], "filled": o.get("filled_quantity"),
                           "price": o.get("price"), "average_price": o.get("average_price"), "status": o["status"],
@@ -86,6 +96,62 @@ def state():
         out["log"] = [{"placed_at": a.isoformat(timespec="seconds"), "by": u, "side": sd, "tradingsymbol": ts, "quantity": qn,
                        "price": pr, "order_id": oid, "error": err} for a, u, sd, ts, qn, pr, oid, err in cursor.fetchall()]
     return out
+
+
+def _stops(kite):
+    """{tradingsymbol: GTT}: the active single-trigger SELL GTTs on Nifty calls (the stops)."""
+    out = {}
+    for g in kite.get_gtts():
+        o = (g.get("orders") or [{}])[0]
+        sym = (g.get("condition") or {}).get("tradingsymbol", "")
+        if g.get("status") == "active" and g.get("type") == "single" and o.get("transaction_type") == "SELL" \
+                and sym.startswith("NIFTY") and sym.endswith("CE"):
+            out[sym] = g
+    return out
+
+
+def _tick(x):
+    return round(round(x / 0.05) * 0.05, 2)
+
+
+def set_stop(symbol, trigger, username):
+    """Place (or replace) the stop on a held call: a GTT that sells all of it when it trades at the trigger."""
+    if not kite_auth.status().get("connected"):
+        raise ValueError("Kite isn't connected.")
+    kite = kite_auth.trading_client()
+    held = _held(kite).get(symbol)
+    if not held or held["quantity"] <= 0:
+        raise ValueError(f"The account doesn't hold {symbol}.")
+    trigger = float(trigger)
+    if abs(_tick(trigger) - trigger) > 1e-6 or trigger <= 0:
+        raise ValueError("The trigger must be a positive price on the 0.05 tick.")
+    ltp = (_quote(kite, [symbol]).get(symbol) or {}).get("ltp")
+    if not ltp or trigger >= ltp:
+        raise ValueError(f"The trigger must be below the last price (₹{ltp}).")
+    qty, limit = held["quantity"], _tick(trigger * (1 - STOP_LIMIT_BELOW))
+    old = _stops(kite).get(symbol)
+    if old:
+        kite.delete_gtt(old["id"])
+    try:
+        gid = kite.place_gtt(trigger_type=kite.GTT_TYPE_SINGLE, tradingsymbol=symbol, exchange=kite.EXCHANGE_NFO, trigger_values=[trigger],
+                             last_price=ltp, orders=[{"exchange": kite.EXCHANGE_NFO, "tradingsymbol": symbol, "transaction_type": "SELL",
+                                                      "quantity": qty, "order_type": kite.ORDER_TYPE_LIMIT, "product": kite.PRODUCT_NRML, "price": limit}])
+    except Exception as error:
+        _log(username, "STOP", symbol, qty, trigger, error=str(error))
+        raise ValueError(f"Kite refused the stop: {error}")
+    gid = gid.get("trigger_id") if isinstance(gid, dict) else gid
+    _log(username, "STOP", symbol, qty, trigger, order_id=f"GTT {gid}")
+    return {"id": gid, "trigger": trigger, "limit": limit, "quantity": qty}
+
+
+def remove_stop(symbol, username):
+    kite = kite_auth.trading_client()
+    g = _stops(kite).get(symbol)
+    if not g:
+        raise ValueError(f"No stop on {symbol}.")
+    kite.delete_gtt(g["id"])
+    _log(username, "STOP REMOVED", symbol, g["orders"][0]["quantity"], g["condition"]["trigger_values"][0], order_id=f"GTT {g['id']}")
+    return {"removed": g["id"]}
 
 
 def _lot(symbol):
@@ -130,6 +196,8 @@ def place(side, symbol, lots, price, username):
     qty = lots * lot
     if side == "BUY":
         plan = v2tom.plan(live=True)
+        if not str(plan.get("state", "")).startswith("buy"):
+            raise ValueError(f"Buying opens on the buy day ({plan.get('buy')}).")
         allowed = {c["symbol"] for c in plan.get("calls") or []}
         if symbol not in allowed:
             raise ValueError("Only one of the plan's calls (2-3.5% in the money, the plan's expiry) can be bought here.")
@@ -140,6 +208,11 @@ def place(side, symbol, lots, price, username):
         if qty > held["quantity"]:
             raise ValueError(f"The account holds {held['quantity']}, not {qty}.")
     _check_price(kite, symbol, price)
+    if side == "SELL":  # the page's sale replaces the stop: drop its GTT so the call can't be sold twice
+        g = _stops(kite).get(symbol)
+        if g:
+            kite.delete_gtt(g["id"])
+            _log(username, "STOP REMOVED", symbol, g["orders"][0]["quantity"], g["condition"]["trigger_values"][0], order_id=f"GTT {g['id']}")
     try:
         order_id = kite.place_order(variety=kite.VARIETY_REGULAR, exchange=kite.EXCHANGE_NFO, tradingsymbol=symbol,
                                     transaction_type=side, quantity=qty, product=kite.PRODUCT_NRML,

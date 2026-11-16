@@ -765,6 +765,22 @@ def v2_trade_tom_order(req: LiveOrderRequest, request: Request):
         raise HTTPException(status_code=400, detail=str(exc))
 
 
+class LiveStopRequest(BaseModel):
+    tradingsymbol: str
+    trigger: float | None = None
+
+
+@app.post("/api/v2/trade/tom/stop")
+def v2_trade_tom_stop(req: LiveStopRequest, request: Request):
+    """Set (trigger given) or remove (no trigger) the GTT stop on a held call: REAL, on the Kite account."""
+    try:
+        user = request.state.user.get("username")
+        r = livetrade.set_stop(req.tradingsymbol, req.trigger, user) if req.trigger else livetrade.remove_stop(req.tradingsymbol, user)
+        return {"status": "success", **r}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
 @app.post("/api/v2/trade/order/{order_id}/modify")
 def v2_trade_modify(order_id: str, req: LivePriceRequest, request: Request):
     try:

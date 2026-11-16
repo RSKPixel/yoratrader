@@ -165,6 +165,74 @@ function Info({ children }) {
   );
 }
 
+// The stop loss on a held call: a Kite GTT that sells it all when it trades down to the trigger. Quick
+// picks are % below the average buy price; the trigger can be typed. Two clicks: set, then confirm.
+function StopControl({ p, onDone }) {
+  const [trigger, setTrigger] = useState("");
+  const [ask, setAsk] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const at = (pct) => setTrigger(String(Math.round(p.average_price * (1 - pct / 100) * 20) / 20));
+  const send = async (body, msg) => {
+    setBusy(true);
+    setError("");
+    try {
+      await post("/api/v2/trade/tom/stop", body);
+      setAsk(false);
+      setTrigger("");
+      onDone(msg);
+    } catch (e) {
+      setError(e.message);
+    }
+    setBusy(false);
+  };
+  const t = Math.round(Number(trigger) * 20) / 20;
+  const loss = t ? (t - p.average_price) * p.quantity : null;
+  return (
+    <div className="flex flex-wrap items-center gap-2 text-sm">
+      <span style={{ color: "var(--muted)" }}>Stop loss:</span>
+      {p.stop ? (
+        <span className="font-medium" style={{ color: "var(--warning)" }}>
+          sells {p.stop.quantity} if it trades at ₹{num(p.stop.trigger)} (limit ₹{num(p.stop.limit)}) · Kite GTT
+        </span>
+      ) : (
+        <span style={{ color: "var(--faint)" }}>none</span>
+      )}
+      <span className="inline-flex gap-1">
+        {[25, 35, 50].map((pct) => (
+          <Btn key={pct} onClick={() => at(pct)} disabled={busy} title={`${pct}% below your average price`}>
+            −{pct}%
+          </Btn>
+        ))}
+      </span>
+      <input type="number" step="0.05" placeholder="trigger ₹" value={trigger} onChange={(e) => { setTrigger(e.target.value); setAsk(false); }} className="w-28 rounded-md border px-2 py-1.5 text-sm" style={inputStyle} />
+      {!ask ? (
+        <Btn onClick={() => setAsk(true)} disabled={busy || !t}>
+          {p.stop ? "Move stop" : "Set stop"}
+        </Btn>
+      ) : (
+        <>
+          <span style={{ color: "var(--warning)" }}>
+            Sell all {p.quantity} if it trades at ₹{num(t)}? Loss about {formatRs(loss)}
+          </span>
+          <Btn kind="sell" onClick={() => send({ tradingsymbol: p.tradingsymbol, trigger: t }, `Stop set at ₹${num(t)}`)} disabled={busy}>
+            Confirm
+          </Btn>
+          <Btn onClick={() => setAsk(false)} disabled={busy}>
+            Cancel
+          </Btn>
+        </>
+      )}
+      {p.stop && !ask && (
+        <Btn onClick={() => send({ tradingsymbol: p.tradingsymbol }, "Stop removed")} disabled={busy}>
+          Remove stop
+        </Btn>
+      )}
+      {error && <span style={{ color: "var(--negative)" }}>{error}</span>}
+    </div>
+  );
+}
+
 export default function V2Trade() {
   const [d, setD] = useState(null);
   const [error, setError] = useState("");
@@ -320,7 +388,8 @@ export default function V2Trade() {
                 </label>
                 <Btn
                   kind="buy"
-                  disabled={!d.kite || !Number(price)}
+                  disabled={!d.kite || !Number(price) || !buyDay}
+                  title={buyDay ? undefined : `Buying opens on the buy day, ${day(plan.buy)}`}
                   onClick={() =>
                     setConfirm({
                       side: "BUY",
@@ -345,7 +414,7 @@ export default function V2Trade() {
             <Table
               head={["Contract", "Qty", "Avg", "Bid / Ask", "Last", "P&L", "Value", ""]}
               empty="No Nifty call held."
-              rows={(d.positions || []).map((p) => (
+              rows={(d.positions || []).flatMap((p) => [
                 <tr key={p.tradingsymbol} className="border-t" style={{ borderColor: "var(--border)" }}>
                   <td className="px-2 py-1.5 font-medium">{p.tradingsymbol}</td>
                   <td className="px-2 py-1.5 tabular-nums">{p.quantity}</td>
@@ -376,8 +445,13 @@ export default function V2Trade() {
                       Sell all at ₹{num(p.limit)}
                     </Btn>
                   </td>
-                </tr>
-              ))}
+                </tr>,
+                <tr key={`${p.tradingsymbol}-stop`}>
+                  <td colSpan={8} className="px-2 pb-3 pt-1">
+                    <StopControl p={p} onDone={(msg) => { setNotice(msg); refresh(); }} />
+                  </td>
+                </tr>,
+              ])}
             />
           </Panel>
 
