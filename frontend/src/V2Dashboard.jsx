@@ -365,6 +365,10 @@ export default function V2Dashboard() {
   return (
     <div className="flex flex-col gap-5">
       <Header d={d} />
+      <section className="flex flex-col gap-2">
+        <h2 className="text-sm font-semibold">Paper trading</h2>
+        <Paper p={d.paper} today={d.today} />
+      </section>
       <div className="grid gap-4 lg:grid-cols-5">
         <div className="lg:col-span-3">
           <Panel title="Today's schedule" right="the production scheduler, automatically">
@@ -377,10 +381,6 @@ export default function V2Dashboard() {
           </Panel>
         </div>
       </div>
-      <section className="flex flex-col gap-2">
-        <h2 className="text-sm font-semibold">Paper trading</h2>
-        <Paper p={d.paper} today={d.today} />
-      </section>
       <Panel title="Strategies" right="every backtest at its default settings">
         <Models />
       </Panel>
