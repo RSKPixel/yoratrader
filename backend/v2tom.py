@@ -199,7 +199,7 @@ def _best_call(kite, nifty, expiry):
     """`nifty`: the price the options follow, the Nifty future of that expiry. The in-the-money calls of
     that expiry 2-3.5% below it, with live bid/ask, and the pick: the
     tightest bid-ask spread (% of the mid), ties to the larger open interest. Limit price: the mid."""
-    rows = [(k, ts, lot) for e, k, ts, lot in _nifty_calls(kite) if e == expiry and nifty * (1 - ITM_TO) <= k <= nifty * (1 - ITM_FROM)]
+    rows = [(k, ts, lot) for e, k, ts, lot in _nifty_calls(kite) if e == expiry and nifty * (1 - ITM_TO - 0.015) <= k <= nifty * (1 - ITM_FROM + 0.015)]
     if not rows:
         return None, []
     q = kite.quote([f"NFO:{ts}" for _, ts, _ in rows])
@@ -218,9 +218,12 @@ def _best_call(kite, nifty, expiry):
                     "spread_pct": round(100 * (ask - bid) / mid, 2) if bid and ask else None,
                     "itm_pct": round(100 * (1 - k / nifty), 2), "time_value": round(mid - max(0.0, nifty - k), 2),
                     "per_lot": round(mid * lot)})
-    priced = [o for o in out if o["spread_pct"] is not None]
+    priced = [o for o in out if o["spread_pct"] is not None and 100 * ITM_FROM <= o["itm_pct"] <= 100 * ITM_TO]
     best = min(priced, key=lambda o: (o["spread_pct"], -(o["oi"] or 0))) if priced else None
-    return best, out
+    if best is None:
+        return None, []
+    i = next(n for n, o in enumerate(out) if o["symbol"] == best["symbol"])
+    return best, out[max(0, i - 3): i + 4]  # the pick with 3 strikes either side
 
 
 def plan(today=None, live=True):

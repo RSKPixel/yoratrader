@@ -127,6 +127,44 @@ function Confirm({ order, onCancel, onDone }) {
   );
 }
 
+// An "i" button that opens the model's rules in a small box (click again, or anywhere outside, to close).
+function Info({ children }) {
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    if (!open) return;
+    const close = () => setOpen(false);
+    window.addEventListener("click", close);
+    return () => window.removeEventListener("click", close);
+  }, [open]);
+  return (
+    <span className="relative inline-flex">
+      <button
+        type="button"
+        aria-label="The rules"
+        aria-expanded={open}
+        onClick={(e) => {
+          e.stopPropagation();
+          setOpen((o) => !o);
+        }}
+        className="flex h-5 w-5 items-center justify-center rounded-full border text-xs font-semibold italic"
+        style={{ borderColor: "var(--border)", color: open ? "var(--accent)" : "var(--muted)" }}
+      >
+        i
+      </button>
+      {open && (
+        <span
+          role="tooltip"
+          onClick={(e) => e.stopPropagation()}
+          className="absolute left-0 top-7 z-30 w-80 max-w-[calc(100vw-2rem)] rounded-lg border p-3 text-sm shadow-lg"
+          style={{ borderColor: "var(--border)", background: "var(--surface)", color: "var(--muted)" }}
+        >
+          {children}
+        </span>
+      )}
+    </span>
+  );
+}
+
 export default function V2Trade() {
   const [d, setD] = useState(null);
   const [error, setError] = useState("");
@@ -201,15 +239,15 @@ export default function V2Trade() {
         </p>
         <div className="mt-1 flex flex-wrap items-center gap-3">
           <h1 className="text-xl font-semibold tracking-tight">Turn of the month</h1>
+          <Info>
+            Buy a Nifty call 2–3.5% in the money (next month's expiry) at the close of the month's 5th-last trading day; sell it at the close of the next
+            month's 3rd trading day. Orders are placed only when you click and confirm.
+          </Info>
           <StyleTag style="Positional" />
           <span className="ml-auto">
             <StatusButtons id="turn-of-month" />
           </span>
         </div>
-        <p className="mt-1 text-sm" style={{ color: "var(--muted)" }}>
-          Buy a Nifty call 2–3.5% in the money (next month's expiry) at the close of the month's 5th-last trading day; sell it at the close of the next
-          month's 3rd trading day. Orders are placed only when you click and confirm.
-        </p>
       </div>
 
       {error && <p className="text-sm" style={{ color: "var(--negative)" }}>{error}</p>}
@@ -233,9 +271,6 @@ export default function V2Trade() {
             <Card label={plan.future_symbol ? `Future · ${plan.future_symbol}` : "Future"} value={plan.future ? `${num(plan.future)} (+${plan.basis_pct}%)` : "—"} hint="The same-expiry future, what the options follow before expiry: in the money and time value are measured from it." />
             <Card label="Contract expiry" value={day(plan.expiry)} hint="The calls' (and the future's) expiry: next month's, so none falls inside the 7-day hold." />
           </div>
-          <p className="-mt-1 text-xs" style={{ color: "var(--faint)" }}>
-            Dates from {plan.holidays_source} · option expiry {day(plan.expiry)} · in the money and time value are measured from the {plan.future_symbol || "future"} (the price the options follow) · prices refresh every 5 s in market hours (last {updated})
-          </p>
 
           <Panel title={`Buy · calls for ${day(plan.expiry)}`} right={plan.quoted_at ? `prices at ${plan.quoted_at} · best = tightest spread` : "prices need Kite"}>
             <Table
@@ -245,7 +280,16 @@ export default function V2Trade() {
               rows={calls.map((c) => {
                 const on = chosen?.symbol === c.symbol;
                 return (
-                  <tr key={c.symbol} className="cursor-pointer border-t" style={{ borderColor: "var(--border)", background: on ? "var(--surface-2)" : undefined }} onClick={() => choose(c)}>
+                  <tr
+                    key={c.symbol}
+                    className="cursor-pointer border-t"
+                    style={{
+                      borderColor: "var(--border)",
+                      background: on ? "var(--surface-2)" : undefined,
+                      ...(plan.best?.symbol === c.symbol ? { outline: "2px solid var(--positive)", outlineOffset: "-2px" } : {}),
+                    }}
+                    onClick={() => choose(c)}
+                  >
                     <td className="px-2 py-1.5">
                       <input type="radio" checked={on} onChange={() => choose(c)} aria-label={`Choose ${c.strike}`} />
                     </td>
