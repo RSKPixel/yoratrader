@@ -108,7 +108,7 @@ function PinIcon({ on }) {
 }
 
 function List({ groups, title, current, item, onClose, closeLabel, pinned, onPin, statuses = {}, archived = [] }) {
-  const [showArchived, setShowArchived] = useState(archived.some((m) => m.id === current));
+  const [showArchived, setShowArchived] = useState(false); // closed until opened
   return (
     <nav className="flex h-full w-80 flex-col overflow-y-auto border-r" style={{ borderColor: "var(--border)", background: "var(--surface)" }} aria-label={title}>
       <div className="flex items-center justify-between px-4 pb-1 pt-3">
