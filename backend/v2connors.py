@@ -18,8 +18,8 @@ import v2common
 import xsmr
 
 DATASETS = connors.DATASETS
-SETUPS = ("rsi2", "low10", "down3", "every")
-HOLDS = ("5d", "2d")
+SETUPS = ("rsi2", "low10", "down3", "every", "cumrsi2")
+HOLDS = ("5d", "2d", "0d")  # 0d: exit on strength (RSI(2) above 65), 10 days at most
 STOPS = {"none": "", "1sd": "-1sd", "2sd": "-2sd", "3pc": "-3pc", "5pc": "-5pc", "7pc": "-7pc", "10pc": "-10pc"}
 TIMINGS = {"1515": "", "close": "-close"}
 TAKES = ("all", "top5", "top3")

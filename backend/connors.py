@@ -46,8 +46,12 @@ MIN_HISTORY = 0.9  # share of the last 200 closes a stock needs, not counting da
 MIN_STOCKS = xsmr.MIN_STOCKS
 MAX_MOVE = xsmr.MAX_MOVE
 SETUPS = {"rsi2": "2-day RSI below 10 (book)", "low10": "New 10-day low", "down3": "3 down days",
-          "every": "Any stock above the 200-day average (no RSI threshold)"}
-HOLDS = {5: "hold 5 days (book)", 2: "hold 2 days"}
+          "every": "Any stock above the 200-day average (no RSI threshold)",
+          "cumrsi2": "Cumulative RSI(2): today's + yesterday's below 35 (Connors & Alvarez)"}
+# hold 0 = exit on strength: out at the first close the 2-day RSI is above EXIT_RSI (below 100 - it for
+# a short), STRENGTH_MAX_DAYS at most
+HOLDS = {5: "hold 5 days (book)", 2: "hold 2 days", 0: "out when RSI(2) > 65"}
+CUM_RSI_MAX, EXIT_RSI, STRENGTH_MAX_DAYS = 35.0, 65.0, 10
 # "-max<N>": at most N trades open at once (for a margin budget: each futures lot ties up its own
 # margin). Each trade gets 1/N of capital (one lot in one-lot mode). A new trade starts only when a
 # slot is free: the most oversold qualifying stocks not already held, from that 15:15 on (a slot
@@ -143,14 +147,15 @@ def _data(dataset, start=None, end=None, timing="15:15", closes=None):
     up = 0.5 * y(au) + 0.5 * (px - prev).clip(lower=0)
     dn = 0.5 * y(ad) + 0.5 * (prev - px).clip(lower=0)
     rsi = 100 - 100 / (1 + up / dn)
+    cum = rsi + rsi.shift(1)
     setups = {"rsi2": rsi < RSI_MAX, "low10": px <= y(c.rolling(LOW_DAYS - 1).min()),
               "down3": (move < 0) & (y(r) < 0) & (y(r.shift(1)) < 0),
-              "every": pd.DataFrame(True, index=idx, columns=cols)}
+              "every": pd.DataFrame(True, index=idx, columns=cols), "cumrsi2": cum < CUM_RSI_MAX}
     eligible = qualified & (px > sma)
     eligible_short = qualified & (px < sma)
     setups_short = {"rsi2": rsi > 100 - RSI_MAX, "low10": px >= y(c.rolling(LOW_DAYS - 1).max()),
                     "down3": (move > 0) & (y(r) > 0) & (y(r.shift(1)) > 0),
-                    "every": pd.DataFrame(True, index=idx, columns=cols)}
+                    "every": pd.DataFrame(True, index=idx, columns=cols), "cumrsi2": cum > 200 - CUM_RSI_MAX}
     # Daily 15:15 -> 15:15 returns for holding; a missing 15:15 price carries the last one (up to 3 days).
     pxf = px.ffill(limit=3)
     ret = pxf / pxf.shift(1) - 1
@@ -171,7 +176,7 @@ def _data(dataset, start=None, end=None, timing="15:15", closes=None):
         low_exit = p["low1515"].reindex(index=idx, columns=cols)
         high_exit = p["high1515"].reindex(index=idx, columns=cols)
         sigma = p["sigma"].reindex(index=idx, columns=cols)
-    return {"px": pxf, "rsi": rsi, "eligible": eligible, "setups": setups, "r": ret,
+    return {"px": pxf, "rsi": rsi, "cumrsi": cum, "eligible": eligible, "setups": setups, "r": ret,
             "eligible_short": eligible_short, "setups_short": setups_short,
             "rankable": qualified.sum(axis=1), "open": day_open, "low": day_low, "high": day_high,
             "low1515": low_exit, "high1515": high_exit, "sigma": sigma}
@@ -204,6 +209,8 @@ def _simulate(d, variant, lot=None):
     base, take = parse_variant(variant)
     meta = VARIANTS[base]
     hold, top, k, cap = meta["hold"], TAKES[take], meta["stop"], meta["max_open"]
+    strength = hold == 0  # exit on strength, STRENGTH_MAX_DAYS at most
+    horizon = STRENGTH_MAX_DAYS if strength else hold
     idx, cols = d["px"].index, d["px"].columns
     side = meta.get("side", "long")
     enough = (d["rankable"] >= MIN_STOCKS).to_numpy()[:, None]
@@ -214,6 +221,7 @@ def _simulate(d, variant, lot=None):
     if side == "long":
         hit_short = np.zeros_like(hit_short)
     px, rsi = d["px"].to_numpy(), d["rsi"].to_numpy()
+    score = d["cumrsi"].to_numpy() / 2 if meta["setup"] == "cumrsi2" else rsi  # ranking: the most extreme first
     op, lo, lo15, sd = (d[x].to_numpy() for x in ("open", "low", "low1515", "sigma"))
     hi, hi15 = d["high"].to_numpy(), d["high1515"].to_numpy()
     lots = (lot.reindex(cols).to_numpy() if lot is not None else np.full(len(cols), np.nan))
@@ -229,6 +237,9 @@ def _simulate(d, variant, lot=None):
             s_ = tr["s"]
             prev = tr["last"]
             last_day = i == tr["sell_i"]
+            if strength and not last_day and i > tr["buy_i"] and pd.notna(rsi[i, s_]):
+                if (tr["sign"] > 0 and rsi[i, s_] > EXIT_RSI) or (tr["sign"] < 0 and rsi[i, s_] < 100 - EXIT_RSI):
+                    last_day, tr["sell_i"], tr["strong"] = True, i, True
             price = px[i, s_]
             exit_px = reason = None
             if tr["stop"] is not None:
@@ -246,7 +257,7 @@ def _simulate(d, variant, lot=None):
                     elif pd.notna(high) and high >= tr["stop"]:
                         exit_px, reason = tr["stop"], "stop"
             if exit_px is None and last_day:
-                exit_px, reason = (float(price) if pd.notna(price) else prev), "time"
+                exit_px, reason = (float(price) if pd.notna(price) else prev), "strength" if tr.get("strong") else "time"
             now = exit_px if exit_px is not None else (float(price) if pd.notna(price) else prev)
             ret = now / prev - 1
             if abs(ret) > MAX_MOVE:  # a split or bad print: earns nothing
@@ -281,11 +292,11 @@ def _simulate(d, variant, lot=None):
             held_now = {tr["s"] for tr in open_trades}
             cand = [x for x in cand if x[0] not in held_now]
             top = cap - len(open_trades)
-        extreme = lambda x: rsi[i, x[0]] if x[1] > 0 else 100 - rsi[i, x[0]]
+        extreme = lambda x: score[i, x[0]] if x[1] > 0 else 100 - score[i, x[0]]
         if top is not None and len(cand) > top:
             cand = sorted(cand, key=extreme)[:max(top, 0)]
         if len(cand):
-            w = 1.0 / cap if cap else 1.0 / (hold * len(cand))
+            w = 1.0 / cap if cap else 1.0 / (horizon * len(cand))
             for s_, sign in cand:
                 buy = float(px[i, s_])
                 if not k:
@@ -295,7 +306,7 @@ def _simulate(d, variant, lot=None):
                 else:
                     stop = buy * (1 - sign * k[1] * sd[i, s_]) if pd.notna(sd[i, s_]) else None
                 size = float(lots[s_]) if pd.notna(lots[s_]) else 0.0
-                tr = {"s": s_, "buy_i": i, "sell_i": min(i + hold, n - 1) if i + hold < n else None, "buy": buy,
+                tr = {"s": s_, "buy_i": i, "sell_i": min(i + horizon, n - 1) if i + horizon < n else None, "buy": buy,
                       "last": buy, "w": w, "stop": stop, "lot": size, "rsi": float(rsi[i, s_]), "sign": sign}
                 if tr["sell_i"] is None:
                     tr["sell_i"] = n + 10**6  # past the data: still open
@@ -398,7 +409,7 @@ def compare(dataset, slippage=0.0002, take="all", lots=False, variant=None):
     if want["max_open"]:
         take = "all"  # a fixed number of slots: the take doesn't apply
     for base, meta in VARIANTS.items():
-        if any(meta[k] != want[k] for k in ("max_open", "stop", "timing")):
+        if any(meta[k] != want[k] for k in ("max_open", "stop", "timing", "side")):
             continue
         f = _frame(variant_id(base, take), dataset, slippage)
         if not f.empty:
@@ -425,7 +436,7 @@ def day_trades(variant, dataset, day):
     lot = xsmr.lot_series(cols)
     rows = []
     for tr in trades:
-        if not (tr["buy_i"] < i <= min(tr["sell_i"], len(idx) - 1)) or tr["buy_i"] < i - hold:
+        if not (tr["buy_i"] < i <= min(tr["sell_i"], len(idx) - 1)) or tr["buy_i"] < i - (hold or STRENGTH_MAX_DAYS):
             continue
         s_ = tr["s"]
         symbol = cols[s_]
