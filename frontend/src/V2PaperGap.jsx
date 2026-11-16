@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { Field, formatRs, Segmented } from "./V2Controls";
 import { tone } from "./V2BacktestView";
 import { SLIPPAGE, useBacktest } from "./V2BuyOnGap";
-import { DayLog, LotCards, lotColumns, lotMoney, Panel, PositionsTable, StatusLine } from "./V2PaperView";
+import { DayLog, LotCards, lotColumns, lotMoney, netBoth, Panel, PositionsTable, StatusLine } from "./V2PaperView";
 
 // Buy/Sell on gap paper trading on v2: the picks the production scheduler records at 09:15 (every
 // qualifying F&O stock), the max open biggest gaps, one lot each. Nothing here places orders.
@@ -79,7 +79,7 @@ export default function V2PaperGap({ params }) {
             {data.daily_as_of ? ` · daily candles to ${data.daily_as_of}` : ""} · costs {data.cost_per_side_bps} bps a side · nothing places orders
           </StatusLine>
           <LotCards s={{ ...data.summary, win_rate: data.summary.win_rate_lots, win_days: data.summary.win_days_lots }} money={money} />
-          <Panel title={`Today · ${data.today}`} right={today ? `${today.status === "open" ? "open, live" : "closed"} · margin ${formatRs(today.margin_rs)} · net ${money(today.net_rs, today.net_value_pct)}` : undefined}>
+          <Panel title={`Today · ${data.today}`} right={today ? `${today.status === "open" ? "open, live" : "closed"} · margin ${formatRs(today.margin_rs)} · net ${netBoth(today.net_rs, today.net_value_pct)}` : undefined}>
             <PositionsTable rows={today?.picks || []} columns={columns} minWidth={1050} empty="No picks today." />
           </Panel>
           <Panel title={`Watchlist for ${data.session}`} right={`${data.watchlist.length} stocks · a pick if it opens past its level and stays on the right side of its 20-day average`}>
@@ -88,7 +88,7 @@ export default function V2PaperGap({ params }) {
             </div>
           </Panel>
           <Panel title="Paper log" right="a row a day · click for its positions">
-            <DayLog days={data.days} columns={columns} dayValue={(d) => money(d.net_rs, d.net_value_pct)} dayNote={(d) => `margin ${formatRs(d.margin_rs)}`} minWidth={1050} empty="Nothing recorded yet: the first paper day is the next trading day at 09:15 (Kite login needed)." />
+            <DayLog days={data.days} columns={columns} dayValue={(d) => netBoth(d.net_rs, d.net_value_pct)} dayNote={(d) => `margin ${formatRs(d.margin_rs)}`} minWidth={1050} empty="Nothing recorded yet: the first paper day is the next trading day at 09:15 (Kite login needed)." />
           </Panel>
         </>
       )}

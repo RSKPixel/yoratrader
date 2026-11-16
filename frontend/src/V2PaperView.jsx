@@ -13,6 +13,12 @@ export function lotMoney(show) {
   };
 }
 
+// A day's net in rupees and as % of its contract value, whichever way results are shown
+export function netBoth(rs, pct) {
+  if (rs == null) return "—";
+  return `${rs > 0 ? "+" : ""}${formatRs(rs)}${pct == null ? "" : ` (${pct > 0 ? "+" : ""}${pct.toFixed(2)}% of value)`}`;
+}
+
 export function LotCards({ s, money, extra = [] }) {
   // s: capital_rs, contract_peak_rs, margins_as_of, days, trades, win_rate, win_days, net_rs / net_margin_pct, ...
   return (
