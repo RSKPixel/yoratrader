@@ -20,29 +20,40 @@ export const PAPER_GROUPS = [
   {
     title: "Larry Connors",
     source: "How Markets Really Work (2nd ed., 2012)",
-    models: [{ id: "short-term-reversion", short: "SR", label: "Short-term mean reversion", style: "Positional", live: "/api/connors/paper" }],
+    models: [
+      { id: "short-term-reversion", short: "SR", label: "Short-term mean reversion", style: "Positional", live: "/api/connors/paper", book: "rsi2" },
+      {
+        id: "cumulative-rsi",
+        short: "CR",
+        label: "Cumulative RSI(2) · exit on strength",
+        style: "Positional",
+        live: "/api/connors/paper",
+        liveQuery: "?book=cum",
+        book: "cum",
+      },
+    ],
   },
 ];
 
 // A paper trader's live settings (universe, max open) on the server: read, and saved on change.
-function useLiveSettings(base) {
+function useLiveSettings(base, query = "") {
   const [settings, setSettings] = useState(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [version, setVersion] = useState(0);
   useEffect(() => {
     if (!base) return;
-    fetch(`${base}/settings`)
+    fetch(`${base}/settings${query}`)
       .then((r) => r.json())
       .then((p) => (p.status === "success" ? setSettings(p) : setError(p.message || p.detail || "Could not load the settings")))
       .catch(() => setError("Could not reach the API"));
-  }, [base, version]);
+  }, [base, query, version]);
   const save = useCallback(
     async (what, payload) => {
       setSaving(true);
       setError("");
       try {
-        const r = await fetch(`${base}/${what}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+        const r = await fetch(`${base}/${what}${query}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
         const body = await r.json().catch(() => ({}));
         if (!r.ok) setError(body.detail || `Could not save (${r.status})`);
         else setVersion((v) => v + 1);
@@ -51,7 +62,7 @@ function useLiveSettings(base) {
       }
       setSaving(false);
     },
-    [base],
+    [base, query],
   );
   return { settings, saving, error, version, save };
 }
@@ -69,7 +80,7 @@ export default function V2Paper({ model, onSelect }) {
   const [params, setParams] = useBacktestParams(`paper-${m.id}`, paperDefaults(m));
   const step = m.step || 1;
   const maxOpen = params.maxOpen && step > 1 ? Math.min(10, Math.ceil(params.maxOpen / step) * step) : params.maxOpen;
-  const liveSettings = useLiveSettings(m.live);
+  const liveSettings = useLiveSettings(m.live, m.liveQuery || "");
   const ls = m.live && liveSettings.settings;
   const live = ls
     ? {
@@ -104,7 +115,7 @@ export default function V2Paper({ model, onSelect }) {
         </div>
         {m.id === "buy-on-gap" && <V2PaperGap params={modelParams} />}
         {m.id === "xs-mean-reversion" && <V2PaperXsmr params={modelParams} />}
-        {m.id === "short-term-reversion" && <V2PaperConnors params={modelParams} version={liveSettings.version} />}
+        {m.book && <V2PaperConnors key={m.book} book={m.book} params={modelParams} version={liveSettings.version} />}
       </section>
     </div>
   );

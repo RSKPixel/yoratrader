@@ -1086,19 +1086,18 @@ def xsmr_paper(slippage: float = Query(0.02, ge=0, le=1), stop: bool = Query(Fal
         return {"status": "error", "message": str(error)}
 
 
-class ConnorsMaxOpenRequest(BaseModel):
-    max_open: int
-
-
-class ConnorsUniverseRequest(BaseModel):
-    universe: str
+def _connors_book(book):
+    if book not in connorswatch.BOOKS:
+        raise HTTPException(status_code=400, detail="unknown book")
+    return book
 
 
 @app.get("/api/connors/paper/pnl")
-def connors_paper_pnl(slippage: float = Query(0.02, ge=0, le=1)):
-    """Short-term mean reversion's open positions marked every 15 minutes since the earliest buy (stock prices, one lot each)."""
+def connors_paper_pnl(slippage: float = Query(0.02, ge=0, le=1), book: str = Query("rsi2")):
+    """A short-term mean reversion book's open positions marked every 15 minutes since the earliest buy (stock prices, one lot each)."""
+    _connors_book(book)
     try:
-        data = connorswatch.paper(slippage / 100)
+        data = connorswatch.paper(slippage / 100, book)
         rows = [{**t, "qty": t.get("stock_qty")} for t in data["open"]]
         return {"status": "success", "size": 1, **v2pnl.held_curve(rows, xsmr.cost_per_side(slippage / 100))}
     except Exception as error:
@@ -1107,45 +1106,58 @@ def connors_paper_pnl(slippage: float = Query(0.02, ge=0, le=1)):
 
 
 @app.get("/api/connors/paper/watchlist")
-def connors_paper_watchlist():
-    """Today's short-term mean reversion candidates, live (what 15:15 would buy if it were now)."""
+def connors_paper_watchlist(book: str = Query("rsi2")):
+    """Today's short-term mean reversion candidates for a book, live (what 15:15 would buy if it were now)."""
+    _connors_book(book)
     try:
-        return {"status": "success", **connorswatch.watchlist()}
+        return {"status": "success", **connorswatch.watchlist(book)}
     except Exception as error:
         print("Connors watchlist failed:", error)
         return {"status": "error", "message": str(error)}
 
 
 @app.get("/api/connors/paper/settings")
-def connors_paper_settings():
-    """The 15:15 run's live settings: universe and max open."""
-    return {"status": "success", "universe": connorswatch.universe(), "universes": list(connorswatch.UNIVERSES),
-            "max_open": connorswatch.max_open(), "max_open_limit": connorswatch.MAX_OPEN_LIMIT}
+def connors_paper_settings(book: str = Query("rsi2")):
+    """A book's live settings, read by the 15:15 run: universe and max open."""
+    _connors_book(book)
+    return {"status": "success", "universe": connorswatch.universe(book), "universes": list(connorswatch.UNIVERSES),
+            "max_open": connorswatch.max_open(book), "max_open_limit": connorswatch.MAX_OPEN_LIMIT}
+
+
+class ConnorsMaxOpenRequest(BaseModel):
+    max_open: int
+
+
+class ConnorsUniverseRequest(BaseModel):
+    universe: str
 
 
 @app.post("/api/connors/paper/universe")
-def connors_paper_universe(req: ConnorsUniverseRequest):
-    """Short-term mean reversion paper trading: the stocks the 15:15 run looks for signals in (from the next run)."""
+def connors_paper_universe(req: ConnorsUniverseRequest, book: str = Query("rsi2")):
+    """A book's universe for the 15:15 run (from the next run)."""
+    _connors_book(book)
     try:
-        return {"status": "success", "universe": connorswatch.set_universe(req.universe)}
+        return {"status": "success", "universe": connorswatch.set_universe(req.universe, book)}
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
 
 @app.post("/api/connors/paper/max_open")
-def connors_paper_max_open(req: ConnorsMaxOpenRequest):
-    """Short-term mean reversion paper trading: how many positions the 15:15 run may hold (from the next run)."""
+def connors_paper_max_open(req: ConnorsMaxOpenRequest, book: str = Query("rsi2")):
+    """How many positions a book's 15:15 run may hold (from the next run)."""
+    _connors_book(book)
     try:
-        return {"status": "success", "max_open": connorswatch.set_max_open(req.max_open)}
+        return {"status": "success", "max_open": connorswatch.set_max_open(req.max_open, book)}
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
 
 @app.get("/api/connors/paper")
-def connors_paper(slippage: float = Query(0.02, ge=0, le=1)):
-    """Short-term mean reversion paper trading: open positions, closed trades, days."""
+def connors_paper(slippage: float = Query(0.02, ge=0, le=1), book: str = Query("rsi2")):
+    """A short-term mean reversion paper book: open positions, closed trades, days."""
+    _connors_book(book)
     try:
-        return {"status": "success", **connorswatch.paper(slippage / 100)}
+        return {"status": "success", **connorswatch.paper(slippage / 100, book)}
     except Exception as error:
         print("Connors paper failed:", error)
         return {"status": "error", "message": str(error)}

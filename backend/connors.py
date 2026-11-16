@@ -185,19 +185,24 @@ def _data(dataset, start=None, end=None, timing="15:15", closes=None):
 def live_signals(prices, today, dataset="fno"):
     """Today's setup, live: the backtest's own signal code on official closes to yesterday plus
     `prices` ({symbol: price now}) as today's close. Returns how many stocks qualified for the trend
-    filter, and every stock above its 200-day average with its 2-day RSI and whether it's below 10."""
+    filter; every stock above its 200-day average with its 2-day RSI, the cumulative (today's +
+    yesterday's) and whether each setup signals (RSI below 10; cumulative below 35); and every priced
+    stock's 2-day RSI now (rsi_all: the exit on strength of a held stock)."""
     ts = pd.Timestamp(today)
     c = xsmom._closes(dataset)
     c = c[c.index < ts].iloc[-450:].copy()
     c.loc[ts] = pd.Series(prices, dtype=float).reindex(c.columns)
     d = _data(dataset, timing="close", closes=c)
     if d["px"].index[-1] != ts:
-        return {"rankable": 0, "stocks": []}
-    rsi, eligible = d["rsi"].loc[ts], d["eligible"].loc[ts]
-    stocks = [{"symbol": s_, "rsi": round(float(rsi[s_]), 2), "signal": bool(rsi[s_] < RSI_MAX)}
+        return {"rankable": 0, "stocks": [], "rsi_all": {}}
+    rsi, cum, eligible = d["rsi"].loc[ts], d["cumrsi"].loc[ts], d["eligible"].loc[ts]
+    stocks = [{"symbol": s_, "rsi": round(float(rsi[s_]), 2), "signal": bool(rsi[s_] < RSI_MAX),
+               "cum": round(float(cum[s_]), 2) if pd.notna(cum[s_]) else None,
+               "signal_cum": bool(pd.notna(cum[s_]) and cum[s_] < CUM_RSI_MAX)}
               for s_ in eligible.index[eligible.to_numpy()] if pd.notna(rsi[s_])]
     return {"rankable": int(d["rankable"][ts]), "last_close": c.index[-2].date().isoformat(),
-            "stocks": sorted(stocks, key=lambda x: x["rsi"])}
+            "stocks": sorted(stocks, key=lambda x: x["rsi"]),
+            "rsi_all": {s_: float(v) for s_, v in rsi.items() if pd.notna(v)}}
 
 
 def _simulate(d, variant, lot=None):

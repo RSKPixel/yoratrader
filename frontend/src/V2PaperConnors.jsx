@@ -20,8 +20,8 @@ const PRICES = [
 
 // Today's candidates, live: every stock above its 200-day average by its 2-day RSI (with the price now
 // as today's close, as the 15:15 run computes it). The lowest RSIs below 10 fill the free slots at 15:15.
-function Candidates({ live }) {
-  const { data, error } = useBacktest("/api/connors/paper/watchlist", { refreshMs: live });
+function Candidates({ live, book }) {
+  const { data, error } = useBacktest(`/api/connors/paper/watchlist?book=${book}`, { refreshMs: live });
   const [all, setAll] = useState(false);
   const [chart, setChart] = useState(null);
   if (error) return <Panel title="Today's candidates"><p className="text-sm" style={{ color: "var(--negative)" }}>{error}</p></Panel>;
@@ -41,6 +41,7 @@ function Candidates({ live }) {
     held: ["Held", "var(--muted)"],
     watch: ["", "var(--faint)"],
   };
+  const cum = data.setup === "cumrsi2";
   const columns = [
     {
       h: "",
@@ -65,9 +66,19 @@ function Candidates({ live }) {
     {
       h: "RSI(2)",
       cell: (x) => <span className="font-semibold">{x.rsi.toFixed(1)}</span>,
-      style: (x) => ({ color: x.rsi < data.rsi_max ? "var(--positive)" : x.rsi < 2 * data.rsi_max ? "var(--warning)" : "var(--muted)" }),
-      title: () => `Below ${data.rsi_max} = a signal (Wilder's 2-day RSI, the price now as today's close)`,
+      style: (x) => ({ color: cum ? "var(--muted)" : x.rsi < data.rsi_max ? "var(--positive)" : x.rsi < 2 * data.rsi_max ? "var(--warning)" : "var(--muted)" }),
+      title: () => (cum ? "Wilder's 2-day RSI, the price now as today's close" : `Below ${data.rsi_max} = a signal (Wilder's 2-day RSI, the price now as today's close)`),
     },
+    ...(cum
+      ? [
+          {
+            h: "Cum RSI(2)",
+            cell: (x) => <span className="font-semibold">{x.cum == null ? "—" : x.cum.toFixed(1)}</span>,
+            style: (x) => ({ color: x.cum != null && x.cum < data.cum_max ? "var(--positive)" : x.cum != null && x.cum < 2 * data.cum_max ? "var(--warning)" : "var(--muted)" }),
+            title: () => `Today's + yesterday's 2-day RSI; below ${data.cum_max} = a signal`,
+          },
+        ]
+      : []),
     { h: "200-day avg", cell: (x) => x.sma200 ?? "—", style: () => ({ color: "var(--muted)" }) },
     { h: "Above avg", cell: (x) => (x.above_pct == null ? "—" : `+${x.above_pct}%`), style: () => ({ color: "var(--muted)" }) },
     { h: "Status", cell: (x) => STATUS[x.status][0], style: (x) => ({ color: STATUS[x.status][1], fontWeight: x.status === "buy" ? 600 : 400 }) },
@@ -100,15 +111,16 @@ function Candidates({ live }) {
   );
 }
 
-export default function V2PaperConnors({ params, version = 0 }) {
-  const [slippage, setSlippage] = useSetting("paper.connors.slippage", 0.02);
-  const [prices, setPrices] = useSetting("paper.connors.prices", "stock");
+export default function V2PaperConnors({ params, version = 0, book = "rsi2" }) {
+  const [slippage, setSlippage] = useSetting(book === "rsi2" ? "paper.connors.slippage" : `paper.connors.${book}.slippage`, 0.02);
+  const [prices, setPrices] = useSetting(book === "rsi2" ? "paper.connors.prices" : `paper.connors.${book}.prices`, "stock");
   const live = useLiveRefresh();
-  const { data, error, loading } = useBacktest(`/api/connors/paper?slippage=${slippage}&v=${version}`, { refreshMs: live });
+  const { data, error, loading } = useBacktest(`/api/connors/paper?slippage=${slippage}&v=${version}&book=${book}`, { refreshMs: live });
   const money = useMemo(() => lotMoney(params.show), [params.show]);
   const fut = prices === "fut";
   const key = fut ? "fut" : "stock";
   const maxOpen = data?.max_open ?? 3;
+  const strength = data?.exit === "strength";
   // each trade's one-lot fields for the chosen prices (stock_* or fut_*), under the shared names
   const pick = (t) => ({ ...t, qty: t[`${key}_qty`], margin_rs: t[`${key}_margin_rs`], contract_rs: t[`${key}_contract_rs`], pnl_rs: t[`${key}_pnl_rs`], cost_rs: t[`${key}_cost_rs`], net_rs: t[`${key}_net_rs`], net_margin_pct: t[`${key}_net_margin_pct`], net_value_pct: t[`${key}_net_value_pct`] });
   const lot = lotColumns(money);
@@ -135,11 +147,16 @@ export default function V2PaperConnors({ params, version = 0 }) {
   const openCols = [
     { h: "Stock", cell: (t) => <span className="font-medium">{t.symbol}</span> },
     { h: "Bought", cell: (t) => `${t.buy_day} ${t.buy_at}` },
-    { h: "RSI", cell: (t) => t.rsi, style: () => ({ color: "var(--muted)" }) },
+    { h: strength ? "Cum RSI" : "RSI", cell: (t) => t.rsi, style: () => ({ color: "var(--muted)" }), title: () => (strength ? "The cumulative 2-day RSI it was bought at" : "The 2-day RSI it was bought at") },
     { h: fut ? "Future" : "Buy", cell: (t) => (fut ? `${t.fut ?? "—"} @ ${t.fut_buy ?? "—"}` : t.buy) },
     lot.qty,
     { h: "Last", cell: (t) => (fut ? t.fut_ltp : t.ltp) ?? "—" },
-    { h: "Day", cell: (t) => `${t.day_of_hold} / ${data.hold}`, style: () => ({ color: "var(--muted)" }) },
+    {
+      h: "Day",
+      cell: (t) => `${t.day_of_hold} / ${data.hold}`,
+      style: () => ({ color: "var(--muted)" }),
+      title: () => (strength ? `Sold at the first 15:15 its 2-day RSI is above ${data.exit_rsi}, or on day ${data.hold}` : `Sold on day ${data.hold}`),
+    },
     lot.value,
     lot.margin,
     { ...lot.result, h: "Net now" },
@@ -148,7 +165,8 @@ export default function V2PaperConnors({ params, version = 0 }) {
     { h: "Stock", cell: (t) => <span className="font-medium">{t.symbol}</span> },
     { h: "Bought", cell: (t) => t.buy_day },
     { h: "Sold", cell: (t) => t.sell_day, style: () => ({ color: "var(--muted)" }) },
-    { h: "RSI", cell: (t) => t.rsi, style: () => ({ color: "var(--muted)" }) },
+    ...(strength ? [{ h: "Exit", cell: (t) => t.reason, style: (t) => ({ color: t.reason === "strength" ? "var(--positive)" : "var(--muted)" }) }] : []),
+    { h: strength ? "Cum RSI" : "RSI", cell: (t) => t.rsi, style: () => ({ color: "var(--muted)" }) },
     { h: "Buy", cell: (t) => (fut ? t.fut_buy ?? "—" : t.buy) },
     lot.qty,
     { h: "Sell", cell: (t) => (fut ? t.fut_sell ?? "—" : t.sell) },
@@ -185,7 +203,10 @@ export default function V2PaperConnors({ params, version = 0 }) {
       {data && (
         <>
           <StatusLine>
-            Recorded at 15:15 each trading day: sell positions on their {data.hold}th trading day, then buy the most oversold signals
+            Recorded at 15:15 each trading day:{" "}
+            {strength
+              ? `sell positions whose 2-day RSI is above ${data.exit_rsi} (or on their ${data.hold}th trading day), then buy the lowest cumulative RSI(2) signals below 35`
+              : `sell positions on their ${data.hold}th trading day, then buy the most oversold signals`}
             into the free slots (at most {maxOpen} open, {UNIVERSES[data.universe] || data.universe}, from the next run) · one lot each · backtest {data.backtest_variant} · costs {data.summary.cost_per_side_bps} bps a side ·
             nothing places orders
           </StatusLine>
@@ -196,16 +217,16 @@ export default function V2PaperConnors({ params, version = 0 }) {
           />
           <Panel
             title="Open positions"
-            right={`sold at 15:15 on the ${data.hold}th trading day${data.ltp_at ? ` · live prices at ${data.ltp_at}` : ""}${open.length ? ` · net now ${netBoth(open.reduce((a, t) => a + (t.net_rs || 0), 0), null)}` : ""}`}
+            right={`${strength ? `sold at 15:15 once RSI(2) > ${data.exit_rsi} (day ${data.hold} at most)` : `sold at 15:15 on the ${data.hold}th trading day`}${data.ltp_at ? ` · live prices at ${data.ltp_at}` : ""}${open.length ? ` · net now ${netBoth(open.reduce((a, t) => a + (t.net_rs || 0), 0), null)}` : ""}`}
           >
             {open.length > 0 && (
               <div className="mb-3">
-                <V2PnlChart url={`/api/connors/paper/pnl?slippage=${slippage}&n=${open.map((t) => t.symbol).join(",")}`} refreshMs={live} />
+                <V2PnlChart url={`/api/connors/paper/pnl?slippage=${slippage}&book=${book}&n=${open.map((t) => t.symbol).join(",")}`} refreshMs={live} />
               </div>
             )}
             <PositionsTable rows={open.map((t) => ({ ...t, entry: t.buy, exit: t.ltp }))} columns={[chart.column, ...openCols]} minWidth={760} empty="No open positions." />
           </Panel>
-          <Candidates live={live} />
+          <Candidates live={live} book={book} />
           <Panel title="Closed trades" right="after charges and slippage on both sides">
             <PositionsTable rows={closed} columns={closedCols} minWidth={900} empty="No closed trades yet." />
           </Panel>
