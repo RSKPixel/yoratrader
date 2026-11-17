@@ -58,6 +58,7 @@ def build_results(t, days, slippage, extra=None, daily=None):
         "profit_factor": round(float(wins / losses), 2) if losses > 0 else None,
         "max_dd_pct": round(float(100 * (eq - eq.cummax()).min()), 3),
         "net_year_pct": round(float(100 * r.mean() * TRADING_DAYS), 2),
+        **compounded(r, TRADING_DAYS),
         "sharpe": round(float(r.mean() / r.std() * np.sqrt(TRADING_DAYS)), 2) if r.std() else None,
         "green_years": int((yearly > 0).sum()), "years": int(len(yearly)),
         "cost_per_side_bps": round(10000 * xsmr.cost_per_side(slippage), 2),
@@ -70,6 +71,17 @@ def build_results(t, days, slippage, extra=None, daily=None):
         "years": _periods(t, daily, "year"),
         "months": _periods(t, daily, "month"),
     }
+
+
+def compounded(r, per_year):
+    """CAGR and the compounded worst drop: profits left in, losses taken from what's there (r: each
+    period's net as a share of capital)."""
+    if not len(r):
+        return {"cagr_pct": None, "max_dd_compounded_pct": None}
+    eq = (1 + r.clip(lower=-0.99)).cumprod()
+    years = len(r) / per_year
+    return {"cagr_pct": round(float(100 * (eq.iloc[-1] ** (1 / years) - 1)), 2) if years > 0 and eq.iloc[-1] > 0 else None,
+            "max_dd_compounded_pct": round(float(100 * (eq / eq.cummax() - 1).min()), 2)}
 
 
 def _periods(t, daily, kind):

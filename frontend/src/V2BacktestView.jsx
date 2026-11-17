@@ -58,7 +58,7 @@ export function Panel({ title, right, children }) {
 
 export function SummaryCards({ s, value }) {
   return (
-    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-9">
+    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-10">
       <Card
         label={s.trades_label || "Trades"}
         value={s.trades.toLocaleString("en-IN")}
@@ -68,6 +68,14 @@ export function SummaryCards({ s, value }) {
       <Card label="Gross" value={value(s.gross_pct)} color={tone(s.gross_pct)} hint="Before costs" />
       <Card label="Costs" value={value(-s.cost_pct)} color="var(--negative)" hint={`Charges + slippage (${s.cost_per_side_bps} bps a side); ${value(-s.avg_cost_pct, 3)} a trade`} />
       <Card label="Net" value={value(s.net_pct)} color={tone(s.net_pct)} hint={`${value(s.net_year_pct)} a year`} />
+      {s.cagr_pct != null && (
+        <Card
+          label="CAGR"
+          value={`${s.cagr_pct > 0 ? "+" : ""}${s.cagr_pct.toFixed(1)}%`}
+          color={tone(s.cagr_pct)}
+          hint={`Compounded: profits left in, so each year works on what's there. Worst drop compounded ${s.max_dd_compounded_pct}% (the other cards: a fixed capital, ${value(s.net_year_pct)} a year)`}
+        />
+      )}
       <Card label="Net / trade" value={value(s.avg_net_pct, 3)} color={tone(s.avg_net_pct)} hint={`Each trade on its own position: ${s.avg_trade_net_pct}%`} />
       <Card label="Profit factor" value={s.profit_factor ?? "—"} color={s.profit_factor >= 1 ? "var(--positive)" : "var(--negative)"} hint="Net winning trades ÷ net losing trades" />
       <Card label="Max drawdown" value={value(s.max_dd_pct)} color="var(--negative)" hint="Largest fall in cumulative net, at a fixed capital" />
