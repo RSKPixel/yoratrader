@@ -4,6 +4,7 @@ import { Field, formatRs, Segmented } from "./V2Controls";
 import V2EquityChart from "./V2EquityChart";
 import { makeValue, MonthGrid, MonthTradesModal, Panel, SummaryCards, tone, AT_COLUMNS } from "./V2BacktestView";
 import { SLIPPAGE, useBacktest } from "./V2BuyOnGap";
+import DisasterStop from "./V2Disaster";
 
 // Cross-sectional mean reversion (Chan, Algorithmic Trading ch. 4) on v2: long the stocks that lagged
 // at the open, short the ones that led. Capital = gross exposure (half long, half short); Max open N =
@@ -21,7 +22,7 @@ const STOPS = [
 export default function V2Xsmr({ params }) {
   const [version, setVersion] = useSetting("bt.xsmr.version", "intraday");
   const entry = "0915"; // the 09:15 auction price only (later entries lose most of the edge)
-  const [stop, setStop] = useSetting("bt.xsmr.stop", "none");
+  const stop = "none"; // no stop, only Chan's disaster stop
   const [slippage, setSlippage] = useSetting("bt.xsmr.slippage", 0.02);
   const [month, setMonth] = useState(null);
   const [pairs, setPairs] = useSetting("bt.xsmr.pairs", 3);
@@ -80,11 +81,7 @@ export default function V2Xsmr({ params }) {
             <span className="block py-1.5 text-sm">09:15 (open)</span>
           </Field>
         )}
-        {stopAllowed && (
-          <Field label="Stop" hint="Not in the book. 1σ: Buy on gap's stop, one 90-day standard deviation from the entry, on the 15m candles to 15:15.">
-            <Segmented label="Stop" options={STOPS} value={stop} onChange={setStop} />
-          </Field>
-        )}
+        <DisasterStop d={data?.summary?.disaster} />
         <Field label="Slippage" hint="Per side, on top of NSE futures charges">
           <Segmented label="Slippage" options={SLIPPAGE} value={slippage} onChange={setSlippage} />
         </Field>

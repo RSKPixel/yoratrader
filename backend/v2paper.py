@@ -89,9 +89,12 @@ def _summary(days):
 
 
 def gap(side="long", stop="none", max_open=5, slippage=0.0002):
+    import disaster
     data = gapwatch.paper(slippage)
     cps = xsmr.cost_per_side(slippage)
     lots = v2margin.table()
+    dpct = disaster.stop_pct("gap")  # Chan's disaster stop: wider than any backtest position's worst day
+    ranges = disaster.day_ranges([(p["symbol"], p["day"]) for p in data["picks"] if p["status"] == "closed"])
     by_day = {}
     for p in data["picks"]:
         if side == "long" and p["side"] != "long":
@@ -107,6 +110,10 @@ def gap(side="long", stop="none", max_open=5, slippage=0.0002):
             closed = p["status"] == "closed"
             exit_px = (p.get("exit_stop") if stop == "1sd" else p.get("exit")) if closed else p.get("ltp")
             reason = (p.get("exit_reason_stop") if stop == "1sd" else p.get("exit_reason")) if closed else ("live" if exit_px else "open")
+            lo, hi = ranges.get((p["symbol"], p["day"]), (None, None)) if closed else (None, None)
+            hit, level = disaster.apply(p["side"], p["entry"], lo, hi, None if closed else exit_px, dpct)
+            if hit:
+                exit_px, reason = level, "disaster stop"
             sign = 1 if p["side"] == "long" else -1
             ret = sign * (exit_px / p["entry"] - 1) if exit_px else None
             cost = (1 + (exit_px / p["entry"] if exit_px else 1)) * cps
@@ -127,7 +134,7 @@ def gap(side="long", stop="none", max_open=5, slippage=0.0002):
     return {"now": data["now"], "today": data["today"], "session": data["session"], "market_open": data["market_open"],
             "today_recorded": data["today_recorded"], "last_recorded": data["last_recorded"], "ltp_at": data["ltp_at"],
             "daily_as_of": data["daily_as_of"], "watchlist": watch, "days": days, "summary": {**_summary(days), **_lot_summary(days, lots)},
-            "cost_per_side_bps": round(10000 * cps, 2)}
+            "cost_per_side_bps": round(10000 * cps, 2), "disaster_stop_pct": dpct}
 
 
 def _meta(data, days, cps):
@@ -157,8 +164,11 @@ def _meta(data, days, cps):
 
 
 def xsmr_(pairs=5, stop="none", max_open=10, slippage=0.0002):
+    import disaster
     data = xsmrwatch.paper(slippage, stop=stop == "1sd")
     cps = xsmr.cost_per_side(slippage)
+    dpct = disaster.stop_pct("xsmr")  # Chan's disaster stop: wider than any backtest position's worst day
+    ranges = disaster.day_ranges([(p["symbol"], p["day"]) for p in data["positions"] if p["status"] == "closed"])
     lots = v2margin.table()
     k = max(1, min(int(pairs or 1), xsmrwatch.PER_SIDE, (max_open // 2) if max_open else xsmrwatch.PER_SIDE))
     w = 1.0 / max_open if max_open else xsmrwatch.WEIGHT
@@ -172,10 +182,17 @@ def xsmr_(pairs=5, stop="none", max_open=10, slippage=0.0002):
         for p in picks:
             ret = p["ret_pct"]
             exit_px = p.get("exit") if p["status"] == "closed" else p.get("ltp")
+            reason = p.get("exit_reason") or ("live" if exit_px else "open")
+            closed = p["status"] == "closed"
+            lo, hi = ranges.get((p["symbol"], p["day"]), (None, None)) if closed else (None, None)
+            hit, level = disaster.apply(p["side"], p["entry"], lo, hi, None if closed else exit_px, dpct)
+            if hit:
+                exit_px, reason = level, "disaster stop"
+                ret = round(100 * (1 if p["side"] == "long" else -1) * (level / p["entry"] - 1), 3)
             cost = (1 + (exit_px / p["entry"] if exit_px else 1)) * cps
             rows.append({"symbol": p["symbol"], "side": p["side"], "rank": p["rank"], "signal_pct": p.get("signal_pct"),
                          "entry": p["entry"], "entry_live": p.get("entry_live"), "live_at": p.get("live_at"), "stop": p.get("stop"),
-                         "exit": exit_px, "reason": p.get("exit_reason") or ("live" if exit_px else "open"),
+                         "exit": exit_px, "reason": reason,
                          "closed": p["status"] == "closed", "weight_pct": round(100 * w, 3),
                          "ret_pct": ret, "net_pct": round(ret - 100 * cost, 3) if ret is not None else None,
                          "book_net_pct": round(w * (ret - 100 * cost), 4) if ret is not None else 0.0,
@@ -188,4 +205,4 @@ def xsmr_(pairs=5, stop="none", max_open=10, slippage=0.0002):
     return {"now": data["now"], "today": data["today"], "market_open": data["market_open"], "meta": meta,
             "today_recorded": data["today_recorded"], "ltp_at": data["ltp_at"], "days": days, "summary": {**_summary(days), **_lot_summary(days, lots)},
             "per_side": k, "recorded_per_side": xsmrwatch.PER_SIDE, "backtest": data["backtest"],
-            "cost_per_side_bps": round(10000 * cps, 2)}
+            "cost_per_side_bps": round(10000 * cps, 2), "disaster_stop_pct": dpct}

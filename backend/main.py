@@ -68,6 +68,8 @@ async def startup():
         gapwatch.start_scheduler(after_close=scheduled_live_download)
     v2xsmr.warm()  # the cross-sectional page's 15m prices (~40 s), so the first visit is quick
     v2oops.warm()  # the Oops backtest's fills from the 1-minute candles (~1-2 min)
+    import disaster
+    disaster.warm()  # the disaster stops from the gap and cross-sectional backtests
     v2dashboard.models()  # the dashboard's strategy table, built in the background
 
 
@@ -752,7 +754,10 @@ class LivePriceRequest(BaseModel):
 @app.get("/api/v2/trade/modes")
 def v2_trade_modes():
     """Each live trading model's mode (off / manual / on) and which can be automatic."""
-    return {"status": "success", "modes": livetrade.modes(), "automatic": list(livetrade.AUTOMATIC)}
+    import disaster
+    lv = disaster.levels()
+    stops = {"buy-on-gap": (lv.get("gap") or {}).get("stop_pct"), "xs-mean-reversion": (lv.get("xsmr") or {}).get("stop_pct")}
+    return {"status": "success", "modes": livetrade.modes(), "automatic": list(livetrade.AUTOMATIC), "disaster": stops}
 
 
 class TradeModeRequest(BaseModel):

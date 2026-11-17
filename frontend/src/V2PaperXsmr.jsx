@@ -5,6 +5,7 @@ import { tone, AT_COLUMNS } from "./V2BacktestView";
 import { SLIPPAGE, useBacktest, useLiveRefresh } from "./V2BuyOnGap";
 import V2PnlChart from "./V2PnlChart";
 import { DayLog, LotCards, lotColumns, lotMoney, netBoth, usePaperChart, Panel, PositionsTable, StatusLine } from "./V2PaperView";
+import DisasterStop from "./V2Disaster";
 
 // Cross-sectional mean reversion paper trading on v2: the 5 long + 5 short the production scheduler
 // records at the 09:15 open, k + k of them by Pairs, one lot each; plus the pre-open
@@ -146,7 +147,7 @@ function MetaPanel({ meta, today }) {
 
 export default function V2PaperXsmr({ params }) {
   const [pairs, setPairs] = useSetting("paper.xsmr.pairs", 5);
-  const [stop, setStop] = useSetting("paper.xsmr.stop", "none");
+  const stop = "none"; // no stop, only Chan's disaster stop
   const [slippage, setSlippage] = useSetting("paper.xsmr.slippage", 0.02);
   const maxPairs = Math.min(5, Math.floor(params.maxOpen / 2));
   const k = params.maxOpen ? Math.max(1, Math.min(pairs, maxPairs || 1)) : 5;
@@ -188,9 +189,7 @@ export default function V2PaperXsmr({ params }) {
         <Field label="Pairs" hint="k long + k short of the recorded 5 + 5 (the furthest from the day's average move first); one lot each.">
           <Segmented label="Pairs" options={pairOptions} value={params.maxOpen ? k : null} onChange={setPairs} />
         </Field>
-        <Field label="Stop" hint="Not in the book. 1σ: Buy on gap's stop, recorded alongside the book.">
-          <Segmented label="Stop" options={STOPS} value={stop} onChange={setStop} />
-        </Field>
+        <DisasterStop pct={data?.disaster_stop_pct} />
         <Field label="Slippage" hint="Per side, on top of NSE futures charges">
           <Segmented label="Slippage" options={SLIPPAGE} value={slippage} onChange={setSlippage} />
         </Field>

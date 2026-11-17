@@ -93,6 +93,9 @@ def _sized(dataset, side, stop, max_open, slippage, model="gap"):
 def results(dataset="fno", side="long", stop="none", max_open=5, slippage=0.0002, model="gap"):
     t, days = _sized(dataset, side, stop, max_open, slippage, model)
     extra = {"avg_positions": round(float(t.groupby("day").size().mean()), 1)} if len(t) else {}
+    if model == "gap" and dataset == "fno":  # Chan's disaster stop: shown; it never fires in the backtest by design
+        import disaster
+        extra["disaster"] = disaster.levels().get("gap")
     return v2common.build_results(t, days, slippage, extra)
 
 

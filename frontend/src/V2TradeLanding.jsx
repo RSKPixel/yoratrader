@@ -30,6 +30,7 @@ const go = (href) => (e) => {
 export default function V2TradeLanding() {
   const [modes, setModes] = useState(null);
   const [automatic, setAutomatic] = useState([]);
+  const [disaster, setDisaster] = useState({});
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(null);
 
@@ -40,6 +41,7 @@ export default function V2TradeLanding() {
         if (p.status === "success") {
           setModes(p.modes);
           setAutomatic(p.automatic || []);
+          setDisaster(p.disaster || {});
         } else setError(p.message || p.detail || "Could not load the modes");
       })
       .catch(() => setError("Could not reach the API"));
@@ -112,6 +114,14 @@ export default function V2TradeLanding() {
                     <dt style={{ color: "var(--muted)" }}>Where</dt>
                     <dd className="text-right">{m.page}</dd>
                   </div>
+                  {disaster[m.id] != null && (
+                    <div className="flex justify-between gap-3" title="Chan's disaster stop: wider than the worst move against any backtest position; place it in Kite with every position">
+                      <dt style={{ color: "var(--muted)" }}>Disaster stop</dt>
+                      <dd className="text-right font-medium" style={{ color: "var(--warning)" }}>
+                        {disaster[m.id]}% from the entry · place it in Kite
+                      </dd>
+                    </div>
+                  )}
                 </dl>
                 <a href={m.href} onClick={go(m.href)} className="mt-auto text-sm font-medium hover:underline" style={{ color: "var(--accent)" }}>
                   Open →

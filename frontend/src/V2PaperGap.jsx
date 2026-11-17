@@ -5,6 +5,7 @@ import { tone, AT_COLUMNS } from "./V2BacktestView";
 import { SLIPPAGE, useBacktest, useLiveRefresh } from "./V2BuyOnGap";
 import V2PnlChart from "./V2PnlChart";
 import { DayLog, LotCards, lotColumns, lotMoney, netBoth, usePaperChart, Panel, PositionsTable, StatusLine } from "./V2PaperView";
+import DisasterStop from "./V2Disaster";
 
 // Buy/Sell on gap paper trading on v2: the picks the production scheduler records at 09:15 (every
 // qualifying F&O stock), the max open biggest gaps, one lot each. Nothing here places orders.
@@ -20,7 +21,7 @@ const STOPS = [
 
 export default function V2PaperGap({ params }) {
   const [side, setSide] = useSetting("paper.gap.side", "long");
-  const [stop, setStop] = useSetting("paper.gap.stop", "none");
+  const stop = "none"; // no stop, only Chan's disaster stop
   const [slippage, setSlippage] = useSetting("paper.gap.slippage", 0.02);
   const live = useLiveRefresh();
   const { data, error, loading } = useBacktest(`/api/v2/paper/gap?side=${side}&stop=${stop}&slippage=${slippage}&max_open=${params.maxOpen}`, { refreshMs: live });
@@ -66,9 +67,7 @@ export default function V2PaperGap({ params }) {
         <Field label="Side" hint="Long: buy gaps down (the book). Long & short: also short the mirror image.">
           <Segmented label="Side" options={SIDES} value={side} onChange={setSide} />
         </Field>
-        <Field label="Stop" hint="None: out at 15:15 (the book). 1σ: the recorded stop one 90-day standard deviation from the open.">
-          <Segmented label="Stop" options={STOPS} value={stop} onChange={setStop} />
-        </Field>
+        <DisasterStop pct={data?.disaster_stop_pct} />
         <Field label="Slippage" hint="Per side, on top of NSE futures charges">
           <Segmented label="Slippage" options={SLIPPAGE} value={slippage} onChange={setSlippage} />
         </Field>

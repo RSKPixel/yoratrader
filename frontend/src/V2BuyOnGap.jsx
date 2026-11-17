@@ -3,6 +3,7 @@ import { useSetting } from "./settings";
 import { Field, formatRs, Segmented } from "./V2Controls";
 import V2EquityChart from "./V2EquityChart";
 import { makeValue, MonthGrid, MonthTradesModal, Panel, SummaryCards, tone, AT_COLUMNS } from "./V2BacktestView";
+import DisasterStop from "./V2Disaster";
 
 // Buy/Sell on gap (Chan, Algorithmic Trading ch. 4) on v2: the stored backtest trades sized by the
 // common parameters (universe, capital, max open, % or ₹).
@@ -83,7 +84,8 @@ export function useLiveRefresh() {
 export default function V2BuyOnGap({ params, model = "gap" }) {
   const mom = model === "gapmom";
   const [side, setSide] = useSetting(`bt.${model}.side`, mom ? "both" : "long");
-  const [stop, setStop] = useSetting(`bt.${model}.stop`, "none");
+  const [savedStop, setStop] = useSetting(`bt.${model}.stop`, "none");
+  const stop = model === "gapmom" ? savedStop : "none"; // Buy/Sell on gap: no stop, only Chan's disaster stop
   const [slippage, setSlippage] = useSetting(`bt.${model}.slippage`, 0.02);
   const [month, setMonth] = useState(null);
 
@@ -126,9 +128,13 @@ export default function V2BuyOnGap({ params, model = "gap" }) {
         >
           <Segmented label="Side" options={mom ? MOM_SIDES : SIDES} value={side} onChange={setSide} />
         </Field>
+        {model === "gapmom" ? (
         <Field label="Stop" hint="None: out at 15:15 (the book). 1σ: a stop one 90-day standard deviation from the entry.">
           <Segmented label="Stop" options={STOPS} value={stop} onChange={setStop} />
         </Field>
+        ) : (
+          <DisasterStop d={data?.summary?.disaster} />
+        )}
         <Field label="Slippage" hint="Per side, on top of NSE futures charges">
           <Segmented label="Slippage" options={SLIPPAGE} value={slippage} onChange={setSlippage} />
         </Field>

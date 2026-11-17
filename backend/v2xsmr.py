@@ -120,6 +120,9 @@ def results(dataset="fno", version="intraday", entry="0915", stop="none", max_op
                  "short_net_pct": round(float(100 * t.loc[t["side"] == "short", "book_net"].sum()), 3),
                  "per_side": per_side(max_open, pairs),
                  "stopped_pct": round(float(100 * t["stopped"].astype(bool).mean()), 1)}
+    if dataset == "fno":  # Chan's disaster stop: shown; it never fires in the backtest by design
+        import disaster
+        extra["disaster"] = disaster.levels().get("xsmr")
     out = v2common.build_results(t, days, slippage, extra)
     if out.get("summary"):  # "trades" here are stock-days; the book trades every day it's live
         out["summary"]["trades_label"] = "Positions"
