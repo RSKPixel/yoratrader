@@ -20,6 +20,38 @@ import kite_auth
 import v2tom
 from db import connect
 
+# The Live trading landing page: each model's mode, a server setting (LIVE_MODES, JSON). "off": not traded;
+# "manual": traded by hand from its page; "on": automatic orders, which no model has yet (refused).
+LIVE_MODES_KEY = "LIVE_MODES"
+LIVE_MODELS = ("turn-of-month", "short-term-reversion", "cumulative-rsi", "oops", "buy-on-gap", "xs-mean-reversion")
+MODES = ("off", "manual", "on")
+AUTOMATIC = ()  # models whose orders the scheduler could place itself: none yet
+DEFAULT_MODES = {"turn-of-month": "manual"}
+
+
+def modes():
+    import json
+    import db
+    try:
+        saved = json.loads(db.get_settings([LIVE_MODES_KEY]).get(LIVE_MODES_KEY) or "{}")
+    except ValueError:
+        saved = {}
+    return {m: saved.get(m, DEFAULT_MODES.get(m, "off")) for m in LIVE_MODELS}
+
+
+def set_mode(model, mode):
+    import json
+    import db
+    if model not in LIVE_MODELS or mode not in MODES:
+        raise ValueError("unknown model or mode")
+    if mode == "on" and model not in AUTOMATIC:
+        raise ValueError("Automatic orders aren't built for this model yet: use Manual")
+    m = modes()
+    m[model] = mode
+    db.set_settings({LIVE_MODES_KEY: json.dumps(m)})
+    return m
+
+
 MODEL = "turn-of-month"
 TAG = "yt-tom"
 MAX_LOTS = 5
@@ -236,6 +268,8 @@ def place(side, symbol, lots, price, username):
     side = side.upper()
     if side not in ("BUY", "SELL"):
         raise ValueError("Side must be BUY or SELL.")
+    if side == "BUY" and modes().get(MODEL) == "off":  # selling what's held stays allowed
+        raise ValueError("Turn of the month is Off on the Live trading page: set it to Manual to buy.")
     lots = int(lots)
     if not 1 <= lots <= MAX_LOTS:
         raise ValueError(f"Lots must be 1 to {MAX_LOTS}.")

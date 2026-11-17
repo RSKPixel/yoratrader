@@ -749,6 +749,25 @@ class LivePriceRequest(BaseModel):
     price: float
 
 
+@app.get("/api/v2/trade/modes")
+def v2_trade_modes():
+    """Each live trading model's mode (off / manual / on) and which can be automatic."""
+    return {"status": "success", "modes": livetrade.modes(), "automatic": list(livetrade.AUTOMATIC)}
+
+
+class TradeModeRequest(BaseModel):
+    model: str
+    mode: str
+
+
+@app.post("/api/v2/trade/modes")
+def v2_trade_set_mode(req: TradeModeRequest):
+    try:
+        return {"status": "success", "modes": livetrade.set_mode(req.model, req.mode)}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
 @app.get("/api/v2/trade/tom")
 def v2_trade_tom():
     try:

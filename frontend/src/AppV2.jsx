@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { displayName, useAuth } from "./AuthGate";
 import V2Backtesting, { findBacktest } from "./V2Backtesting";
 import V2Paper, { findPaper } from "./V2Paper";
+import V2TradeLanding from "./V2TradeLanding";
 import V2Settings from "./V2Settings";
 import V2Data from "./V2Data";
 import { KiteButton } from "./V2Kite";
@@ -78,6 +79,8 @@ export default function AppV2() {
   const [settingsOpen, setSettingsOpen] = useState(() => pathParts()[0] === "settings");
   const [backtest, setBacktest] = useState(backtestFromPath);
   const [paper, setPaper] = useState(paperFromPath);
+  // Live trading: the landing page (null) or a model's own page ("turn-of-month")
+  const [tradeSub, setTradeSub] = useState(() => (pathParts()[0] === "trade" ? pathParts()[1] || null : null));
 
 
   useEffect(() => {
@@ -85,6 +88,7 @@ export default function AppV2() {
       setPage(pageFromPath());
       setBacktest(backtestFromPath());
       setPaper(paperFromPath());
+      setTradeSub(pathParts()[0] === "trade" ? pathParts()[1] || null : null);
     };
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
@@ -117,7 +121,8 @@ export default function AppV2() {
     }
     if (id === "paper") setPaper(null); // the landing pages, not the last model
     if (id === "backtesting") setBacktest(null);
-    if (id === page && !(id === "paper" && paper) && !(id === "backtesting" && backtest)) return;
+    if (id === "trade") setTradeSub(null);
+    if (id === page && !(id === "paper" && paper) && !(id === "backtesting" && backtest) && !(id === "trade" && tradeSub)) return;
     window.history.pushState(null, "", id === "backtesting" ? "/v2/backtesting" : id === "paper" ? "/v2/paper" : `/v2/${id}`);
     setPage(id);
   };
@@ -187,7 +192,7 @@ export default function AppV2() {
         </main>
       ) : page === "trade" ? (
         <main className="min-h-0 flex-1 overflow-auto px-4 py-6 md:px-6">
-          <V2Trade />
+          {tradeSub === "turn-of-month" ? <V2Trade /> : <V2TradeLanding />}
         </main>
       ) : page === "live" ? (
         <main className="min-h-0 flex-1 overflow-auto px-4 py-6 md:px-6">

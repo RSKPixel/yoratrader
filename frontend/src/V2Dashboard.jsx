@@ -168,7 +168,7 @@ function TomCard({ tm = {} }) {
   return (
       <PaperCard
         title="Turn of the month · manual"
-        href="/v2/trade"
+        href="/v2/trade/turn-of-month"
         style="Positional"
         error={tm.error}
         lines={[
