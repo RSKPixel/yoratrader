@@ -1,8 +1,8 @@
 """Books + gold: the two trading books (RSI(2) short-term mean reversion and long trend low volatility)
 with a fixed share of capital held in gold (GOLDBEES), rebalanced at each month-end.
 
-- Books: (100 - gold)% of capital, split between RSI(2) (F&O, max 3, 5-day hold, at the close) and low
-  volatility (F&O cash, max 10, 20% trailing stop), each with its own backtest's monthly net.
+- Books: (100 - gold)% of capital, split between RSI(2) (F&O stocks in cash, max 3, 5-day hold, at the close)
+  and low volatility (F&O stocks in cash, max 10, 20% trailing stop); delivery charges, no futures, each with its own backtest's monthly net.
 - Gold: gold% of capital in GOLDBEES, bought and held; each month-end it's topped up or trimmed back to
   gold% (the trade is the drift, charged at delivery costs).
 - Monthly, not compounded, like the other backtests.
@@ -85,7 +85,7 @@ def _inputs():
             return hit[1]
     import v2connors
     import v2ltlv
-    rsi = v2connors.results("fno", "rsi2", "5d", 3, "none", "close", "all")
+    rsi = v2connors.results("fno", "rsi2", "5d", 3, "none", "close", "all", instrument="cash")
     lv = v2ltlv.results(10, "20", 0.0002, "cash")
     g = _gold_months()
     gold = g.pct_change().dropna()

@@ -56,9 +56,9 @@ export default function V2Mix({ params }) {
             <Card label="Gold costs" value={value(-s.gold_cost_pct, 3)} color="var(--negative)" hint="Buying the gold and the monthly rebalancing (delivery charges)" />
           </div>
           <p className="-mt-1 text-xs" style={{ color: "var(--muted)" }}>
-            Capital split: RSI(2) {book}% · low volatility {book}% · gold {g}% · books and gold moved together {s.corr_books_gold} (monthly correlation) · the books are
-            their own backtests on today's F&O stocks (survivorship-biased: with each month's actual F&O list, books only made 14.5% a year with a worst drop of −26%, and with 30%
-            gold 14.1% and −12%)
+            All in cash (delivery charges, no futures) · capital split: RSI(2) {book}% · low volatility {book}% · gold {g}% · books and gold moved together {s.corr_books_gold} (monthly correlation) · the books are
+            their own backtests on today's F&O stocks (survivorship-biased: with each month's actual F&O list, books only made 11.0% a year with a worst drop of −31%, and with 30%
+            gold 11.7% and −13%)
           </p>
           <Panel title="Compared" right="the same months">
             <div className="overflow-x-auto">

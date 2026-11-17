@@ -32,19 +32,31 @@ def variant(setup, hold, max_open, stop, timing, take, side="long"):
     return base if max_open or take == "all" else f"{base}-{take}"
 
 
-def _sized(dataset, setup, hold, max_open, stop, timing, take, slippage, side="long"):
+def _sized(dataset, setup, hold, max_open, stop, timing, take, slippage, side="long", instrument="futures"):
     f, trades, d = connors._run(variant(setup, hold, max_open, stop, timing, take, side), dataset)
-    cps = xsmr.cost_per_side(slippage)
-    # connors' own daily book (open trades marked at each close, trades charged on their day)
-    daily = pd.DataFrame({"book_ret": f["gross_ret"].to_numpy(), "book_cost": f["turnover"].to_numpy() * cps},
-                         index=pd.to_datetime(f["day"]))
     idx, cols = d["px"].index, d["px"].columns
+    cash = instrument == "cash"
+    if cash:  # delivery: its charges on the buy and the sale, no futures rolls
+        import v2ltlv
+        cps = v2ltlv.cash_cost_per_side(slippage)
+        turn = pd.Series(0.0, index=idx)
+        for x in trades:
+            turn.iloc[x["buy_i"]] += x["w"]
+            if x["sell"] is not None:
+                turn.iloc[x["sell_i"]] += x["w"] * x["sell"] / x["buy"]
+        turnover = turn.reindex(pd.to_datetime(f["day"]), fill_value=0.0).to_numpy()
+    else:
+        cps = xsmr.cost_per_side(slippage)
+        turnover = f["turnover"].to_numpy()
+    # connors' own daily book (open trades marked at each close, trades charged on their day)
+    daily = pd.DataFrame({"book_ret": f["gross_ret"].to_numpy(), "book_cost": turnover * cps},
+                         index=pd.to_datetime(f["day"]))
     closed = [x for x in trades if x["sell"] is not None]
     t = pd.DataFrame({
         "symbol": [cols[x["s"]] for x in closed], "entry_day": [idx[x["buy_i"]] for x in closed],
         "day": [idx[x["sell_i"]] for x in closed], "w": [x["w"] for x in closed], "buy": [x["buy"] for x in closed],
         "sell": [x["sell"] for x in closed], "rsi": [x["rsi"] for x in closed], "reason": [x["reason"] for x in closed],
-        "stop": [x.get("stop") for x in closed], "roll": [x.get("roll", 0.0) for x in closed],
+        "stop": [x.get("stop") for x in closed], "roll": [0.0 if cash else x.get("roll", 0.0) for x in closed],
         "held": [x["sell_i"] - x["buy_i"] for x in closed], "sign": [x.get("sign", 1) for x in closed]})
     if t.empty:
         return t, pd.DatetimeIndex(idx), daily
@@ -58,14 +70,19 @@ def _sized(dataset, setup, hold, max_open, stop, timing, take, slippage, side="l
     return t, pd.DatetimeIndex(idx), daily
 
 
-def results(dataset="fno", setup="rsi2", hold="5d", max_open=3, stop="none", timing="close", take="all", slippage=0.0002, side="long"):
-    t, days, daily = _sized(dataset, setup, hold, max_open, stop, timing, take, slippage, side)
+def results(dataset="fno", setup="rsi2", hold="5d", max_open=3, stop="none", timing="close", take="all", slippage=0.0002, side="long",
+            instrument="futures"):
+    t, days, daily = _sized(dataset, setup, hold, max_open, stop, timing, take, slippage, side, instrument)
     extra = {}
     if len(t):
         extra = {"avg_held_days": round(float(t["held"].mean()), 1),
                  "stopped_pct": round(float(100 * t["reason"].str.startswith("stop").mean()), 1),
                  "avg_rsi": round(float(t["rsi"].mean()), 1), "long_share": round(float(100 * (t["sign"] > 0).mean()), 1)}
-    return v2common.build_results(t, days, slippage, extra, daily=daily)
+    out = v2common.build_results(t, days, slippage, extra, daily=daily)
+    if out.get("summary") and instrument == "cash":
+        import v2ltlv
+        out["summary"]["cost_per_side_bps"] = round(10000 * v2ltlv.cash_cost_per_side(slippage), 2)
+    return out
 
 
 def month_trades(month, dataset="fno", setup="rsi2", hold="5d", max_open=3, stop="none", timing="close", take="all", slippage=0.0002,
