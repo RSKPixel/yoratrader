@@ -17,6 +17,10 @@ const HOLDS = [
   ["2d", "2 days"],
   ["0d", "Exit on strength"],
 ];
+const INSTRUMENTS = [
+  ["cash", "Cash (delivery)"],
+  ["futures", "Futures"],
+];
 const TIMINGS = [
   ["close", "Close (2004 on)"],
   ["1515", "15:15 (2015 on)"],
@@ -46,12 +50,13 @@ export default function V2Connors({ params }) {
   const timing = pit ? "close" : savedTiming; // survivorship-free data (F&O or top 500) is daily: closes only
   const [stop, setStop] = useSetting("bt.connors.stop", "none");
   const [take, setTake] = useSetting("bt.connors.take", "all");
-  const side = "long"; // cash (delivery) can only be bought: no short side
+  const side = "long"; // long only
+  const [instrument, setInstrument] = useSetting("bt.connors.instrument", "cash");
   const [slippage, setSlippage] = useSetting("bt.connors.slippage", 0.02);
   const [month, setMonth] = useState(null);
 
   const book = !params.maxOpen;
-  const query = `dataset=${params.universe}&setup=${setup}&hold=${hold}&timing=${timing}&stop=${stop}&take=${book ? take : "all"}&slippage=${slippage}&max_open=${params.maxOpen}&side=${side}`;
+  const query = `dataset=${params.universe}&setup=${setup}&hold=${hold}&timing=${timing}&stop=${stop}&take=${book ? take : "all"}&slippage=${slippage}&max_open=${params.maxOpen}&side=${side}&instrument=${instrument}`;
   const { data, error, loading } = useBacktest(`/api/v2/backtest/connors?${query}`);
   const value = useMemo(() => makeValue(params.show, params.capital), [params.show, params.capital]);
   const chartFormat = useCallback((v) => value(v, 1), [value]);
@@ -87,8 +92,8 @@ export default function V2Connors({ params }) {
   return (
     <div className="mt-4 flex flex-col gap-4">
       <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
-        <Field label="Instrument" hint="Cash only: delivery (STT 0.1% each side, stamp duty, DP charge), no futures and no rolls">
-          <span className="block py-1.5 text-sm">Cash (delivery)</span>
+        <Field label="Instrument" hint="Cash: delivery (STT 0.1% each side, stamp duty, DP charge), no rolls. Futures: futures charges, and a roll for a hold across a month end">
+          <Segmented label="Instrument" options={INSTRUMENTS} value={instrument} onChange={setInstrument} />
         </Field>
         <Field label="Setup" hint="In a stock above its 200-day average. RSI(2): Connors & Sen's book; cumulative RSI(2): Connors & Alvarez (Short Term Trading Strategies That Work), today's + yesterday's 2-day RSI.">
           <Segmented label="Setup" options={SETUPS} value={setup} onChange={setSetup} />
@@ -107,7 +112,7 @@ export default function V2Connors({ params }) {
             <Segmented label="Take" options={TAKES} value={take} onChange={setTake} />
           </Field>
         )}
-        <Field label="Slippage" hint="Per side, on top of the delivery charges">
+        <Field label="Slippage" hint={`Per side, on top of the ${instrument === "cash" ? "delivery" : "futures"} charges`}>
           <Segmented label="Slippage" options={SLIPPAGE} value={slippage} onChange={setSlippage} />
         </Field>
         {loading && (

@@ -1095,7 +1095,9 @@ def v2_backtest_qmom_month(month: str = Query(..., pattern=r"^\d{4}-\d{2}$"), da
         return {"status": "error", "message": str(error)}
 
 
-def _v2connors_args(dataset, setup, hold, max_open, stop, timing, take, slippage, side="long"):
+def _v2connors_args(dataset, setup, hold, max_open, stop, timing, take, slippage, side="long", instrument="cash"):
+    if instrument not in ("cash", "futures"):
+        raise HTTPException(status_code=400, detail="instrument must be cash or futures")
     if dataset not in v2connors.DATASETS or setup not in v2connors.SETUPS or hold not in v2connors.HOLDS \
             or stop not in v2connors.STOPS or timing not in v2connors.TIMINGS or take not in v2connors.TAKES \
             or side not in v2connors.SIDES:
@@ -1103,16 +1105,16 @@ def _v2connors_args(dataset, setup, hold, max_open, stop, timing, take, slippage
     if dataset in ("fnopit", "cash500") and timing != "close":
         raise HTTPException(status_code=400, detail="Survivorship-free data is daily only: use Close prices (there are no 15:15 prices for removed stocks)")
     return dict(dataset=dataset, setup=setup, hold=hold, max_open=max_open, stop=stop, timing=timing, take=take,
-                slippage=slippage / 100, side=side, instrument="cash")  # the backtest page is cash (delivery) only
+                slippage=slippage / 100, side=side, instrument=instrument)
 
 
 @app.get("/api/v2/backtest/connors")
 def v2_backtest_connors(dataset: str = Query("fno"), setup: str = Query("rsi2"), hold: str = Query("5d"),
                         max_open: int = Query(3, ge=0, le=v2connors.MAX_OPEN), stop: str = Query("none"),
                         timing: str = Query("close"), take: str = Query("all"), slippage: float = Query(0.02, ge=0, le=1),
-                        side: str = Query("long")):
+                        side: str = Query("long"), instrument: str = Query("cash")):
     """Short-term mean reversion (v2 page): connors' trades, max open slots or the book."""
-    args = _v2connors_args(dataset, setup, hold, max_open, stop, timing, take, slippage, side)
+    args = _v2connors_args(dataset, setup, hold, max_open, stop, timing, take, slippage, side, instrument=instrument)
     try:
         return {"status": "success", **v2connors.results(**args)}
     except Exception as error:
@@ -1125,8 +1127,8 @@ def v2_backtest_connors_month(month: str = Query(..., pattern=r"^\d{4}-\d{2}$"),
                               setup: str = Query("rsi2"), hold: str = Query("5d"),
                               max_open: int = Query(3, ge=0, le=v2connors.MAX_OPEN), stop: str = Query("none"),
                               timing: str = Query("close"), take: str = Query("all"), slippage: float = Query(0.02, ge=0, le=1),
-                              side: str = Query("long")):
-    args = _v2connors_args(dataset, setup, hold, max_open, stop, timing, take, slippage, side)
+                              side: str = Query("long"), instrument: str = Query("cash")):
+    args = _v2connors_args(dataset, setup, hold, max_open, stop, timing, take, slippage, side, instrument=instrument)
     try:
         return {"status": "success", "trades": v2connors.month_trades(month, **args)}
     except Exception as error:
