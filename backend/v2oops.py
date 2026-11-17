@@ -16,6 +16,9 @@ minute or two) and cached; warmed at startup.
 """
 
 import threading
+import os
+import pickle
+import tempfile
 import time
 
 import numpy as np
@@ -98,6 +101,23 @@ def _build():
     return f, days
 
 
+# The fills take ~100 s to build from the 1-minute candles, so they're also kept on disk: a restart or a
+# deploy loads them in a second; the 16:00 top-up (invalidate) deletes the file so the next use rebuilds.
+DISK = os.path.join(tempfile.gettempdir(), "yoratrader-oops-fills-v2.pkl")
+
+
+def _load_disk():
+    try:
+        if time.time() - os.path.getmtime(DISK) < CACHE_SECONDS:
+            with open(DISK, "rb") as fh:
+                f, days = pickle.load(fh)
+            if "low_after" in f.columns:
+                return f, days
+    except Exception:
+        pass
+    return None
+
+
 def _fills():
     with _lock:
         if _cache["fills"] is not None and time.time() - _cache["at"] < CACHE_SECONDS:
@@ -106,15 +126,32 @@ def _fills():
         with _lock:
             if _cache["fills"] is not None and time.time() - _cache["at"] < CACHE_SECONDS:
                 return _cache["fills"], _cache["days"]
-        f, days = _build()
+        disk = _load_disk()
+        if disk:
+            f, days = disk
+            at = os.path.getmtime(DISK)
+        else:
+            f, days = _build()
+            at = time.time()
+            try:
+                tmp = DISK + ".tmp"
+                with open(tmp, "wb") as fh:
+                    pickle.dump((f, days), fh)
+                os.replace(tmp, DISK)
+            except Exception as error:
+                print("Oops fills: could not save to disk:", error)
         with _lock:
-            _cache.update(at=time.time(), fills=f, days=days)
+            _cache.update(at=at, fills=f, days=days)
         return f, days
 
 
 def invalidate():
     with _lock:
         _cache.update(at=0)
+    try:
+        os.remove(DISK)
+    except FileNotFoundError:
+        pass
 
 
 def warm():
