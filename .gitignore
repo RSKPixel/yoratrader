@@ -5,3 +5,4 @@ frontend/node_modules
 frontend/dist
 docker/.env
 __pycache__/
+books/
