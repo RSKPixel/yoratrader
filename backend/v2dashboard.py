@@ -25,6 +25,7 @@ import connorswatch
 import oopswatch
 import v2oops
 import v2tom
+import v2ltlv
 from db import connect
 
 INDICES = ["NIFTY 50", "NIFTY BANK", "NIFTY FIN SERVICE", "NIFTY MID SELECT", "NIFTY NEXT 50"]
@@ -238,6 +239,8 @@ MODELS = [
      lambda: v2oops.results("none", "any", 3)),
     ("turn-of-month", "Turn of the month", "Positional", "Nifty 50 · last 4 days to the 3rd",
      lambda: v2tom.results("nifty", "4")),
+    ("low-volatility", "Long trend low volatility", "Positional", "F&O stocks, cash · max 10 · 20% trailing stop",
+     lambda: v2ltlv.results(10, "20", 0.0002, "cash")),
     ("cumulative-rsi", "Cumulative RSI(2) · exit on strength", "Positional", "F&O · cumulative RSI(2) · max 3 · close",
      lambda: v2connors.results("fno", "cumrsi2", "0d", 3, "none", "close", "all")),
 ]

@@ -44,6 +44,7 @@ import v2live
 import v2pnl
 import v2oops
 import v2tom
+import v2ltlv
 import livetrade
 import oopswatch
 import usersettings
@@ -795,6 +796,34 @@ def v2_trade_cancel(order_id: str, request: Request):
         return {"status": "success", **livetrade.cancel(order_id, request.state.user.get("username"))}
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+
+
+def _v2ltlv_args(max_open, trail, slippage, instrument):
+    if trail not in v2ltlv.TRAILS or instrument not in v2ltlv.INSTRUMENTS:
+        raise HTTPException(status_code=400, detail="unknown trailing stop or instrument")
+    return dict(max_open=max_open, trail=trail, slippage=slippage / 100, instrument=instrument)
+
+
+@app.get("/api/v2/backtest/ltlv")
+def v2_backtest_ltlv(max_open: int = Query(10, ge=0, le=10), trail: str = Query("20"), slippage: float = Query(0.02, ge=0, le=1),
+                     instrument: str = Query("cash")):
+    args = _v2ltlv_args(max_open, trail, slippage, instrument)
+    try:
+        return {"status": "success", **v2ltlv.results(**args)}
+    except Exception as error:
+        print("v2 low volatility backtest failed:", error)
+        return {"status": "error", "message": str(error)}
+
+
+@app.get("/api/v2/backtest/ltlv/month")
+def v2_backtest_ltlv_month(month: str = Query(..., pattern=r"^\d{4}-\d{2}$"), max_open: int = Query(10, ge=0, le=10), trail: str = Query("20"),
+                           slippage: float = Query(0.02, ge=0, le=1), instrument: str = Query("cash")):
+    args = _v2ltlv_args(max_open, trail, slippage, instrument)
+    try:
+        return {"status": "success", "trades": v2ltlv.month_trades(month, **args)}
+    except Exception as error:
+        print("v2 low volatility month failed:", error)
+        return {"status": "error", "message": str(error)}
 
 
 @app.get("/api/v2/backtest/tom")

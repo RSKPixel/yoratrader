@@ -10,6 +10,7 @@ import V2Qmom from "./V2Qmom";
 import V2Connors from "./V2Connors";
 import V2Oops from "./V2Oops";
 import V2Tom from "./V2Tom";
+import V2Ltlv from "./V2Ltlv";
 
 // v2 Backtesting: a sub nav of every model with a backtest, grouped by where it comes from. Each
 // model has its own page below the shared parameters.
@@ -49,6 +50,11 @@ export const BACKTEST_GROUPS = [
       { id: "turn-of-month", universes: ["indices"], short: "TM", label: "Turn of the month", style: "Positional" },
     ],
   },
+  {
+    title: "Laurens Bensdorp",
+    source: "Automated Stock Trading Systems (2020)",
+    models: [{ id: "low-volatility", universes: ["fno"], short: "LV", label: "Long trend low volatility", style: "Positional", defaultOpen: 10 }],
+  },
 ];
 
 const ALL = BACKTEST_GROUPS.flatMap((g) => g.models.map((m) => ({ ...m, group: g })));
@@ -61,7 +67,7 @@ export function findBacktest(id) {
 export default function V2Backtesting({ model, onSelect }) {
   const m = findBacktest(model) || findBacktest(DEFAULT_BACKTEST);
   const { open, toggle, select } = useSideNav("yt-v2-backtest-nav", onSelect);
-  const [params, setParams] = useBacktestParams(m.id, { universe: m.universes[0], maxOpen: m.step > 1 ? 6 : 5 });
+  const [params, setParams] = useBacktestParams(m.id, { universe: m.universes[0], maxOpen: m.defaultOpen || (m.step > 1 ? 6 : 5) });
   // Per model; a saved universe the model no longer has falls back to its first.
   const universe = m.universes.includes(params.universe) ? params.universe : m.universes[0];
   // Long-short models need as many shorts as longs: Max open moves in 2s (an odd choice rounds up).
@@ -88,6 +94,7 @@ export default function V2Backtesting({ model, onSelect }) {
         {m.id === "buy-on-gap" && <V2BuyOnGap params={modelParams} />}
         {m.id === "oops" && <V2Oops params={modelParams} />}
         {m.id === "turn-of-month" && <V2Tom params={modelParams} />}
+        {m.id === "low-volatility" && <V2Ltlv params={modelParams} />}
         {m.id === "gap-momentum" && <V2BuyOnGap params={modelParams} model="gapmom" key="gapmom" />}
         {m.id === "kbdt" && <V2Kbdt params={modelParams} />}
         {m.id === "xs-mean-reversion" && <V2Xsmr params={modelParams} />}

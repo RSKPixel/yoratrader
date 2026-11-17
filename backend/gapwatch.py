@@ -489,6 +489,8 @@ def _topup_backtest():
         v2oops.invalidate()  # the Oops backtest rebuilds from the new candles on its next use
         import v2tom
         v2tom.invalidate()
+        import v2ltlv
+        v2ltlv.invalidate()
     except Exception as error:
         print("Backtest data top-up failed:", error)
 
