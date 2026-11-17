@@ -283,7 +283,7 @@ function Paper({ p, today, openOnly = false }) {
   );
 }
 
-function Models() {
+export function Models() {
   const statuses = useModelStatuses();
   const [data, setData] = useState(null);
   useEffect(() => {

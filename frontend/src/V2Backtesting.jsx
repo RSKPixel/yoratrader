@@ -12,6 +12,8 @@ import V2Oops from "./V2Oops";
 import V2Tom from "./V2Tom";
 import V2Ltlv from "./V2Ltlv";
 import V2Mix from "./V2Mix";
+import { Models } from "./V2Dashboard";
+import { Panel } from "./V2BacktestView";
 
 // v2 Backtesting: a sub nav of every model with a backtest, grouped by where it comes from. Each
 // model has its own page below the shared parameters.
@@ -70,8 +72,37 @@ export function findBacktest(id) {
   return ALL.find((m) => m.id === id);
 }
 
+// The landing page (no model picked): every backtest at its default settings, as on the dashboard
+function Landing({ onSelect }) {
+  const { open, toggle, select } = useSideNav("yt-v2-backtest-nav", onSelect);
+  return (
+    <div className="relative flex min-h-0 min-w-0 flex-1">
+      <SideNav groups={BACKTEST_GROUPS} base="/v2/backtesting" title="Backtests" current={null} onSelect={select} open={open} onToggle={toggle} pinKey="backtesting" />
+      <section className="min-h-0 min-w-0 flex-1 overflow-auto px-4 py-6 md:px-8">
+        <p className="text-xs font-medium uppercase tracking-[0.14em]" style={{ color: "var(--faint)" }}>
+          Backtesting
+        </p>
+        <h1 className="mt-1 text-xl font-semibold tracking-tight">All backtests</h1>
+        <p className="mt-1 text-sm" style={{ color: "var(--muted)" }}>
+          Every model at its default settings (today's F&O list, survivorship bias on). Open one to change its settings or turn survivorship bias off.
+        </p>
+        <div className="mt-4">
+          <Panel title="Strategies" right="click a model for its backtest">
+            <Models />
+          </Panel>
+        </div>
+      </section>
+    </div>
+  );
+}
+
 export default function V2Backtesting({ model, onSelect }) {
-  const m = findBacktest(model) || findBacktest(DEFAULT_BACKTEST);
+  const m = findBacktest(model);
+  if (!m) return <Landing onSelect={onSelect} />;
+  return <Model m={m} onSelect={onSelect} />;
+}
+
+function Model({ m, onSelect }) {
   const { open, toggle, select } = useSideNav("yt-v2-backtest-nav", onSelect);
   const [params, setParams] = useBacktestParams(m.id, { universe: m.universes[0], maxOpen: m.defaultOpen || (m.step > 1 ? 6 : 5) });
   // Per model; a saved universe the model no longer has falls back to its first.
