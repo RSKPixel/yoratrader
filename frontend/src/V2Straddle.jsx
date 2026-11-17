@@ -40,9 +40,11 @@ export default function V2Straddle({ params, strategy = "short" }) {
     { h: "Future", cell: (t) => t.fut },
     { h: "Call + put", cell: (t) => `${t.ce} + ${t.pe}` },
     ...(strategy === "fly" ? [{ h: "Wings bought", cell: (t) => t.bought, style: () => ({ color: "var(--muted)" }) }] : []),
-    { h: "Credit", cell: (t) => t.premium },
+    { h: strategy === "long" ? "Paid" : "Credit", cell: (t) => (strategy === "long" ? -t.premium : t.premium) },
     { h: "Settled at", cell: (t) => t.settle },
-    { h: "Paid out", cell: (t) => t.payout, style: () => ({ color: "var(--negative)" }) },
+    strategy === "long"
+      ? { h: "Got back", cell: (t) => -t.payout, style: () => ({ color: "var(--positive)" }) }
+      : { h: "Paid out", cell: (t) => t.payout, style: () => ({ color: "var(--negative)" }) },
     { h: "Net", cell: (t) => `${t.net_pct.toFixed(2)}%`, style: (t) => ({ color: tone(t.net_pct) }) },
     { h: "Per lot", cell: (t) => rs(t.net_rs_lot), style: (t) => ({ color: tone(t.net_rs_lot) }) },
   ];
