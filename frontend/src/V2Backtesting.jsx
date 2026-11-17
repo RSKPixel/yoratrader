@@ -43,7 +43,7 @@ export const BACKTEST_GROUPS = [
   {
     title: "Larry Connors",
     source: "How Markets Really Work (2nd ed., 2012)",
-    models: [{ id: "short-term-reversion", universes: ["fno", "stocks", "cash500"], short: "SR", label: "Short-term mean reversion", style: "Positional", pit: true }],
+    models: [{ id: "short-term-reversion", universes: ["fno", "stocks"], short: "SR", label: "Short-term mean reversion", style: "Positional", pit: true }],
   },
   {
     title: "Larry Williams",
@@ -56,12 +56,12 @@ export const BACKTEST_GROUPS = [
   {
     title: "Laurens Bensdorp",
     source: "Automated Stock Trading Systems (2020)",
-    models: [{ id: "low-volatility", universes: ["fno", "cash500"], short: "LV", label: "Long trend low volatility", style: "Positional", defaultOpen: 10, pit: true }],
+    models: [{ id: "low-volatility", universes: ["fno"], short: "LV", label: "Long trend low volatility", style: "Positional", defaultOpen: 10, pit: true }],
   },
   {
     title: "Portfolio",
     source: "Our books together, with gold",
-    models: [{ id: "books-gold", universes: ["fno", "cash500"], short: "PG", label: "Books + gold", style: "Positional", pit: true }],
+    models: [{ id: "books-gold", universes: ["fno"], short: "PG", label: "Books + gold", style: "Positional", pit: true }],
   },
 ];
 

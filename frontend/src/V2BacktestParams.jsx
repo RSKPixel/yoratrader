@@ -6,7 +6,7 @@ import { Field, formatRs, inputStyle, Segmented } from "./V2Controls";
 // as % of capital or rupees. Each model keeps its own values, remembered per browser.
 
 export const DEFAULT_PARAMS = { capital: 1000000, maxOpen: 5, show: "rs", universe: "fno" };
-export const UNIVERSES = { fno: "F&O stocks", stocks: "Nifty 50 stocks", indices: "Indices", cash500: "Top 500 (cash)" };
+export const UNIVERSES = { fno: "F&O stocks", stocks: "Nifty 50 stocks", indices: "Indices" };
 const CAPITAL_PICKS = [500000, 1000000, 2500000, 5000000, 10000000];
 const MAX_OPEN = 10;
 
