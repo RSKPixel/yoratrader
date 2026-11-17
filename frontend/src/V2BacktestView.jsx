@@ -115,7 +115,7 @@ export function MonthGrid({ years, months, value, onOpen }) {
                         onClick={() => onOpen(key)}
                         className="w-full px-1.5 py-1.5 hover:underline"
                         style={{ color: "var(--text)" }}
-                        title={`${m.trades} trades · ${m.win_rate}% win · net ${value(m.net_pct)}`}
+                        title={`${m.trades} trades${m.win_rate == null ? "" : ` · ${m.win_rate}% win`} · net ${value(m.net_pct)}`}
                       >
                         {value(m.net_pct, 2)}
                       </button>
@@ -134,7 +134,7 @@ export function MonthGrid({ years, months, value, onOpen }) {
                 {y.trades}
               </td>
               <td className="px-2 py-1.5 text-center" style={{ color: "var(--muted)" }}>
-                {y.win_rate}%
+                {y.win_rate == null ? "—" : `${y.win_rate}%`}
               </td>
             </tr>
           ))}

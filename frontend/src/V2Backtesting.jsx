@@ -11,6 +11,7 @@ import V2Connors from "./V2Connors";
 import V2Oops from "./V2Oops";
 import V2Tom from "./V2Tom";
 import V2Ltlv from "./V2Ltlv";
+import V2Mix from "./V2Mix";
 
 // v2 Backtesting: a sub nav of every model with a backtest, grouped by where it comes from. Each
 // model has its own page below the shared parameters.
@@ -55,6 +56,11 @@ export const BACKTEST_GROUPS = [
     source: "Automated Stock Trading Systems (2020)",
     models: [{ id: "low-volatility", universes: ["fno"], short: "LV", label: "Long trend low volatility", style: "Positional", defaultOpen: 10 }],
   },
+  {
+    title: "Portfolio",
+    source: "Our books together, with gold",
+    models: [{ id: "books-gold", universes: ["fno"], short: "PG", label: "Books + gold", style: "Positional" }],
+  },
 ];
 
 const ALL = BACKTEST_GROUPS.flatMap((g) => g.models.map((m) => ({ ...m, group: g })));
@@ -95,6 +101,7 @@ export default function V2Backtesting({ model, onSelect }) {
         {m.id === "oops" && <V2Oops params={modelParams} />}
         {m.id === "turn-of-month" && <V2Tom params={modelParams} />}
         {m.id === "low-volatility" && <V2Ltlv params={modelParams} />}
+        {m.id === "books-gold" && <V2Mix params={modelParams} />}
         {m.id === "gap-momentum" && <V2BuyOnGap params={modelParams} model="gapmom" key="gapmom" />}
         {m.id === "kbdt" && <V2Kbdt params={modelParams} />}
         {m.id === "xs-mean-reversion" && <V2Xsmr params={modelParams} />}

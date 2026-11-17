@@ -491,6 +491,8 @@ def _topup_backtest():
         v2tom.invalidate()
         import v2ltlv
         v2ltlv.invalidate()
+        import v2mix
+        print("Gold topped up:", v2mix.topup_gold(), "days")
     except Exception as error:
         print("Backtest data top-up failed:", error)
 
