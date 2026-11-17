@@ -78,6 +78,7 @@ def _frame(d):
             return None
         f = pd.read_csv(io.BytesIO(raw))
         f.columns = [c.strip() for c in f.columns]
+        f = f.rename(columns={"OPTIONTYPE": "OPTION_TYP"})  # some years' files name it so
         f = f[f["SYMBOL"].str.strip().isin(SYMBOLS) & f["INSTRUMENT"].str.strip().isin(["OPTIDX", "FUTIDX"])]
         return pd.DataFrame({
             "symbol": f["SYMBOL"].str.strip(), "expiry": pd.to_datetime(f["EXPIRY_DT"].str.strip(), format="%d-%b-%Y").dt.date,
@@ -136,7 +137,11 @@ def download_daily(since=None, until=None, on_progress=None):
     days = [d for d in _trading_days(since or START, until or date.today() - timedelta(days=1)) if d not in have]
     stored, missing = 0, []
     for i, d in enumerate(days):
-        f = _frame(d)
+        try:
+            f = _frame(d)
+        except Exception as error:  # a file in an unexpected layout: note it, carry on
+            print("option file", d, "not read:", error, flush=True)
+            f = None
         if f is None or f.empty:
             missing.append(d.isoformat())
         else:
