@@ -89,6 +89,8 @@ export default function V2Straddle({ params, strategy = "short" }) {
           note={
             strategy === "long"
               ? "bought at the close 10 trading days before expiry (a quiet week only), settled at the expiry's final settlement price"
+              : strategy === "vrp"
+              ? "sold the day after the last expiry only when the straddle's implied volatility was above the index's last-20-day volatility"
               : strategy === "late"
               ? "sold at the close 10 trading days before expiry, settled at the expiry's final settlement price"
               : "sold at the close the day after the last expiry, settled at the expiry's final settlement price"

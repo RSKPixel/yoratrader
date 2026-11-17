@@ -1,5 +1,9 @@
 """Option straddles on Nifty and Bank Nifty monthly options (NSE daily bhavcopies, optdata.bt_opt_daily).
 
+Strategy "vrp" (Euan Sinclair, Volatility Trading): the monthly short straddle, sold only when its implied
+volatility (from its price: an at-the-money straddle ~ 0.8 x future x vol x sqrt(time left)) is above the
+index's actual volatility over the last 20 trading days; no trade that month otherwise.
+
 Strategy "late": the short straddle sold LATE_DAYS (10) trading days before expiry, held to expiry.
 Strategy "long": the straddle BOUGHT 10 trading days before expiry, only when the index's last 7-day move was
 within +-1% (a quiet week); held to expiry (STT 0.125% on the intrinsic value of a leg exercised in the money).
@@ -31,11 +35,12 @@ import pandas as pd
 from db import connect
 
 INDICES = {"nifty": "NIFTY", "banknifty": "BANKNIFTY"}
-STRATEGIES = ("short", "fly", "late", "long")
+STRATEGIES = ("short", "fly", "late", "long", "vrp")
 # fly: the iron butterfly (the short straddle + bought wings ~5% away); late: the short straddle sold
 # LATE_DAYS trading days before expiry; long: the straddle BOUGHT LATE_DAYS before expiry, only after a
 # quiet week (the index's last QUIET_DAYS-day move within +-QUIET_MOVE)
 LATE_DAYS, QUIET_DAYS, QUIET_MOVE = 10, 7, 0.01
+RV_DAYS = 20  # vrp: the index's actual volatility over the last 20 trading days
 STT_EXERCISE = 0.00125  # on the intrinsic value of a bought option exercised at expiry
 SPOT = {"NIFTY": "NIFTY 50", "BANKNIFTY": "NIFTY BANK"}
 SLIPPAGES = {"0.25": 0.0025, "0.5": 0.005, "1": 0.01}  # of the premium, per side per leg
@@ -101,12 +106,13 @@ def _book(index, strategy, slippage):
     expiries = sorted(set(opt["expiry"]))
     trades, marks, skipped = [], [], 0
     spot = None
-    if strategy == "long":
+    if strategy in ("long", "vrp"):
         with connect() as conn:
             spot = pd.read_sql("SELECT day, close FROM bt_daily WHERE symbol = %s AND close > 0 ORDER BY day", conn,
                                params=[SPOT[sym]], parse_dates=["day"]).set_index("day")["close"]
         spot = spot[spot.index.dayofweek < 5]
         move = (spot / spot.shift(QUIET_DAYS) - 1)
+        rv = np.log(spot).diff().rolling(RV_DAYS, min_periods=RV_DAYS - 2).std() * np.sqrt(252)
     for prev_exp, exp in zip(expiries, expiries[1:]):
         cycle = days[(days > prev_exp) & (days <= exp)]
         if not len(cycle) or cycle[0] >= exp:
@@ -133,6 +139,14 @@ def _book(index, strategy, slippage):
             continue
         K = float(strikes[np.argmin(np.abs(strikes - F0))])
         legs = _legs(o, K, strategy)
+        iv = rv_now = None
+        if strategy == "vrp":  # Sinclair: sell only when implied volatility is above the actual volatility
+            left = int(((days > entry) & (days <= exp)).sum())
+            prem_atm = float(o[(o["strike"] == K)]["close"].sum())
+            iv = prem_atm / (0.798 * F0 * np.sqrt(max(left, 1) / 252))  # an at-the-money straddle ~ 0.8 x F x vol x sqrt(T)
+            rv_now = rv.get(entry)
+            if rv_now is None or pd.isna(rv_now) or iv <= rv_now:
+                continue
         if legs is None:
             skipped += 1
             continue
@@ -148,7 +162,7 @@ def _book(index, strategy, slippage):
         width = max(max(k - K for t, k, q in legs if q > 0 and t == "CE"), max(K - k for t, k, q in legs if q > 0 and t == "PE")) if strategy == "fly" else None
         trades.append({"entry_day": entry, "day": pd.Timestamp(exp), "strike": K, "fut": F0, "ce": px0[("CE", K)], "pe": px0[("PE", K)],
                        "premium": credit, "sold": sold, "bought": bought, "settle": S, "payout": payout, "pnl_pts": credit - payout,
-                       "cost_pts": cost, "legs": legs, "width": width,
+                       "cost_pts": cost, "legs": legs, "width": width, "iv": iv, "rv": rv_now,
                        "days_held": int(((days > entry) & (days <= exp)).sum())})
         # daily marks: the position's value at each close (a leg that didn't trade: its settlement price)
         span = days[(days >= entry) & (days <= exp)]
