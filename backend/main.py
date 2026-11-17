@@ -38,7 +38,6 @@ import v2xsmom
 import v2qmom
 import v2connors
 import v2mix
-import v2straddle
 import v2paper
 import v2data
 import v2dashboard
@@ -895,33 +894,6 @@ def v2_backtest_ltlv_month(month: str = Query(..., pattern=r"^\d{4}-\d{2}$"), ma
         return {"status": "success", "trades": v2ltlv.month_trades(month, **args)}
     except Exception as error:
         print("v2 low volatility month failed:", error)
-        return {"status": "error", "message": str(error)}
-
-
-def _v2straddle_args(index, strategy, slippage):
-    if index not in v2straddle.INDICES or strategy not in v2straddle.STRATEGIES or slippage not in v2straddle.SLIPPAGES:
-        raise HTTPException(status_code=400, detail="unknown index, strategy or slippage")
-    return dict(index=index, strategy=strategy, slippage=slippage)
-
-
-@app.get("/api/v2/backtest/straddle")
-def v2_backtest_straddle(index: str = Query("nifty"), strategy: str = Query("short"), slippage: str = Query("0.5")):
-    args = _v2straddle_args(index, strategy, slippage)
-    try:
-        return {"status": "success", **v2straddle.results(**args)}
-    except Exception as error:
-        print("v2 straddle backtest failed:", error)
-        return {"status": "error", "message": str(error)}
-
-
-@app.get("/api/v2/backtest/straddle/month")
-def v2_backtest_straddle_month(month: str = Query(..., pattern=r"^\d{4}-\d{2}$"), index: str = Query("nifty"), strategy: str = Query("short"),
-                               slippage: str = Query("0.5")):
-    args = _v2straddle_args(index, strategy, slippage)
-    try:
-        return {"status": "success", "trades": v2straddle.month_trades(month, **args)}
-    except Exception as error:
-        print("v2 straddle month failed:", error)
         return {"status": "error", "message": str(error)}
 
 

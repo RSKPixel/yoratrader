@@ -229,10 +229,10 @@ export function SideNav({ groups: allGroups, base, title, current, onSelect, ope
   const statuses = useModelStatuses();
   // archived models leave their groups for an "Archived" section at the bottom (the rail hides them)
   // listed by style (Intraday, then Positional), each model with its author; archived ones at the bottom
-  // a group can put its models in their own section (section: "Options positional") instead of by style
+  // a group can put its models in their own section (section: "...") instead of by style
   const every = allGroups.flatMap((g) => g.models.map((m) => ({ ...m, author: g.title, source: g.source, section: m.section || g.section || m.style })));
   const archived = every.filter((m) => statusOf(statuses, m.id) === "archived");
-  const groups = ["Intraday", "Positional", "Options positional"]
+  const groups = ["Intraday", "Positional"]
     .map((section) => ({ title: section, models: every.filter((m) => m.section === section && statusOf(statuses, m.id) !== "archived") }))
     .filter((g) => g.models.length);
   const [pinned, setPinned] = useSetting(`nav.pinned.${pinKey}`, false);
