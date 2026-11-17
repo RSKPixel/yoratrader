@@ -22,7 +22,7 @@ import v2common
 import xsmom
 import xsmr
 
-DATASETS = xsmom.DATASETS
+DATASETS = xsmom.DATASETS + ("fnopit",)  # fnopit: survivorship-free (pit.py): only that month's F&O list is ranked
 HOLD = xsmom.HOLD
 MAX_OPEN = 10
 CACHE_SECONDS = 1800
@@ -44,7 +44,11 @@ def _signals(dataset):
     def build():
         c = xsmom._closes(dataset)
         b = xsmom._book(c, "book")  # momentum (with the data-hygiene filter) and clean daily returns
-        return c, b["mom"], b["r"]
+        mom = b["mom"]
+        if dataset == "fnopit":
+            import pit
+            mom = mom.where(pit.member_mask(c.index, c.columns))
+        return c, mom, b["r"]
     return _cached(("signals", dataset), build)
 
 

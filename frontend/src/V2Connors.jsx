@@ -46,7 +46,9 @@ export default function V2Connors({ params }) {
   // only the two book setups (more would be curve fitting); an older saved choice falls back to RSI(2)
   const setup = SETUPS.some(([k]) => k === savedSetup) ? savedSetup : "rsi2";
   const [hold, setHold] = useSetting("bt.connors.hold", "5d");
-  const [timing, setTiming] = useSetting("bt.connors.timing", "close");
+  const [savedTiming, setTiming] = useSetting("bt.connors.timing", "close");
+  const pit = params.universe === "fnopit";
+  const timing = pit ? "close" : savedTiming; // survivorship-free data is daily: closes only
   const [stop, setStop] = useSetting("bt.connors.stop", "none");
   const [take, setTake] = useSetting("bt.connors.take", "all");
   const [side, setSide] = useSetting("bt.connors.side", "long");
@@ -97,7 +99,7 @@ export default function V2Connors({ params }) {
           <Segmented label="Hold" options={HOLDS} value={hold} onChange={setHold} />
         </Field>
         <Field label="Prices" hint="Close: official closes for the signal, buy and sale (daily candles, 2004 on). 15:15: today's 15:15 price, what you can trade (15m candles, 2015 on); its first load takes ~45 s.">
-          <Segmented label="Prices" options={TIMINGS} value={timing} onChange={setTiming} />
+          <Segmented label="Prices" options={TIMINGS.map(([v, t]) => [v, t, pit && v !== "close", pit && v !== "close" ? "Survivorship-free data is daily: no 15:15 prices for removed stocks" : undefined])} value={timing} onChange={setTiming} />
         </Field>
         <Field
           label="Side"

@@ -19,15 +19,14 @@ const allocation = (gold) => [
   ["Low volatility", (100 - gold) / 2, "Long trend low volatility: up to 10 stocks, 20% trailing stop"],
   ["Gold", gold, gold ? `GOLDBEES, held; topped up or trimmed back to ${gold}% at each month-end` : "No gold"],
 ];
-// survivorship-free (each month's actual F&O list), 2008-2026
-const HONEST = "books only made 11.0% a year with a worst drop of −31%; with 30% gold 11.7% and −13%";
 
 const rupees = (v) => `₹${Math.round(v).toLocaleString("en-IN")}`;
 
 export default function V2Mix({ params }) {
   const [gold, setGold] = useSetting("bt.mix.gold", "30");
   const [month, setMonth] = useState(null);
-  const query = `gold=${gold === "0" ? 0 : 30}&instrument=cash`;
+  const pit = params.universe === "fnopit";
+  const query = `gold=${gold === "0" ? 0 : 30}&instrument=cash&dataset=${pit ? "fnopit" : "fno"}`;
   const { data, error, loading } = useBacktest(`/api/v2/backtest/mix?${query}`);
   const value = useMemo(() => makeValue(params.show, params.capital), [params.show, params.capital]);
   const chartFormat = useCallback((v) => value(v, 1), [value]);
@@ -98,8 +97,10 @@ export default function V2Mix({ params }) {
           <p className="-mt-1 text-xs" style={{ color: "var(--muted)" }}>
             {s.from} → {s.to} · {value(s.net_year_pct)} net a year · Sharpe {s.sharpe ?? "—"} · {s.green_years}/{s.years} green years · RSI(2) {s.split.rsi2}% · low
             volatility {s.split.lv}% · gold {s.split.gold}% · cash, no rolls · gold costs {value(-s.gold_cost_pct, 3)} ·
-            books and gold moved together {s.corr_books_gold} (monthly) · trades are the books' (gold is held) · today's F&O stocks (survivorship-biased: with each month's actual
-            F&O list, {HONEST})
+            books and gold moved together {s.corr_books_gold} (monthly) · trades are the books' (gold is held) ·{" "}
+            {pit
+              ? "each month's actual F&O list (survivorship-free)"
+              : "today's F&O stocks (survivorship-biased: pick Each month's F&O in Stock list for the honest numbers)"}
           </p>
           <Panel title="Net by month" right="click a month for its trades and the gold">
             <MonthGrid years={data.years} months={data.months} value={value} onOpen={setMonth} />

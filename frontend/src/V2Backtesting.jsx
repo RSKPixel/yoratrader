@@ -30,18 +30,18 @@ export const BACKTEST_GROUPS = [
       { id: "gap-momentum", universes: ["indices", "fno"], short: "GM", label: "Opening gap momentum", style: "Intraday" },
       { id: "xs-mean-reversion", step: 2, universes: ["fno", "stocks"], short: "XR", label: "Cross-sectional mean reversion", style: "Intraday" },
       { id: "pairs", step: 2, universes: ["fno"], short: "PT", label: "Pairs trading", style: "Positional" },
-      { id: "xs-momentum", step: 2, universes: ["fno", "stocks"], short: "XM", label: "Cross-sectional momentum", style: "Positional" },
+      { id: "xs-momentum", step: 2, universes: ["fno", "stocks"], short: "XM", label: "Cross-sectional momentum", style: "Positional", pit: true },
     ],
   },
   {
     title: "Gray & Vogel",
     source: "Quantitative Momentum (Wiley, 2016)",
-    models: [{ id: "quant-momentum", universes: ["fno", "stocks"], short: "QM", label: "Quantitative momentum", style: "Positional" }],
+    models: [{ id: "quant-momentum", universes: ["fno", "stocks"], short: "QM", label: "Quantitative momentum", style: "Positional", pit: true }],
   },
   {
     title: "Larry Connors",
     source: "How Markets Really Work (2nd ed., 2012)",
-    models: [{ id: "short-term-reversion", universes: ["fno", "stocks"], short: "SR", label: "Short-term mean reversion", style: "Positional" }],
+    models: [{ id: "short-term-reversion", universes: ["fno", "stocks"], short: "SR", label: "Short-term mean reversion", style: "Positional", pit: true }],
   },
   {
     title: "Larry Williams",
@@ -54,12 +54,12 @@ export const BACKTEST_GROUPS = [
   {
     title: "Laurens Bensdorp",
     source: "Automated Stock Trading Systems (2020)",
-    models: [{ id: "low-volatility", universes: ["fno"], short: "LV", label: "Long trend low volatility", style: "Positional", defaultOpen: 10 }],
+    models: [{ id: "low-volatility", universes: ["fno"], short: "LV", label: "Long trend low volatility", style: "Positional", defaultOpen: 10, pit: true }],
   },
   {
     title: "Portfolio",
     source: "Our books together, with gold",
-    models: [{ id: "books-gold", universes: ["fno"], short: "PG", label: "Books + gold", style: "Positional" }],
+    models: [{ id: "books-gold", universes: ["fno"], short: "PG", label: "Books + gold", style: "Positional", pit: true }],
   },
 ];
 
@@ -79,7 +79,9 @@ export default function V2Backtesting({ model, onSelect }) {
   // Long-short models need as many shorts as longs: Max open moves in 2s (an odd choice rounds up).
   const step = m.step || 1;
   const maxOpen = params.maxOpen && step > 1 ? Math.min(10, Math.ceil(params.maxOpen / step) * step) : params.maxOpen;
-  const modelParams = { ...params, universe, maxOpen };
+  // Survivorship-free (each month's F&O list): the "fnopit" dataset, for daily-close models on F&O stocks
+  const pit = !!m.pit && universe === "fno" && params.survivor === "pit";
+  const modelParams = { ...params, universe: pit ? "fnopit" : universe, maxOpen };
   return (
     <div className="relative flex min-h-0 min-w-0 flex-1">
       <SideNav groups={BACKTEST_GROUPS} base="/v2/backtesting" title="Backtests" current={m.id} onSelect={select} open={open} onToggle={toggle} pinKey="backtesting" />
@@ -95,7 +97,7 @@ export default function V2Backtesting({ model, onSelect }) {
           </span>
         </div>
         <div className="mt-4">
-          <V2BacktestParams params={modelParams} onChange={setParams} universes={m.universes} step={step} />
+          <V2BacktestParams params={{ ...modelParams, universe }} onChange={setParams} universes={m.universes} step={step} pit={{ ok: !!m.pit, value: pit ? "pit" : "today" }} />
         </div>
         {m.id === "buy-on-gap" && <V2BuyOnGap params={modelParams} />}
         {m.id === "oops" && <V2Oops params={modelParams} />}

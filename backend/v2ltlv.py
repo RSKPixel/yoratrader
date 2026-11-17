@@ -40,14 +40,16 @@ def cash_cost_per_side(slippage=0.0002):
     return CASH_STT + CASH_STAMP_BUY / 2 + (CASH_EXCHANGE + CASH_SEBI) * (1 + GST) + DP_PER_SALE / POSITION_RS / 2 + slippage
 BOOK_OPEN = 10
 CACHE_SECONDS = 6 * 3600
-_cache, _lock = {"at": 0, "data": None}, threading.Lock()
+DATASETS = ("fno", "fnopit")  # fnopit: survivorship-free (pit.py): only each month's F&O list can be bought
+_cache, _lock = {}, threading.Lock()
 
 
-def _data():
+def _data(dataset="fno"):
     with _lock:
-        if _cache["data"] is not None and time.time() - _cache["at"] < CACHE_SECONDS:
-            return _cache["data"]
-    c = xsmom._closes("fno")
+        hit = _cache.get(dataset)
+        if hit and time.time() - hit[0] < CACHE_SECONDS:
+            return hit[1]
+    c = xsmom._closes(dataset)
     r, bad, history = xsmom.gap_aware(c)
     r = r.where(~bad, 0.0)
     px = (1 + r.fillna(0.0)).cumprod().where(c.notna())  # a price index (splits and bad prints taken out)
@@ -60,19 +62,22 @@ def _data():
                         parse_dates=["day"]).set_index("day")["close"]
     n = n.reindex(c.index).ffill()
     market = n > n.rolling(SMA_DAYS, min_periods=180).mean()
+    if dataset == "fnopit":
+        import pit
+        up = up & pit.member_mask(c.index, c.columns)
     data = {"c": c, "r": r.fillna(0.0), "pf": pf, "has": has, "up": up, "vol": vol, "market": market}
     with _lock:
-        _cache.update(at=time.time(), data=data)
+        _cache[dataset] = (time.time(), data)
     return data
 
 
 def invalidate():
     with _lock:
-        _cache.update(at=0)
+        _cache.clear()
 
 
-def _book(max_open, trail, slippage, instrument="cash"):
-    d = _data()
+def _book(max_open, trail, slippage, instrument="cash", dataset="fno"):
+    d = _data(dataset)
     n = max_open or BOOK_OPEN
     tr = TRAILS[trail]
     futures = instrument == "futures"
@@ -129,10 +134,10 @@ def _book(max_open, trail, slippage, instrument="cash"):
     return t, idx[start:], daily, held, n
 
 
-def results(max_open=10, trail="20", slippage=0.0002, instrument="cash"):
+def results(max_open=10, trail="20", slippage=0.0002, instrument="cash", dataset="fno"):
     import v2common
-    t, days, daily, held, n = _book(max_open, trail, slippage, instrument)
-    d = _data()
+    t, days, daily, held, n = _book(max_open, trail, slippage, instrument, dataset)
+    d = _data(dataset)
     cols, idx, last = d["c"].columns, d["c"].index, len(d["c"].index) - 1
     open_rows = sorted(({"symbol": cols[j], "entry_at": f"{idx[h['buy_i']].date().isoformat()} 15:30", "entry": round(h["buy"], 2),
                          "last": round(float(d["c"].iloc[h["last_i"], j]), 2), "days_held": last - h["buy_i"],
@@ -151,12 +156,12 @@ def results(max_open=10, trail="20", slippage=0.0002, instrument="cash"):
     return out
 
 
-def month_trades(month, max_open=10, trail="20", slippage=0.0002, instrument="cash"):
+def month_trades(month, max_open=10, trail="20", slippage=0.0002, instrument="cash", dataset="fno"):
     """The trades sold in the month, then the ones bought in it that are still held (marked open: their
     result so far shows, but adds nothing to the month's total until they're sold)."""
-    t, _, _, held, n = _book(max_open, trail, slippage, instrument)
+    t, _, _, held, n = _book(max_open, trail, slippage, instrument, dataset)
     t = t[t["day"].dt.strftime("%Y-%m") == month]
-    d = _data()
+    d = _data(dataset)
     cols, idx = d["c"].columns, d["c"].index
     still = [{"day": idx[h["last_i"]].date().isoformat(), "symbol": cols[j], "open": True,
               "entry_at": f"{idx[h['buy_i']].date().isoformat()} 15:30", "exit_at": "open", "reason": "still held",

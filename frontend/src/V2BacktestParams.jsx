@@ -117,7 +117,8 @@ export function LiveMaxOpen({ value, onChange, saving, limit = MAX_OPEN }) {
   );
 }
 
-export default function V2BacktestParams({ params, onChange, universes = ["fno"], step = 1, live = null, lots = false }) {
+export default function V2BacktestParams({ params, onChange, universes = ["fno"], step = 1, live = null, lots = false, pit = null }) {
+  // pit: a backtest page's survivorship choice ({ ok: the model can use it, value: "today" | "pit" }); null on paper pages
   // lots: paper trading in F&O, where each position is one lot: no capital input (the page shows the
   // capital required, the margin), and % results are of that margin.
   // live: a paper trader whose universe and max open are server settings the scheduler reads
@@ -142,6 +143,26 @@ export default function V2BacktestParams({ params, onChange, universes = ["fno"]
             options={Object.entries(UNIVERSES).map(([u, text]) => [u, text, !universes.includes(u), universes.includes(u) ? undefined : "Not available for this model"])}
             value={params.universe}
             onChange={(universe) => onChange({ universe })}
+          />
+        </Field>
+      )}
+      {pit && (
+        <Field
+          label="Stock list"
+          hint={
+            pit.ok
+              ? "Today's F&O list (survivorship-biased: today's survivors only, for the whole history) or each month's actual F&O list from NSE, 2007 on, including the stocks dropped since (survivorship-free). F&O stocks only."
+              : "Survivorship-free data is daily: this model needs 15-minute or 1-minute candles (or stored intraday trades), which don't exist for stocks dropped from F&O"
+          }
+        >
+          <Segmented
+            label="Stock list"
+            options={[
+              ["today", "Today's F&O"],
+              ["pit", "Each month's F&O (survivorship-free)", !pit.ok || params.universe !== "fno", !pit.ok ? "Not available for this model" : params.universe !== "fno" ? "F&O stocks only" : undefined],
+            ]}
+            value={pit.ok && params.universe === "fno" ? pit.value : "today"}
+            onChange={(survivor) => onChange({ survivor })}
           />
         </Field>
       )}

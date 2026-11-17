@@ -24,7 +24,8 @@ export default function V2Ltlv({ params }) {
   const [slippage, setSlippage] = useSetting("bt.ltlv.slippage", 0.02);
   const [month, setMonth] = useState(null);
 
-  const query = `max_open=${params.maxOpen}&trail=${trail}&slippage=${slippage}&instrument=${instrument}`;
+  const pit = params.universe === "fnopit";
+  const query = `max_open=${params.maxOpen}&trail=${trail}&slippage=${slippage}&instrument=${instrument}&dataset=${pit ? "fnopit" : "fno"}`;
   const { data, error, loading } = useBacktest(`/api/v2/backtest/ltlv?${query}`);
   const value = useMemo(() => makeValue(params.show, params.capital), [params.show, params.capital]);
   const chartFormat = useCallback((v) => value(v, 1), [value]);
@@ -68,8 +69,9 @@ export default function V2Ltlv({ params }) {
           <p className="-mt-1 text-xs" style={{ color: "var(--muted)" }}>
             {s.from} → {s.to} · {value(s.net_year_pct)} net a year · Sharpe {s.sharpe ?? "—"} · {s.green_years}/{s.years} green years · max {s.max_open} open, {s.avg_open} on
             average · {s.avg_days} trading days a trade · {s.open_now} held now · {instrument === "cash" ? "cash, no rolls" : "futures, rolled monthly"} · costs {s.cost_per_side_bps} bps a side ·
-            today's F&O stocks (survivorship-biased: with each month's actual F&O list it made{" "}
-            {instrument === "cash" ? "11.5% a year, Sharpe 0.91, worst drop −32%" : "10.5% a year, Sharpe 0.83, worst drop −33%"})
+            {pit
+              ? "each month's actual F&O list (survivorship-free)"
+              : "today's F&O stocks (survivorship-biased: pick Each month's F&O in Stock list for the honest numbers)"}
           </p>
           <Panel title={`Held now · ${s.open_positions.length} of ${s.max_open}`} right="still open: their gains and losses count in Net by month as they happen, but not in Trades until sold">
             {s.open_positions.length ? (

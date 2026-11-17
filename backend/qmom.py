@@ -135,10 +135,13 @@ def _picks(mom_row, fip_row, base):
     return list(fip_row[top.index].sort_values(kind="stable").index[:keep])
 
 
-def _book(c, base, cap=None):
+def _book(c, base, cap=None, member=None):
     """Weights held after each close (drifting between rebalances) and the picks per rebalance.
-    cap: at most that many stocks, capital / cap each; unfilled slots are cash (which doesn't drift)."""
+    cap: at most that many stocks, capital / cap each; unfilled slots are cash (which doesn't drift).
+    member: where given (survivorship-free data), only those stocks can be picked."""
     mom, fip, r = _signals(c)
+    if member is not None:
+        mom = mom.where(member)
     rebal = _rebalance_days(c.index, base == "monthly")
     month_ends = set(pd.Series(c.index, index=c.index).groupby([c.index.year, c.index.month]).max().values[:-1])
     cols = list(c.columns)

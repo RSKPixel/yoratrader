@@ -40,7 +40,7 @@ import xsmr
 from db import connect
 
 MODEL = "connors"
-DATASETS = ("fno", "stocks")
+DATASETS = ("fno", "stocks", "fnopit")  # fnopit: survivorship-free F&O (pit.py), at the close only
 SMA_DAYS, RSI_MAX, LOW_DAYS, DOWN_DAYS = 200, 10.0, 10, 3
 MIN_HISTORY = 0.9  # share of the last 200 closes a stock needs, not counting days most stocks are missing
 MIN_STOCKS = xsmr.MIN_STOCKS
@@ -153,6 +153,10 @@ def _data(dataset, start=None, end=None, timing="15:15", closes=None):
               "every": pd.DataFrame(True, index=idx, columns=cols), "cumrsi2": cum < CUM_RSI_MAX}
     eligible = qualified & (px > sma)
     eligible_short = qualified & (px < sma)
+    if dataset == "fnopit":  # survivorship-free: only what was in F&O at the previous month-end can be bought
+        import pit
+        member = pit.member_mask(idx, cols)
+        eligible, eligible_short = eligible & member, eligible_short & member
     setups_short = {"rsi2": rsi > 100 - RSI_MAX, "low10": px >= y(c.rolling(LOW_DAYS - 1).max()),
                     "down3": (move > 0) & (y(r) > 0) & (y(r.shift(1)) > 0),
                     "every": pd.DataFrame(True, index=idx, columns=cols), "cumrsi2": cum > 200 - CUM_RSI_MAX}
@@ -160,11 +164,16 @@ def _data(dataset, start=None, end=None, timing="15:15", closes=None):
     pxf = px.ffill(limit=3)
     ret = pxf / pxf.shift(1) - 1
     ret = ret.where(ret.abs() <= MAX_MOVE, 0.0).fillna(0.0)
-    with connect() as conn:
-        f = pd.read_sql("SELECT symbol, day, open, high, low FROM bt_daily WHERE close > 0 AND symbol IN "
-                        "(SELECT symbol FROM bt_symbols WHERE dataset = %s) AND day >= %s AND day <= %s",
-                        conn, params=[dataset, idx[0].date(), idx[-1].date()])
-    f["day"] = pd.to_datetime(f["day"])
+    if dataset == "fnopit":
+        import pit
+        f = pit.frame()
+        f = f[(f["day"] >= idx[0]) & (f["day"] <= idx[-1])]
+    else:
+        with connect() as conn:
+            f = pd.read_sql("SELECT symbol, day, open, high, low FROM bt_daily WHERE close > 0 AND symbol IN "
+                            "(SELECT symbol FROM bt_symbols WHERE dataset = %s) AND day >= %s AND day <= %s",
+                            conn, params=[dataset, idx[0].date(), idx[-1].date()])
+        f["day"] = pd.to_datetime(f["day"])
     day_open = f.pivot(index="day", columns="symbol", values="open").reindex(index=idx, columns=cols)
     day_low = f.pivot(index="day", columns="symbol", values="low").reindex(index=idx, columns=cols)
     day_high = f.pivot(index="day", columns="symbol", values="high").reindex(index=idx, columns=cols)

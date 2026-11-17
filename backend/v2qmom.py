@@ -22,7 +22,7 @@ import qmom
 import v2common
 import xsmr
 
-DATASETS = qmom.DATASETS
+DATASETS = qmom.DATASETS + ("fnopit",)  # fnopit: survivorship-free (pit.py)
 VERSIONS = ("book", "generic", "monthly", "universe")
 MAX_OPEN = 10
 CACHE_SECONDS = 1800
@@ -36,7 +36,11 @@ def _rows(dataset, version, hedged, cap):
         if hit and time.time() - hit[0] < CACHE_SECONDS:
             return hit[1]
     c = qmom._closes_cached(dataset)
-    b = qmom._book(c, version, cap if version != "universe" else None)
+    member = None
+    if dataset == "fnopit":
+        import pit
+        member = pit.member_mask(c.index, c.columns)
+    b = qmom._book(c, version, cap if version != "universe" else None, member)
     idx, cols = c.index, list(c.columns)
     w, r, traded = b["w"].to_numpy(), b["r"].to_numpy(), b["traded"].to_numpy()
     contrib = np.vstack([np.zeros((1, len(cols))), w[:-1] * r[1:]])  # held into each day x that day's move

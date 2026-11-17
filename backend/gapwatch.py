@@ -493,6 +493,10 @@ def _topup_backtest():
         v2ltlv.invalidate()
         import v2mix
         print("Gold topped up:", v2mix.topup_gold(), "days")
+        import pit
+        print("Survivorship-free data topped up:", pit.topup())  # after bt_daily: it copies today's F&O stocks from it
+        v2mix.invalidate()
+        v2ltlv.invalidate()
     except Exception as error:
         print("Backtest data top-up failed:", error)
 
