@@ -28,7 +28,7 @@ from db import connect
 START = "2005-01-01"
 SMA_DAYS, VOL_DAYS = 200, 100
 TRAILS = {"20": 0.20, "15": 0.15, "25": 0.25}  # 20% is the book's
-INSTRUMENTS = ("cash", "futures")
+INSTRUMENTS = ("cash",)  # the page offers cash only (futures stays in _book, unused: a roll every month)
 # Delivery (cash) charges: STT both sides, stamp duty on buys, NSE exchange + SEBI fees (GST on them),
 # a DP charge on each sale (about Rs 18 on a Rs 1 lakh position); no brokerage on delivery (Zerodha).
 CASH_STT, CASH_STAMP_BUY, CASH_EXCHANGE, CASH_SEBI, GST = 0.001, 0.00015, 0.0000297, 0.000001, 0.18

@@ -8,10 +8,6 @@ import { SLIPPAGE, useBacktest } from "./V2BuyOnGap";
 // Long Trend Low Volatility (Bensdorp; v2ltlv.py): while the Nifty is above its 200-day average, buy the
 // calmest F&O stocks above their own 200-day average; each held until a 20% trailing stop.
 
-const INSTRUMENTS = [
-  ["cash", "Cash (delivery)"],
-  ["futures", "Futures"],
-];
 const TRAILS = [
   ["20", "20% (book)"],
   ["15", "15%"],
@@ -20,13 +16,12 @@ const TRAILS = [
 
 export default function V2Ltlv({ params }) {
   const [trail, setTrail] = useSetting("bt.ltlv.trail", "20");
-  const [savedInstrument, setInstrument] = useSetting("bt.ltlv.instrument", "cash");
   const [slippage, setSlippage] = useSetting("bt.ltlv.slippage", 0.02);
   const [month, setMonth] = useState(null);
 
   const pit = params.universe === "fnopit" || params.universe === "cash500";
-  const top500 = params.universe === "cash500"; // cash only: most of these stocks have no futures
-  const instrument = top500 ? "cash" : savedInstrument;
+  const top500 = params.universe === "cash500";
+  const instrument = "cash"; // cash (delivery) only: positions last months, so futures would mean a roll every month
   const query = `max_open=${params.maxOpen}&trail=${trail}&slippage=${slippage}&instrument=${instrument}&dataset=${params.universe}`;
   const { data, error, loading } = useBacktest(`/api/v2/backtest/ltlv?${query}`);
   const value = useMemo(() => makeValue(params.show, params.capital), [params.show, params.capital]);
@@ -51,8 +46,8 @@ export default function V2Ltlv({ params }) {
   return (
     <div className="mt-4 flex flex-col gap-4">
       <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
-        <Field label="Instrument" hint="Cash: delivery, no rolls (STT 0.1% each side, stamp duty, DP charge). Futures: lower charges but a roll every month end, and a stock is held ~290 trading days">
-          <Segmented label="Instrument" options={INSTRUMENTS.map(([v, t]) => [v, t, top500 && v !== "cash", top500 && v !== "cash" ? "Top 500: cash only (most have no futures)" : undefined])} value={instrument} onChange={setInstrument} />
+        <Field label="Instrument" hint="Cash only: delivery (STT 0.1% each side, stamp duty, DP charge), no rolls. Positions are held for months, so futures would need a roll every month">
+          <span className="block py-1.5 text-sm">Cash (delivery)</span>
         </Field>
         <Field label="Trailing stop" hint="Sold at the close that ends this far under the highest close since the buy">
           <Segmented label="Trailing stop" options={TRAILS} value={trail} onChange={setTrail} />
