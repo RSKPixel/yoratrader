@@ -11,15 +11,11 @@ import { LotCards, lotColumns, lotMoney, netBoth, Panel, usePaperChart, Position
 // Short-term mean reversion paper trading on v2: what the production scheduler records at 15:15 (2-day
 // RSI below 10, above the 200-day average, hold 5 trading days, at most N open; N is a server setting
 // the 15:15 run reads each day). One F&O lot a position; the capital required is the most margin held
-// on any day. Stock and futures prices are recorded at the same moment. Nothing places orders.
+// on any day. Shown at futures prices (stock prices are recorded at the same moment). Nothing places orders.
 
 const EXITS = [
   ["hold", "5 days"],
   ["strength", "Exit on strength"],
-];
-const PRICES = [
-  ["stock", "Stock prices"],
-  ["fut", "Futures prices"],
 ];
 
 // Today's candidates, live: every stock above its 200-day average by its 2-day RSI (with the price now
@@ -117,11 +113,10 @@ function Candidates({ live, book }) {
 
 export default function V2PaperConnors({ params, version = 0, book = "rsi2", exit, onExit, saving }) {
   const [slippage, setSlippage] = useSetting(book === "rsi2" ? "paper.connors.slippage" : `paper.connors.${book}.slippage`, 0.02);
-  const [prices, setPrices] = useSetting(book === "rsi2" ? "paper.connors.prices" : `paper.connors.${book}.prices`, "stock");
   const live = useLiveRefresh();
   const { data, error, loading } = useBacktest(`/api/connors/paper?slippage=${slippage}&v=${version}&book=${book}`, { refreshMs: live });
   const money = useMemo(() => lotMoney(params.show), [params.show]);
-  const fut = prices === "fut";
+  const fut = true; // futures prices only (the stock's price is recorded too, but not shown)
   const key = fut ? "fut" : "stock";
   const maxOpen = data?.max_open ?? 3;
   const strength = (exit || data?.exit) === "strength";
@@ -202,9 +197,6 @@ export default function V2PaperConnors({ params, version = 0, book = "rsi2", exi
         </Field>
         <Field label="Exit" hint="Read by the 15:15 run, from the next run (open positions too): sold on the 5th trading day, or on strength (the first 15:15 the 2-day RSI is above 65, the 5th day at the latest)">
           <Segmented label="Exit" options={EXITS.map(([v, t]) => [v, t, saving])} value={exit || data?.exit || (book === "cum" ? "strength" : "hold")} onChange={onExit} />
-        </Field>
-        <Field label="Prices" hint="Each trade is recorded at both the stock's and its future's price at the same moment (the future expiring at least 10 days out, so a hold never crosses expiry).">
-          <Segmented label="Prices" options={PRICES} value={prices} onChange={setPrices} />
         </Field>
         <Field label="Slippage" hint="Per side, on top of NSE futures charges">
           <Segmented label="Slippage" options={SLIPPAGE} value={slippage} onChange={setSlippage} />
