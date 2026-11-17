@@ -38,7 +38,9 @@ export default function V2Straddle({ params, strategy = "short" }) {
     { h: "Expiry", cell: (t) => t.day, style: () => ({ color: "var(--muted)" }) },
     { h: "Straddle", cell: (t) => <span className="font-medium">{t.symbol}</span> },
     { h: "Future", cell: (t) => t.fut },
-    { h: "Call + put", cell: (t) => `${t.ce} + ${t.pe}` },
+    strategy === "buywrite"
+      ? { h: "Call sold", cell: (t) => t.ce }
+      : { h: "Call + put", cell: (t) => `${t.ce} + ${t.pe}` },
     ...(strategy === "fly" ? [{ h: "Wings bought", cell: (t) => t.bought, style: () => ({ color: "var(--muted)" }) }] : []),
     { h: strategy === "long" ? "Paid" : "Credit", cell: (t) => (strategy === "long" ? -t.premium : t.premium) },
     { h: "Settled at", cell: (t) => t.settle },
@@ -89,6 +91,8 @@ export default function V2Straddle({ params, strategy = "short" }) {
           note={
             strategy === "long"
               ? "bought at the close 10 trading days before expiry (a quiet week only), settled at the expiry's final settlement price"
+              : strategy === "buywrite"
+              ? "the future held, a call ~2% above it sold the day after the last expiry; Paid out = the future's move less the call's value at expiry (negative = a gain)"
               : strategy === "vrp"
               ? "sold the day after the last expiry only when the straddle's implied volatility was above the index's last-20-day volatility"
               : strategy === "late"

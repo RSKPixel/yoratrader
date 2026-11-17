@@ -60,13 +60,14 @@ export const BACKTEST_GROUPS = [
     models: [{ id: "low-volatility", universes: ["fno"], short: "LV", label: "Long trend low volatility", style: "Positional", defaultOpen: 10, pit: true }],
   },
   {
-    title: "Option straddles",
-    source: "Nifty and Bank Nifty monthly options",
+    title: "Options positional",
+    source: "Nifty and Bank Nifty monthly options, held to expiry",
     models: [
       { id: "straddle-short", universes: ["indices"], short: "SS", label: "Monthly short straddle", style: "Positional", fixedOpen: "1 straddle a month" },
       { id: "straddle-fly", universes: ["indices"], short: "IF", label: "Iron butterfly", style: "Positional", fixedOpen: "1 butterfly a month" },
       { id: "straddle-late", universes: ["indices"], short: "LS", label: "Late-cycle short straddle", style: "Positional", fixedOpen: "1 straddle a month" },
       { id: "straddle-vrp", universes: ["indices"], short: "VP", label: "Short straddle when implied > actual (Sinclair)", style: "Positional", fixedOpen: "1 straddle in a selling month" },
+      { id: "covered-call", universes: ["indices"], short: "CC", label: "Covered call (McMillan)", style: "Positional", fixedOpen: "1 future + 1 call a month" },
       { id: "straddle-long", universes: ["indices"], short: "QL", label: "Long straddle after a quiet week", style: "Positional", fixedOpen: "1 straddle in a quiet month" },
     ],
   },
@@ -163,6 +164,7 @@ function Model({ m, onSelect }) {
         {m.id === "straddle-late" && <V2Straddle params={modelParams} strategy="late" key="late" />}
         {m.id === "straddle-long" && <V2Straddle params={modelParams} strategy="long" key="long" />}
         {m.id === "straddle-vrp" && <V2Straddle params={modelParams} strategy="vrp" key="vrp" />}
+        {m.id === "covered-call" && <V2Straddle params={modelParams} strategy="buywrite" key="buywrite" />}
         {m.id === "gap-momentum" && <V2BuyOnGap params={modelParams} model="gapmom" key="gapmom" />}
         {m.id === "kbdt" && <V2Kbdt params={modelParams} />}
         {m.id === "xs-mean-reversion" && <V2Xsmr params={modelParams} />}

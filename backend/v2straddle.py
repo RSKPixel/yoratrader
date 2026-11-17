@@ -4,6 +4,10 @@ Strategy "vrp" (Euan Sinclair, Volatility Trading): the monthly short straddle, 
 volatility (from its price: an at-the-money straddle ~ 0.8 x future x vol x sqrt(time left)) is above the
 index's actual volatility over the last 20 trading days; no trade that month otherwise.
 
+Strategy "buywrite" (Lawrence McMillan, McMillan on Options: the covered call): the index future held
+month after month, and each month a call ~2% out of the money sold against it (the day after expiry, held
+to the next expiry). Gains above the call's strike are given up for the premium.
+
 Strategy "late": the short straddle sold LATE_DAYS (10) trading days before expiry, held to expiry.
 Strategy "long": the straddle BOUGHT 10 trading days before expiry, only when the index's last 7-day move was
 within +-1% (a quiet week); held to expiry (STT 0.125% on the intrinsic value of a leg exercised in the money).
@@ -35,7 +39,8 @@ import pandas as pd
 from db import connect
 
 INDICES = {"nifty": "NIFTY", "banknifty": "BANKNIFTY"}
-STRATEGIES = ("short", "fly", "late", "long", "vrp")
+STRATEGIES = ("short", "fly", "late", "long", "vrp", "buywrite")
+CALL_OTM = 0.02  # buywrite: the call sold at the strike nearest 2% above the future
 # fly: the iron butterfly (the short straddle + bought wings ~5% away); late: the short straddle sold
 # LATE_DAYS trading days before expiry; long: the straddle BOUGHT LATE_DAYS before expiry, only after a
 # quiet week (the index's last QUIET_DAYS-day move within +-QUIET_MOVE)
@@ -83,6 +88,12 @@ def _legs(o, K, strategy):
     """[(type, strike, qty)] for the position: qty -1 sold, +1 bought; None when a wing didn't trade."""
     if strategy == "long":
         return [("CE", K, 1), ("PE", K, 1)]
+    if strategy == "buywrite":  # McMillan: the future held, a call ~2% out of the money sold each month
+        ce = np.sort(o.loc[o["type"] == "CE", "strike"].unique())
+        if not len(ce):
+            return None
+        kc = float(ce[np.argmin(np.abs(ce - K * (1 + CALL_OTM)))])
+        return [("FUT", 0.0, 1), ("CE", kc, -1)] if kc > K else None
     legs = [("CE", K, -1), ("PE", K, -1)]
     if strategy == "fly":
         ce = np.sort(o.loc[o["type"] == "CE", "strike"].unique())
@@ -150,17 +161,21 @@ def _book(index, strategy, slippage):
         if legs is None:
             skipped += 1
             continue
-        px0 = {(t, k): float(o[(o["type"] == t) & (o["strike"] == k)]["close"].iloc[0]) for t, k, _ in legs}
-        sold = sum(px0[(t, k)] for t, k, q in legs if q < 0)
-        bought = sum(px0[(t, k)] for t, k, q in legs if q > 0)
+        px0 = {(t, k): (F0 if t == "FUT" else float(o[(o["type"] == t) & (o["strike"] == k)]["close"].iloc[0])) for t, k, _ in legs}
+        sold = sum(px0[(t, k)] for t, k, q in legs if q < 0 and t != "FUT")
+        bought = sum(px0[(t, k)] for t, k, q in legs if q > 0 and t != "FUT")
         credit = sold - bought
         S = float(fx["settle"].iloc[0] or fx["close"].iloc[0])
-        intrinsic = lambda t, k: max(S - k, 0.0) if t == "CE" else max(k - S, 0.0)
+        intrinsic = lambda t, k: (S - F0) if t == "FUT" else max(S - k, 0.0) if t == "CE" else max(k - S, 0.0)  # FUT: its gain
         payout = sum(-q * intrinsic(t, k) for t, k, q in legs)  # what the position pays out at expiry (net)
-        cost = (_charges(sold, bought, len(legs), F0 * LOTS[sym]) + slip * (sold + bought)
-                + STT_EXERCISE * sum(intrinsic(t, k) for t, k, q in legs if q > 0))  # bought legs exercised in the money
+        cost = (_charges(sold, bought, len([x for x in legs if x[0] != "FUT"]), F0 * LOTS[sym]) + slip * (sold + bought)
+                + STT_EXERCISE * sum(intrinsic(t, k) for t, k, q in legs if q > 0 and t != "FUT"))  # bought options exercised in the money
+        if any(t == "FUT" for t, _, _ in legs):  # the future bought (settled by the exchange at expiry: no sale)
+            import xsmr
+            cost += F0 * xsmr.cost_per_side(0.0002)
         width = max(max(k - K for t, k, q in legs if q > 0 and t == "CE"), max(K - k for t, k, q in legs if q > 0 and t == "PE")) if strategy == "fly" else None
-        trades.append({"entry_day": entry, "day": pd.Timestamp(exp), "strike": K, "fut": F0, "ce": px0[("CE", K)], "pe": px0[("PE", K)],
+        trades.append({"entry_day": entry, "day": pd.Timestamp(exp), "strike": K, "fut": F0, "ce": next((px0[(t, k)] for t, k, q in legs if t == "CE" and q < 0), 0.0),
+                       "pe": px0.get(("PE", K), 0.0),
                        "premium": credit, "sold": sold, "bought": bought, "settle": S, "payout": payout, "pnl_pts": credit - payout,
                        "cost_pts": cost, "legs": legs, "width": width, "iv": iv, "rv": rv_now,
                        "days_held": int(((days > entry) & (days <= exp)).sum())})
@@ -168,6 +183,12 @@ def _book(index, strategy, slippage):
         span = days[(days >= entry) & (days <= exp)]
         value = pd.Series(0.0, index=span)
         for t, k, q in legs:
+            if t == "FUT":  # the future's close each day, its settlement at expiry
+                fp = fut[(fut["expiry"] == exp) & (fut["day"] >= entry) & (fut["day"] <= exp)].set_index("day")["close"]
+                fp = fp.groupby(level=0).last().reindex(span).ffill().fillna(F0)
+                fp.iloc[0], fp.iloc[-1] = F0, S
+                value += q * fp
+                continue
             lg = opt[(opt["expiry"] == exp) & (opt["strike"] == k) & (opt["type"] == t) & (opt["day"] >= entry) & (opt["day"] <= exp)]
             px = pd.Series(np.where(lg["contracts"] > 0, lg["close"], lg["settle"]), index=lg["day"]).groupby(level=0).last()
             px = px.reindex(span).ffill().fillna(px0[(t, k)])
@@ -220,7 +241,8 @@ def month_trades(month, index="nifty", strategy="short", slippage="0.5"):
     t = t[t["day"].dt.strftime("%Y-%m") == month]
     lot = LOTS[INDICES[index]]
     return [{"day": r.day.date().isoformat(), "entry_at": f"{r.entry_day.date().isoformat()} close", "exit_at": f"{r.day.date().isoformat()} expiry",
-             "symbol": ("Bought " if strategy == "long" else "") + f"{INDICES[index]} {int(r.strike)} CE + PE" + (f" · wings {int(max(k for t_, k, q in r.legs if t_ == 'CE'))} CE / {int(min(k for t_, k, q in r.legs if t_ == 'PE'))} PE" if strategy == "fly" else ""),
+             "symbol": f"{INDICES[index]} future + {int(next(k for t_, k, q in r.legs if t_ == 'CE'))} CE sold" if strategy == "buywrite" else
+             ("Bought " if strategy == "long" else "") + f"{INDICES[index]} {int(r.strike)} CE + PE" + (f" · wings {int(max(k for t_, k, q in r.legs if t_ == 'CE'))} CE / {int(min(k for t_, k, q in r.legs if t_ == 'PE'))} PE" if strategy == "fly" else ""),
              "strike": r.strike, "credit": round(r.premium, 2), "bought": round(r.bought, 2), "fut": round(r.fut, 2),
              "ce": round(r.ce, 2), "pe": round(r.pe, 2), "premium": round(r.premium, 2), "settle": round(r.settle, 2),
              "payout": round(r.payout, 2), "days_held": int(r.days_held), "ret_pct": round(100 * r.ret, 3),
