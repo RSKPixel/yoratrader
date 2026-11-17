@@ -64,9 +64,11 @@ export default function V2Mix({ params }) {
 
   return (
     <div className="mt-4 flex flex-col gap-4">
-      <Field label="Gold" hint="Share of capital held in GOLDBEES, rebalanced at each month-end; the books share the rest equally">
-        <Segmented label="Gold" options={GOLD} value={gold === "0" ? "0" : "30"} onChange={setGold} />
-      </Field>
+      <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
+        <Field label="Gold" hint="Share of capital held in GOLDBEES, rebalanced at each month-end; the books share the rest equally">
+          <Segmented label="Gold" options={GOLD} value={gold === "0" ? "0" : "30"} onChange={setGold} />
+        </Field>
+      </div>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
         {allocation(gold === "0" ? 0 : 30).map(([label, pct, hint]) => (
           <div key={label} className="rounded-lg border px-3 py-2" style={{ borderColor: "var(--border)", background: "var(--surface)" }} title={hint}>
