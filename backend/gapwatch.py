@@ -497,6 +497,8 @@ def _topup_backtest():
         print("Survivorship-free data topped up:", pit.topup())  # after bt_daily: it copies today's F&O stocks from it
         v2mix.invalidate()
         v2ltlv.invalidate()
+        import optdata
+        print("Index options topped up:", optdata.topup())  # NSE's daily file to yesterday, Kite minutes to today
     except Exception as error:
         print("Backtest data top-up failed:", error)
 
