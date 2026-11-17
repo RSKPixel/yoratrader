@@ -21,10 +21,10 @@ import v2tom
 from db import connect
 
 # The Live trading landing page: each model's mode, a server setting (LIVE_MODES, JSON). "off": not traded;
-# "manual": traded by hand from its page; "on": automatic orders, which no model has yet (refused).
+# "manual": traded by hand from its page; "auto": automatic orders, which no model has yet (refused).
 LIVE_MODES_KEY = "LIVE_MODES"
-LIVE_MODELS = ("turn-of-month", "short-term-reversion", "cumulative-rsi", "oops", "buy-on-gap", "xs-mean-reversion")
-MODES = ("off", "manual", "on")
+LIVE_MODELS = ("turn-of-month", "books-gold", "short-term-reversion", "cumulative-rsi", "oops", "buy-on-gap", "xs-mean-reversion")
+MODES = ("off", "manual", "auto")
 AUTOMATIC = ()  # models whose orders the scheduler could place itself: none yet
 DEFAULT_MODES = {"turn-of-month": "manual"}
 
@@ -36,7 +36,7 @@ def modes():
         saved = json.loads(db.get_settings([LIVE_MODES_KEY]).get(LIVE_MODES_KEY) or "{}")
     except ValueError:
         saved = {}
-    return {m: saved.get(m, DEFAULT_MODES.get(m, "off")) for m in LIVE_MODELS}
+    return {m: saved.get(m, DEFAULT_MODES.get(m, "off")) if saved.get(m) in MODES or m not in saved else "off" for m in LIVE_MODELS}
 
 
 def set_mode(model, mode):
@@ -44,7 +44,7 @@ def set_mode(model, mode):
     import db
     if model not in LIVE_MODELS or mode not in MODES:
         raise ValueError("unknown model or mode")
-    if mode == "on" and model not in AUTOMATIC:
+    if mode == "auto" and model not in AUTOMATIC:
         raise ValueError("Automatic orders aren't built for this model yet: use Manual")
     m = modes()
     m[model] = mode
@@ -334,3 +334,90 @@ def cancel(order_id, username):
     kite.cancel_order(variety=kite.VARIETY_REGULAR, order_id=order_id)
     _log(username, f"CANCEL {o['transaction_type']}", o["tradingsymbol"], o["quantity"], o.get("price") or 0, order_id=order_id)
     return {"order_id": order_id, "cancelled": True}
+
+
+# ---------- Books + gold, traded by hand ----------
+MIX_GOLD, MIX_RSI_OPEN, MIX_LV_OPEN = 0.30, 3, 10  # 30% gold, the books half each of the rest
+MIX_CAPITAL_KEY = "LIVE_MIX_CAPITAL"
+
+
+def mix_capital():
+    import db
+    try:
+        return float(db.get_settings([MIX_CAPITAL_KEY]).get(MIX_CAPITAL_KEY) or 1000000)
+    except ValueError:
+        return 1000000.0
+
+
+def set_mix_capital(rs):
+    import db
+    rs = float(rs)
+    if not 10000 <= rs <= 1e9:
+        raise ValueError("Capital must be at least Rs 10,000.")
+    db.set_settings({MIX_CAPITAL_KEY: str(int(rs))})
+    return rs
+
+
+def mix_state():
+    """What Books + gold should hold now, against what the Kite account holds (read-only): the gold
+    target, the low volatility book's holdings (its backtest on today's F&O list, cash, as of the last
+    stored close), and the RSI(2) book (the SR paper book's open positions and today's 15:15 candidates).
+    Nothing here places orders: the page lists what to buy or sell by hand."""
+    import connorswatch
+    import v2ltlv
+    capital = mix_capital()
+    gold_rs = MIX_GOLD * capital
+    book_rs = (1 - MIX_GOLD) * capital / 2
+    held, held_err = {}, None
+    kite = None
+    if kite_auth.status().get("connected"):
+        kite = kite_auth.trading_client()
+        try:
+            for h in kite.holdings():
+                held[h["tradingsymbol"]] = int(h.get("quantity") or 0) + int(h.get("t1_quantity") or 0)
+        except Exception as error:
+            held_err = str(error)
+    else:
+        held_err = "Kite isn't connected: holdings unknown"
+
+    def ltp(symbols):
+        if not kite or not symbols:
+            return {}
+        try:
+            q = kite.ltp([f"NSE:{s}" for s in symbols])
+            return {s: float(q[f"NSE:{s}"]["last_price"]) for s in symbols if f"NSE:{s}" in q}
+        except Exception:
+            return {}
+
+    def row(symbol, per_rs, price, note=None, **extra):
+        target = int(per_rs // price) if price else None
+        have = held.get(symbol, 0)
+        return {"symbol": symbol, "price": round(price, 2) if price else None, "target_qty": target, "held_qty": have,
+                "action_qty": (target - have) if target is not None else None, "note": note, **extra}
+
+    # gold
+    g_px = ltp(["GOLDBEES"]).get("GOLDBEES")
+    gold = row("GOLDBEES", gold_rs, g_px, "held; topped up or trimmed back to 30% at each month-end")
+    # low volatility: the model's holdings now
+    lv = v2ltlv.results(MIX_LV_OPEN, "20", 0.0002, "cash", "fno")["summary"]
+    lv_open = lv.get("open_positions") or []
+    lv_px = ltp([o["symbol"] for o in lv_open])
+    lv_rows = [row(o["symbol"], book_rs / MIX_LV_OPEN, lv_px.get(o["symbol"]) or o["last"],
+                   f"model bought {o['entry_at'][:10]} at {o['entry']} · trailing stop {abs(o['to_stop_pct']):.1f}% below",
+                   ret_pct=o["ret_pct"]) for o in lv_open]
+    # RSI(2): the SR paper book's open positions and today's buys at 15:15
+    sr = connorswatch.paper(book="rsi2")
+    sr_rows = [row(t["symbol"], book_rs / MIX_RSI_OPEN, t.get("ltp") or t["buy"], f"bought {t['buy_day']} · day {t['day_of_hold']} of {sr['hold']}")
+               for t in sr["open"]]
+    try:
+        w = connorswatch.watchlist("rsi2")
+        free = max(0, MIX_RSI_OPEN - len(sr["open"]))
+        held_now = {t["symbol"] for t in sr["open"]}
+        cands = [x for x in w.get("stocks", []) if x.get("signal") and x["symbol"] not in held_now][:free]
+        sr_buys = [row(x["symbol"], book_rs / MIX_RSI_OPEN, x["price"], f"RSI(2) {x['rsi']:.1f}: buy at 15:15 if it still signals") for x in cands]
+    except Exception as error:
+        sr_buys, w = [], {"note": str(error)}
+    return {"capital": capital, "gold_pct": 100 * MIX_GOLD, "gold_rs": gold_rs, "book_rs": book_rs,
+            "rsi_open": MIX_RSI_OPEN, "lv_open": MIX_LV_OPEN, "holdings_error": held_err, "mode": modes().get("books-gold"),
+            "gold": gold, "lv": lv_rows, "lv_as_of": lv.get("to"), "rsi2": sr_rows, "rsi2_buys": sr_buys,
+            "rsi2_note": w.get("note"), "rsi2_exit": "on strength" if sr.get("exit") == "strength" else "on the 5th trading day"}

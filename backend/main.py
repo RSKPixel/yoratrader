@@ -768,6 +768,28 @@ def v2_trade_set_mode(req: TradeModeRequest):
         raise HTTPException(status_code=400, detail=str(exc))
 
 
+@app.get("/api/v2/trade/mix")
+def v2_trade_mix():
+    """Books + gold, traded by hand: what to hold now against the Kite holdings (read-only)."""
+    try:
+        return {"status": "success", **livetrade.mix_state()}
+    except Exception as error:
+        print("Books + gold live state failed:", error)
+        return {"status": "error", "message": str(error)}
+
+
+class MixCapitalRequest(BaseModel):
+    capital: float
+
+
+@app.post("/api/v2/trade/mix/capital")
+def v2_trade_mix_capital(req: MixCapitalRequest):
+    try:
+        return {"status": "success", "capital": livetrade.set_mix_capital(req.capital)}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
 @app.get("/api/v2/trade/tom")
 def v2_trade_tom():
     try:

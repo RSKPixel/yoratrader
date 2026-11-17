@@ -3,6 +3,7 @@ import { displayName, useAuth } from "./AuthGate";
 import V2Backtesting, { findBacktest } from "./V2Backtesting";
 import V2Paper, { findPaper } from "./V2Paper";
 import V2TradeLanding from "./V2TradeLanding";
+import V2TradeMix from "./V2TradeMix";
 import V2Settings from "./V2Settings";
 import V2Data from "./V2Data";
 import { KiteButton } from "./V2Kite";
@@ -192,7 +193,7 @@ export default function AppV2() {
         </main>
       ) : page === "trade" ? (
         <main className="min-h-0 flex-1 overflow-auto px-4 py-6 md:px-6">
-          {tradeSub === "turn-of-month" ? <V2Trade /> : <V2TradeLanding />}
+          {tradeSub === "turn-of-month" ? <V2Trade /> : tradeSub === "books-gold" ? <V2TradeMix /> : <V2TradeLanding />}
         </main>
       ) : page === "live" ? (
         <main className="min-h-0 flex-1 overflow-auto px-4 py-6 md:px-6">

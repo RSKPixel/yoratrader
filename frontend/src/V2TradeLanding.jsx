@@ -2,11 +2,12 @@ import { useCallback, useEffect, useState } from "react";
 import { Segmented } from "./V2Controls";
 
 // The Live trading landing page: each model that could be traded with real money, and its mode, saved on
-// the server (livetrade.LIVE_MODES): Off (not traded), Manual (you trade it by hand from its page), On
-// (automatic orders: no model has them yet, so On is greyed out).
+// the server (livetrade.LIVE_MODES): Off (not traded), Manual (you trade it by hand from its page), Auto
+// (automatic orders: no model has them yet, so Auto is greyed out).
 
 const MODELS = [
   { id: "turn-of-month", label: "Turn of the month", style: "Positional", href: "/v2/trade/turn-of-month", page: "Live trading page: the call to buy, Buy / Sell, stop and what-if", source: "Larry Williams" },
+  { id: "books-gold", label: "Books + gold", style: "Positional", href: "/v2/trade/books-gold", page: "Its own page: what to hold against your Kite holdings", source: "Our portfolio" },
   { id: "short-term-reversion", label: "Short-term mean reversion", style: "Positional", href: "/v2/paper/short-term-reversion", page: "Signals on its paper page (bought at 15:15)", source: "Larry Connors" },
   { id: "cumulative-rsi", label: "Cumulative RSI(2)", style: "Positional", href: "/v2/paper/cumulative-rsi", page: "Signals on its paper page (bought at 15:15)", source: "Larry Connors" },
   { id: "oops", label: "Oops gap reversal", style: "Intraday", href: "/v2/paper/oops", page: "Signals on its paper page (from 09:15)", source: "Larry Williams" },
@@ -17,7 +18,7 @@ const MODELS = [
 const MEANING = {
   off: ["Not traded", "var(--muted)"],
   manual: ["You place the orders by hand", "var(--warning)"],
-  on: ["Orders placed automatically", "var(--positive)"],
+  auto: ["Orders placed automatically", "var(--positive)"],
 };
 
 const go = (href) => (e) => {
@@ -67,8 +68,8 @@ export default function V2TradeLanding() {
         </p>
         <h1 className="mt-1 text-xl font-semibold tracking-tight">Models with real money</h1>
         <p className="mt-1 text-sm" style={{ color: "var(--muted)" }}>
-          Each model's mode: Off (not traded), Manual (you trade it by hand) or On (automatic orders, not built for any model yet). Saved on the server.
-          {modes && ` · ${counts.manual || 0} manual · ${counts.on || 0} on · ${counts.off || 0} off`}
+          Each model's mode: Off (not traded), Manual (you trade it by hand) or Auto (automatic orders, not built for any model yet). Saved on the server.
+          {modes && ` · ${counts.manual || 0} manual · ${counts.auto || 0} auto · ${counts.off || 0} off`}
         </p>
       </div>
       {error && <p className="text-sm" style={{ color: "var(--negative)" }}>{error}</p>}
@@ -93,7 +94,7 @@ export default function V2TradeLanding() {
                     options={[
                       ["off", "Off", saving === m.id],
                       ["manual", "Manual", saving === m.id],
-                      ["on", "On", saving === m.id || !auto, auto ? undefined : "Automatic orders aren't built for this model yet"],
+                      ["auto", "Auto", saving === m.id || !auto, auto ? undefined : "Automatic orders aren't built for this model yet"],
                     ]}
                     value={mode}
                     onChange={(v) => v !== mode && save(m.id, v)}
