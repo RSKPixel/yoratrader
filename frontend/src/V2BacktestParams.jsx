@@ -148,18 +148,18 @@ export default function V2BacktestParams({ params, onChange, universes = ["fno"]
       )}
       {pit && (
         <Field
-          label="Stock list"
+          label="Survivorship bias"
           hint={
             pit.ok
-              ? "Today's F&O list (survivorship-biased: today's survivors only, for the whole history) or each month's actual F&O list from NSE, 2007 on, including the stocks dropped since (survivorship-free). F&O stocks only."
+              ? "On: today's F&O list for the whole history (only today's survivors: flatters the results). Off: each month's actual F&O list from NSE, 2007 on, including the stocks dropped since (the honest numbers). F&O stocks only."
               : "Survivorship-free data is daily: this model needs 15-minute or 1-minute candles (or stored intraday trades), which don't exist for stocks dropped from F&O"
           }
         >
           <Segmented
-            label="Stock list"
+            label="Survivorship bias"
             options={[
-              ["today", "Today's F&O"],
-              ["pit", "Each month's F&O (survivorship-free)", !pit.ok || params.universe !== "fno", !pit.ok ? "Not available for this model" : params.universe !== "fno" ? "F&O stocks only" : undefined],
+              ["today", "On"],
+              ["pit", "Off", !pit.ok || params.universe !== "fno", !pit.ok ? "Not available for this model" : params.universe !== "fno" ? "F&O stocks only" : undefined],
             ]}
             value={pit.ok && params.universe === "fno" ? pit.value : "today"}
             onChange={(survivor) => onChange({ survivor })}

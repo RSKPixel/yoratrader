@@ -99,8 +99,8 @@ export default function V2Mix({ params }) {
             volatility {s.split.lv}% · gold {s.split.gold}% · cash, no rolls · gold costs {value(-s.gold_cost_pct, 3)} ·
             books and gold moved together {s.corr_books_gold} (monthly) · trades are the books' (gold is held) ·{" "}
             {pit
-              ? "each month's actual F&O list (survivorship-free)"
-              : "today's F&O stocks (survivorship-biased: pick Each month's F&O in Stock list for the honest numbers)"}
+              ? "survivorship bias off (each month's actual F&O list)"
+              : "today's F&O stocks (survivorship bias on: set it Off for the honest numbers)"}
           </p>
           <Panel title="Net by month" right="click a month for its trades and the gold">
             <MonthGrid years={data.years} months={data.months} value={value} onOpen={setMonth} />

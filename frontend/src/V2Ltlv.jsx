@@ -70,8 +70,8 @@ export default function V2Ltlv({ params }) {
             {s.from} → {s.to} · {value(s.net_year_pct)} net a year · Sharpe {s.sharpe ?? "—"} · {s.green_years}/{s.years} green years · max {s.max_open} open, {s.avg_open} on
             average · {s.avg_days} trading days a trade · {s.open_now} held now · {instrument === "cash" ? "cash, no rolls" : "futures, rolled monthly"} · costs {s.cost_per_side_bps} bps a side ·
             {pit
-              ? "each month's actual F&O list (survivorship-free)"
-              : "today's F&O stocks (survivorship-biased: pick Each month's F&O in Stock list for the honest numbers)"}
+              ? "survivorship bias off (each month's actual F&O list)"
+              : "today's F&O stocks (survivorship bias on: set it Off for the honest numbers)"}
           </p>
           <Panel title={`Held now · ${s.open_positions.length} of ${s.max_open}`} right="still open: their gains and losses count in Net by month as they happen, but not in Trades until sold">
             {s.open_positions.length ? (
