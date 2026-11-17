@@ -1,5 +1,9 @@
 """Option straddles on Nifty and Bank Nifty monthly options (NSE daily bhavcopies, optdata.bt_opt_daily).
 
+Strategy "late": the short straddle sold LATE_DAYS (10) trading days before expiry, held to expiry.
+Strategy "long": the straddle BOUGHT 10 trading days before expiry, only when the index's last 7-day move was
+within +-1% (a quiet week); held to expiry (STT 0.125% on the intrinsic value of a leg exercised in the money).
+
 Strategy "fly" (iron butterfly): the same, plus a bought call and put at the strikes nearest 5% above and
 below the sold strike (traded that day), so the worst loss is capped at the wing width less the credit.
 
@@ -27,7 +31,13 @@ import pandas as pd
 from db import connect
 
 INDICES = {"nifty": "NIFTY", "banknifty": "BANKNIFTY"}
-STRATEGIES = ("short", "fly")  # fly: the iron butterfly (the short straddle + bought wings ~5% away)
+STRATEGIES = ("short", "fly", "late", "long")
+# fly: the iron butterfly (the short straddle + bought wings ~5% away); late: the short straddle sold
+# LATE_DAYS trading days before expiry; long: the straddle BOUGHT LATE_DAYS before expiry, only after a
+# quiet week (the index's last QUIET_DAYS-day move within +-QUIET_MOVE)
+LATE_DAYS, QUIET_DAYS, QUIET_MOVE = 10, 7, 0.01
+STT_EXERCISE = 0.00125  # on the intrinsic value of a bought option exercised at expiry
+SPOT = {"NIFTY": "NIFTY 50", "BANKNIFTY": "NIFTY BANK"}
 SLIPPAGES = {"0.25": 0.0025, "0.5": 0.005, "1": 0.01}  # of the premium, per side per leg
 STT_SELL, EXCHANGE, SEBI, STAMP_BUY, GST, BROKERAGE = 0.0015, 0.000355, 0.000001, 0.00003, 0.18, 20.0
 LOTS = {"NIFTY": 65, "BANKNIFTY": 30}  # today's lot sizes, for rupees per lot
@@ -66,6 +76,8 @@ WING = 0.05  # the iron butterfly's bought call / put: the strikes nearest 5% ab
 
 def _legs(o, K, strategy):
     """[(type, strike, qty)] for the position: qty -1 sold, +1 bought; None when a wing didn't trade."""
+    if strategy == "long":
+        return [("CE", K, 1), ("PE", K, 1)]
     legs = [("CE", K, -1), ("PE", K, -1)]
     if strategy == "fly":
         ce = np.sort(o.loc[o["type"] == "CE", "strike"].unique())
@@ -88,11 +100,27 @@ def _book(index, strategy, slippage):
     days = pd.DatetimeIndex(sorted(f["day"].unique()))
     expiries = sorted(set(opt["expiry"]))
     trades, marks, skipped = [], [], 0
+    spot = None
+    if strategy == "long":
+        with connect() as conn:
+            spot = pd.read_sql("SELECT day, close FROM bt_daily WHERE symbol = %s AND close > 0 ORDER BY day", conn,
+                               params=[SPOT[sym]], parse_dates=["day"]).set_index("day")["close"]
+        spot = spot[spot.index.dayofweek < 5]
+        move = (spot / spot.shift(QUIET_DAYS) - 1)
     for prev_exp, exp in zip(expiries, expiries[1:]):
-        after = days[days > prev_exp]
-        if not len(after) or after[0] >= exp:
+        cycle = days[(days > prev_exp) & (days <= exp)]
+        if not len(cycle) or cycle[0] >= exp:
             continue
-        entry = after[0]
+        if strategy in ("late", "long"):
+            if len(cycle) <= LATE_DAYS:
+                continue
+            entry = cycle[-(LATE_DAYS + 1)]  # LATE_DAYS trading days left after it
+            if strategy == "long":
+                mv = move.get(entry)
+                if mv is None or pd.isna(mv) or abs(mv) > QUIET_MOVE:
+                    continue  # not a quiet week: no trade this month
+        else:
+            entry = cycle[0]
         fe = fut[(fut["day"] == entry) & (fut["expiry"] == exp)]
         fx = fut[(fut["day"] == exp) & (fut["expiry"] == exp)]
         if fe.empty or fx.empty:
@@ -115,7 +143,8 @@ def _book(index, strategy, slippage):
         S = float(fx["settle"].iloc[0] or fx["close"].iloc[0])
         intrinsic = lambda t, k: max(S - k, 0.0) if t == "CE" else max(k - S, 0.0)
         payout = sum(-q * intrinsic(t, k) for t, k, q in legs)  # what the position pays out at expiry (net)
-        cost = _charges(sold, bought, len(legs), F0 * LOTS[sym]) + slip * (sold + bought)
+        cost = (_charges(sold, bought, len(legs), F0 * LOTS[sym]) + slip * (sold + bought)
+                + STT_EXERCISE * sum(intrinsic(t, k) for t, k, q in legs if q > 0))  # bought legs exercised in the money
         width = max(max(k - K for t, k, q in legs if q > 0 and t == "CE"), max(K - k for t, k, q in legs if q > 0 and t == "PE")) if strategy == "fly" else None
         trades.append({"entry_day": entry, "day": pd.Timestamp(exp), "strike": K, "fut": F0, "ce": px0[("CE", K)], "pe": px0[("PE", K)],
                        "premium": credit, "sold": sold, "bought": bought, "settle": S, "payout": payout, "pnl_pts": credit - payout,
@@ -177,7 +206,7 @@ def month_trades(month, index="nifty", strategy="short", slippage="0.5"):
     t = t[t["day"].dt.strftime("%Y-%m") == month]
     lot = LOTS[INDICES[index]]
     return [{"day": r.day.date().isoformat(), "entry_at": f"{r.entry_day.date().isoformat()} close", "exit_at": f"{r.day.date().isoformat()} expiry",
-             "symbol": f"{INDICES[index]} {int(r.strike)} CE + PE" + (f" · wings {int(max(k for t_, k, q in r.legs if t_ == 'CE'))} CE / {int(min(k for t_, k, q in r.legs if t_ == 'PE'))} PE" if strategy == "fly" else ""),
+             "symbol": ("Bought " if strategy == "long" else "") + f"{INDICES[index]} {int(r.strike)} CE + PE" + (f" · wings {int(max(k for t_, k, q in r.legs if t_ == 'CE'))} CE / {int(min(k for t_, k, q in r.legs if t_ == 'PE'))} PE" if strategy == "fly" else ""),
              "strike": r.strike, "credit": round(r.premium, 2), "bought": round(r.bought, 2), "fut": round(r.fut, 2),
              "ce": round(r.ce, 2), "pe": round(r.pe, 2), "premium": round(r.premium, 2), "settle": round(r.settle, 2),
              "payout": round(r.payout, 2), "days_held": int(r.days_held), "ret_pct": round(100 * r.ret, 3),

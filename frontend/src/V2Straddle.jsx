@@ -8,6 +8,8 @@ import { useBacktest } from "./V2BuyOnGap";
 // Option straddles (v2straddle.py) on Nifty / Bank Nifty monthly options, NSE daily data 2008 on.
 // strategy "short": sell the at-the-money call + put the day after a monthly expiry, hold to the next expiry.
 // strategy "fly": the same plus a bought call and put ~5% away (iron butterfly: the worst loss is capped).
+// strategy "late": the short straddle sold 10 trading days before expiry. strategy "long": the straddle BOUGHT
+// 10 trading days before expiry, only after a quiet week (the index's last 7-day move within +-1%).
 
 const INDICES = [
   ["nifty", "Nifty"],
@@ -82,7 +84,13 @@ export default function V2Straddle({ params, strategy = "short" }) {
           url={`/api/v2/backtest/straddle/month?month=${month}&${query}`}
           columns={columns}
           value={value}
-          note="sold at the close the day after the last expiry, settled at the expiry's final settlement price"
+          note={
+            strategy === "long"
+              ? "bought at the close 10 trading days before expiry (a quiet week only), settled at the expiry's final settlement price"
+              : strategy === "late"
+              ? "sold at the close 10 trading days before expiry, settled at the expiry's final settlement price"
+              : "sold at the close the day after the last expiry, settled at the expiry's final settlement price"
+          }
           onClose={closeMonth}
         />
       )}
