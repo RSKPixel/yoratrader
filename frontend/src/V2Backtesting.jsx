@@ -62,7 +62,10 @@ export const BACKTEST_GROUPS = [
   {
     title: "Option straddles",
     source: "Nifty and Bank Nifty monthly options",
-    models: [{ id: "straddle-short", universes: ["indices"], short: "SS", label: "Monthly short straddle", style: "Positional", fixedOpen: "1 straddle a month" }],
+    models: [
+      { id: "straddle-short", universes: ["indices"], short: "SS", label: "Monthly short straddle", style: "Positional", fixedOpen: "1 straddle a month" },
+      { id: "straddle-fly", universes: ["indices"], short: "IF", label: "Iron butterfly", style: "Positional", fixedOpen: "1 butterfly a month" },
+    ],
   },
   {
     title: "Portfolio",
@@ -152,7 +155,8 @@ function Model({ m, onSelect }) {
         {m.id === "turn-of-month" && <V2Tom params={modelParams} />}
         {m.id === "low-volatility" && <V2Ltlv params={modelParams} />}
         {m.id === "books-gold" && <V2Mix params={modelParams} />}
-        {m.id === "straddle-short" && <V2Straddle params={modelParams} strategy="short" />}
+        {m.id === "straddle-short" && <V2Straddle params={modelParams} strategy="short" key="short" />}
+        {m.id === "straddle-fly" && <V2Straddle params={modelParams} strategy="fly" key="fly" />}
         {m.id === "gap-momentum" && <V2BuyOnGap params={modelParams} model="gapmom" key="gapmom" />}
         {m.id === "kbdt" && <V2Kbdt params={modelParams} />}
         {m.id === "xs-mean-reversion" && <V2Xsmr params={modelParams} />}

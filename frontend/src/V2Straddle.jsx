@@ -7,6 +7,7 @@ import { useBacktest } from "./V2BuyOnGap";
 
 // Option straddles (v2straddle.py) on Nifty / Bank Nifty monthly options, NSE daily data 2008 on.
 // strategy "short": sell the at-the-money call + put the day after a monthly expiry, hold to the next expiry.
+// strategy "fly": the same plus a bought call and put ~5% away (iron butterfly: the worst loss is capped).
 
 const INDICES = [
   ["nifty", "Nifty"],
@@ -35,7 +36,9 @@ export default function V2Straddle({ params, strategy = "short" }) {
     { h: "Expiry", cell: (t) => t.day, style: () => ({ color: "var(--muted)" }) },
     { h: "Straddle", cell: (t) => <span className="font-medium">{t.symbol}</span> },
     { h: "Future", cell: (t) => t.fut },
-    { h: "Call + put", cell: (t) => `${t.ce} + ${t.pe} = ${t.premium}` },
+    { h: "Call + put", cell: (t) => `${t.ce} + ${t.pe}` },
+    ...(strategy === "fly" ? [{ h: "Wings bought", cell: (t) => t.bought, style: () => ({ color: "var(--muted)" }) }] : []),
+    { h: "Credit", cell: (t) => t.premium },
     { h: "Settled at", cell: (t) => t.settle },
     { h: "Paid out", cell: (t) => t.payout, style: () => ({ color: "var(--negative)" }) },
     { h: "Net", cell: (t) => `${t.net_pct.toFixed(2)}%`, style: (t) => ({ color: tone(t.net_pct) }) },
@@ -59,6 +62,8 @@ export default function V2Straddle({ params, strategy = "short" }) {
         <>
           <SummaryCards s={s} value={value} />
           <p className="-mt-1 text-xs" style={{ color: "var(--muted)" }}>
+            {strategy === "fly" &&
+              `Wings ~${s.avg_width_pct}% away · credit ${s.avg_premium_pct}% · most a month can lose ${s.avg_max_loss_pct}% of the contract (on that risk: ${s.return_on_risk_year_pct ?? "—"}% a year) · `}
             {s.from} → {s.to} · % of the contract value (fully funded, no leverage: on margin, about 12% of it, results and drops are about 8×) · premium {s.avg_premium_pct}%
             of the future on average · best month {s.best_month_pct}%, worst {s.worst_month_pct}% · {rs(s.avg_net_rs_per_lot)} a month per lot ({s.lot} units, today's lot) ·
             costs: STT 0.15% of premium sold, exchange and SEBI fees, stamp duty, ₹20 an order, slippage
