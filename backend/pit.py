@@ -32,6 +32,17 @@ CACHE_SECONDS = 6 * 3600
 _cache, _lock = {}, threading.Lock()
 
 
+def source(dataset):
+    """The survivorship-free store for a dataset: this module (fnopit), cash500 (Top 500, cash) or None."""
+    if dataset == DATASET:
+        import pit
+        return pit
+    if dataset == "cash500":
+        import cash500
+        return cash500
+    return None
+
+
 def ensure_tables():
     with connect() as conn, conn.cursor() as cur:
         cur.execute("""

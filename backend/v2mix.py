@@ -25,7 +25,7 @@ GOLD = "GOLDBEES"
 GOLD_SHARES = (0, 30)  # none or 30%: nothing in between to tune
 RSI_SHARES = (50,)  # the books are always half each: no other split, so it can't be fitted to the past
 INSTRUMENTS = ("cash",)  # delivery only
-DATASETS = ("fno", "fnopit")  # fnopit: survivorship-free (pit.py)
+DATASETS = ("fno", "fnopit", "cash500")  # fnopit / cash500: survivorship-free (pit.py, cash500.py)
 CACHE_SECONDS = 6 * 3600
 _cache, _lock = {}, threading.Lock()
 

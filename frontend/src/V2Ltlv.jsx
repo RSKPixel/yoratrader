@@ -20,12 +20,14 @@ const TRAILS = [
 
 export default function V2Ltlv({ params }) {
   const [trail, setTrail] = useSetting("bt.ltlv.trail", "20");
-  const [instrument, setInstrument] = useSetting("bt.ltlv.instrument", "cash");
+  const [savedInstrument, setInstrument] = useSetting("bt.ltlv.instrument", "cash");
   const [slippage, setSlippage] = useSetting("bt.ltlv.slippage", 0.02);
   const [month, setMonth] = useState(null);
 
-  const pit = params.universe === "fnopit";
-  const query = `max_open=${params.maxOpen}&trail=${trail}&slippage=${slippage}&instrument=${instrument}&dataset=${pit ? "fnopit" : "fno"}`;
+  const pit = params.universe === "fnopit" || params.universe === "cash500";
+  const top500 = params.universe === "cash500"; // cash only: most of these stocks have no futures
+  const instrument = top500 ? "cash" : savedInstrument;
+  const query = `max_open=${params.maxOpen}&trail=${trail}&slippage=${slippage}&instrument=${instrument}&dataset=${params.universe}`;
   const { data, error, loading } = useBacktest(`/api/v2/backtest/ltlv?${query}`);
   const value = useMemo(() => makeValue(params.show, params.capital), [params.show, params.capital]);
   const chartFormat = useCallback((v) => value(v, 1), [value]);
@@ -50,7 +52,7 @@ export default function V2Ltlv({ params }) {
     <div className="mt-4 flex flex-col gap-4">
       <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
         <Field label="Instrument" hint="Cash: delivery, no rolls (STT 0.1% each side, stamp duty, DP charge). Futures: lower charges but a roll every month end, and a stock is held ~290 trading days">
-          <Segmented label="Instrument" options={INSTRUMENTS} value={instrument} onChange={setInstrument} />
+          <Segmented label="Instrument" options={INSTRUMENTS.map(([v, t]) => [v, t, top500 && v !== "cash", top500 && v !== "cash" ? "Top 500: cash only (most have no futures)" : undefined])} value={instrument} onChange={setInstrument} />
         </Field>
         <Field label="Trailing stop" hint="Sold at the close that ends this far under the highest close since the buy">
           <Segmented label="Trailing stop" options={TRAILS} value={trail} onChange={setTrail} />
@@ -70,7 +72,9 @@ export default function V2Ltlv({ params }) {
             {s.from} → {s.to} · {value(s.net_year_pct)} net a year · Sharpe {s.sharpe ?? "—"} · {s.green_years}/{s.years} green years · max {s.max_open} open, {s.avg_open} on
             average · {s.avg_days} trading days a trade · {s.open_now} held now · {instrument === "cash" ? "cash, no rolls" : "futures, rolled monthly"} · costs {s.cost_per_side_bps} bps a side ·
             {pit
-              ? "survivorship bias off (each month's actual F&O list)"
+              ? top500
+                ? "Top 500: the 500 stocks with the most traded value at each month-end (survivorship-free) · cash · 0.08% a side more slippage · no buys on circuit-locked days"
+                : "survivorship bias off (each month's actual F&O list)"
               : "today's F&O stocks (survivorship bias on: set it Off for the honest numbers)"}
           </p>
           <Panel title={`Held now · ${s.open_positions.length} of ${s.max_open}`} right="still open: their gains and losses count in Net by month as they happen, but not in Trades until sold">

@@ -1098,7 +1098,7 @@ def _v2connors_args(dataset, setup, hold, max_open, stop, timing, take, slippage
             or stop not in v2connors.STOPS or timing not in v2connors.TIMINGS or take not in v2connors.TAKES \
             or side not in v2connors.SIDES:
         raise HTTPException(status_code=400, detail="unknown setting")
-    if dataset == "fnopit" and timing != "close":
+    if dataset in ("fnopit", "cash500") and timing != "close":
         raise HTTPException(status_code=400, detail="Survivorship-free data is daily only: use Close prices (there are no 15:15 prices for removed stocks)")
     return dict(dataset=dataset, setup=setup, hold=hold, max_open=max_open, stop=stop, timing=timing, take=take,
                 slippage=slippage / 100, side=side)

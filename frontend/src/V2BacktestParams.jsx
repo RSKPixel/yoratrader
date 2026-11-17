@@ -6,7 +6,7 @@ import { Field, formatRs, inputStyle, Segmented } from "./V2Controls";
 // as % of capital or rupees. Each model keeps its own values, remembered per browser.
 
 export const DEFAULT_PARAMS = { capital: 1000000, maxOpen: 5, show: "rs", universe: "fno" };
-export const UNIVERSES = { fno: "F&O stocks", stocks: "Nifty 50 stocks", indices: "Indices" };
+export const UNIVERSES = { fno: "F&O stocks", stocks: "Nifty 50 stocks", indices: "Indices", cash500: "Top 500 (cash)" };
 const CAPITAL_PICKS = [500000, 1000000, 2500000, 5000000, 10000000];
 const MAX_OPEN = 10;
 
@@ -159,10 +159,10 @@ export default function V2BacktestParams({ params, onChange, universes = ["fno"]
           <Segmented
             label="Survivorship bias"
             options={[
-              ["today", "On"],
-              ["pit", "Off", !pit.ok || params.universe !== "fno", !pit.ok ? "Not available for this model" : params.universe !== "fno" ? "F&O stocks only" : undefined],
+              ["today", "On", params.universe === "cash500", params.universe === "cash500" ? "Top 500 is always survivorship-free: each month's list from the data known then" : undefined],
+              ["pit", "Off", !pit.ok || !["fno", "cash500"].includes(params.universe), !pit.ok ? "Not available for this model" : !["fno", "cash500"].includes(params.universe) ? "F&O stocks or Top 500 only" : undefined],
             ]}
-            value={pit.ok && params.universe === "fno" ? pit.value : "today"}
+            value={params.universe === "cash500" ? "pit" : pit.ok && params.universe === "fno" ? pit.value : "today"}
             onChange={(survivor) => onChange({ survivor })}
           />
           </div>

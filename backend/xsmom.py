@@ -64,9 +64,10 @@ def parse_variant(variant):
 
 
 def _closes(dataset):
-    if dataset == "fnopit":  # survivorship-free: every stock ever in F&O (pit.py); buys limited by pit.member_mask
-        import pit
-        return pit.closes()
+    import pit
+    src = pit.source(dataset)  # survivorship-free stores (F&O, top 500 cash): buys limited by their member_mask
+    if src:
+        return src.closes()
     with connect() as conn:
         f = pd.read_sql("SELECT symbol, day, close FROM bt_daily WHERE close > 0 AND symbol IN "
                         "(SELECT symbol FROM bt_symbols WHERE dataset = %s)", conn, params=[dataset])

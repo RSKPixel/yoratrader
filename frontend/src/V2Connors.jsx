@@ -47,8 +47,8 @@ export default function V2Connors({ params }) {
   const setup = SETUPS.some(([k]) => k === savedSetup) ? savedSetup : "rsi2";
   const [hold, setHold] = useSetting("bt.connors.hold", "5d");
   const [savedTiming, setTiming] = useSetting("bt.connors.timing", "close");
-  const pit = params.universe === "fnopit";
-  const timing = pit ? "close" : savedTiming; // survivorship-free data is daily: closes only
+  const pit = params.universe === "fnopit" || params.universe === "cash500";
+  const timing = pit ? "close" : savedTiming; // survivorship-free data (F&O or top 500) is daily: closes only
   const [stop, setStop] = useSetting("bt.connors.stop", "none");
   const [take, setTake] = useSetting("bt.connors.take", "all");
   const [side, setSide] = useSetting("bt.connors.side", "long");

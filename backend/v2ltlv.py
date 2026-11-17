@@ -40,7 +40,7 @@ def cash_cost_per_side(slippage=0.0002):
     return CASH_STT + CASH_STAMP_BUY / 2 + (CASH_EXCHANGE + CASH_SEBI) * (1 + GST) + DP_PER_SALE / POSITION_RS / 2 + slippage
 BOOK_OPEN = 10
 CACHE_SECONDS = 6 * 3600
-DATASETS = ("fno", "fnopit")  # fnopit: survivorship-free (pit.py): only each month's F&O list can be bought
+DATASETS = ("fno", "fnopit", "cash500")  # fnopit / cash500: survivorship-free (pit.py, cash500.py): only each month's list can be bought
 _cache, _lock = {}, threading.Lock()
 
 
@@ -62,9 +62,12 @@ def _data(dataset="fno"):
                         parse_dates=["day"]).set_index("day")["close"]
     n = n.reindex(c.index).ffill()
     market = n > n.rolling(SMA_DAYS, min_periods=180).mean()
-    if dataset == "fnopit":
-        import pit
-        up = up & pit.member_mask(c.index, c.columns)
+    import pit
+    src = pit.source(dataset)
+    if src:
+        up = up & src.member_mask(c.index, c.columns)
+        if hasattr(src, "tradable_mask"):
+            up = up & src.tradable_mask(c.index, c.columns)
     data = {"c": c, "r": r.fillna(0.0), "pf": pf, "has": has, "up": up, "vol": vol, "market": market}
     with _lock:
         _cache[dataset] = (time.time(), data)
@@ -78,6 +81,9 @@ def invalidate():
 
 def _book(max_open, trail, slippage, instrument="cash", dataset="fno"):
     d = _data(dataset)
+    if dataset == "cash500":  # most of these stocks have no futures: cash, and wider spreads
+        import cash500
+        instrument, slippage = "cash", slippage + cash500.EXTRA_SLIPPAGE
     n = max_open or BOOK_OPEN
     tr = TRAILS[trail]
     futures = instrument == "futures"
@@ -149,6 +155,9 @@ def results(max_open=10, trail="20", slippage=0.0002, instrument="cash", dataset
              "avg_days": round(float(t["held"].mean()), 1) if len(t) else None,
              "avg_open": round(float(t["held"].sum() / max(1, len(days))), 1), "open_now": len(held), "max_open": n,
              "in_market_pct": round(float(100 * (daily["book_ret"] != 0).mean()), 1)}
+    if dataset == "cash500":
+        import cash500
+        instrument, slippage = "cash", slippage + cash500.EXTRA_SLIPPAGE
     extra["instrument"] = instrument
     out = v2common.build_results(t, days, slippage, extra, daily=daily)
     if out.get("summary") and instrument == "cash":

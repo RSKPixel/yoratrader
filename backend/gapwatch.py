@@ -495,6 +495,8 @@ def _topup_backtest():
         print("Gold topped up:", v2mix.topup_gold(), "days")
         import pit
         print("Survivorship-free data topped up:", pit.topup())  # after bt_daily: it copies today's F&O stocks from it
+        import cash500
+        print("Top 500 cash data topped up:", cash500.topup())  # NSE's bhavcopies to yesterday
         v2mix.invalidate()
         v2ltlv.invalidate()
         import optdata

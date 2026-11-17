@@ -25,8 +25,9 @@ const rupees = (v) => `₹${Math.round(v).toLocaleString("en-IN")}`;
 export default function V2Mix({ params }) {
   const [gold, setGold] = useSetting("bt.mix.gold", "30");
   const [month, setMonth] = useState(null);
-  const pit = params.universe === "fnopit";
-  const query = `gold=${gold === "0" ? 0 : 30}&instrument=cash&dataset=${pit ? "fnopit" : "fno"}`;
+  const pit = params.universe === "fnopit" || params.universe === "cash500";
+  const top500 = params.universe === "cash500";
+  const query = `gold=${gold === "0" ? 0 : 30}&instrument=cash&dataset=${params.universe}`;
   const { data, error, loading } = useBacktest(`/api/v2/backtest/mix?${query}`);
   const value = useMemo(() => makeValue(params.show, params.capital), [params.show, params.capital]);
   const chartFormat = useCallback((v) => value(v, 1), [value]);
@@ -99,7 +100,9 @@ export default function V2Mix({ params }) {
             volatility {s.split.lv}% · gold {s.split.gold}% · cash, no rolls · gold costs {value(-s.gold_cost_pct, 3)} ·
             books and gold moved together {s.corr_books_gold} (monthly) · trades are the books' (gold is held) ·{" "}
             {pit
-              ? "survivorship bias off (each month's actual F&O list)"
+              ? top500
+                ? "Top 500: the 500 stocks with the most traded value at each month-end (survivorship-free) · cash · 0.08% a side more slippage · no buys on circuit-locked days"
+                : "survivorship bias off (each month's actual F&O list)"
               : "today's F&O stocks (survivorship bias on: set it Off for the honest numbers)"}
           </p>
           <Panel title="Net by month" right="click a month for its trades and the gold">

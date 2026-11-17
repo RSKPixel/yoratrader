@@ -35,6 +35,9 @@ def variant(setup, hold, max_open, stop, timing, take, side="long"):
 def _sized(dataset, setup, hold, max_open, stop, timing, take, slippage, side="long", instrument="futures"):
     f, trades, d = connors._run(variant(setup, hold, max_open, stop, timing, take, side), dataset)
     idx, cols = d["px"].index, d["px"].columns
+    if dataset == "cash500":  # most of these stocks have no futures: cash, and wider spreads
+        import cash500
+        instrument, slippage = "cash", slippage + cash500.EXTRA_SLIPPAGE
     cash = instrument == "cash"
     if cash:  # delivery: its charges on the buy and the sale, no futures rolls
         import v2ltlv
@@ -79,9 +82,14 @@ def results(dataset="fno", setup="rsi2", hold="5d", max_open=3, stop="none", tim
                  "stopped_pct": round(float(100 * t["reason"].str.startswith("stop").mean()), 1),
                  "avg_rsi": round(float(t["rsi"].mean()), 1), "long_share": round(float(100 * (t["sign"] > 0).mean()), 1)}
     out = v2common.build_results(t, days, slippage, extra, daily=daily)
-    if out.get("summary") and instrument == "cash":
+    if out.get("summary") and (instrument == "cash" or dataset == "cash500"):
         import v2ltlv
-        out["summary"]["cost_per_side_bps"] = round(10000 * v2ltlv.cash_cost_per_side(slippage), 2)
+        extra_slip = 0.0
+        if dataset == "cash500":
+            import cash500
+            extra_slip = cash500.EXTRA_SLIPPAGE
+        out["summary"]["cost_per_side_bps"] = round(10000 * v2ltlv.cash_cost_per_side(slippage + extra_slip), 2)
+        out["summary"]["instrument"] = "cash"
     return out
 
 
