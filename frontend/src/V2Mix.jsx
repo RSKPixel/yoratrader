@@ -5,7 +5,8 @@ import V2EquityChart from "./V2EquityChart";
 import { MonthGrid, MonthTradesModal, Panel, SummaryCards, makeValue, tone, AT_COLUMNS } from "./V2BacktestView";
 import { useBacktest } from "./V2BuyOnGap";
 
-// Books + gold (v2mix.py): RSI(2) and low volatility on (100 - gold)% of capital at the chosen split, and
+// Books + gold (v2mix.py): RSI(2) and low volatility on (100 - gold)% of capital, half each (fixed: no
+// other split is offered, so it can't be tuned to the past), and
 // gold% in GOLDBEES, held and rebalanced to gold% at each month-end. Books in cash or futures.
 
 const GOLD = [
@@ -13,13 +14,6 @@ const GOLD = [
   ["20", "20%"],
   ["30", "30%"],
   ["40", "40%"],
-];
-const SPLIT = [
-  ["50", "50 / 50"],
-  ["70", "70 / 30"],
-  ["30", "30 / 70"],
-  ["100", "RSI(2) only"],
-  ["0", "Low vol only"],
 ];
 const INSTRUMENTS = [
   ["cash", "Cash"],
@@ -33,10 +27,9 @@ const HONEST = {
 
 export default function V2Mix({ params }) {
   const [gold, setGold] = useSetting("bt.mix.gold", "30");
-  const [rsi, setRsi] = useSetting("bt.mix.rsi", "50");
   const [instrument, setInstrument] = useSetting("bt.mix.instrument", "cash");
   const [month, setMonth] = useState(null);
-  const query = `gold=${gold}&rsi=${rsi}&instrument=${instrument}`;
+  const query = `gold=${gold}&instrument=${instrument}`;
   const { data, error, loading } = useBacktest(`/api/v2/backtest/mix?${query}`);
   const value = useMemo(() => makeValue(params.show, params.capital), [params.show, params.capital]);
   const chartFormat = useCallback((v) => value(v, 1), [value]);
@@ -76,9 +69,6 @@ export default function V2Mix({ params }) {
       <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
         <Field label="Gold allocation" hint="Share of capital held in GOLDBEES, rebalanced at each month-end; the rest goes to the books">
           <Segmented label="Gold allocation" options={GOLD} value={gold} onChange={setGold} />
-        </Field>
-        <Field label="Book allocation" hint="How the books' share is split: RSI(2) / low volatility">
-          <Segmented label="Book allocation" options={SPLIT} value={rsi} onChange={setRsi} />
         </Field>
         <Field label="Price" hint="Cash: delivery, no rolls (STT 0.1% each side, stamp duty, DP charge). F&O: futures charges and a roll at each month end">
           <Segmented label="Price" options={INSTRUMENTS} value={instrument} onChange={setInstrument} />

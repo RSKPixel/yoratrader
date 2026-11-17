@@ -2,7 +2,7 @@
 with a fixed share of capital held in gold (GOLDBEES), rebalanced at each month-end.
 
 - Books: (100 - gold)% of capital, split between RSI(2) (F&O stocks, max 3, 5-day hold, at the close) and low
-  volatility (F&O stocks, max 10, 20% trailing stop) at the chosen share (50/50 by default); traded in cash
+  volatility (F&O stocks, max 10, 20% trailing stop) half each (fixed); traded in cash
   (delivery charges, no rolls) or futures (futures charges and the monthly rolls)., each with its own backtest's monthly net.
 - Gold: gold% of capital in GOLDBEES, bought and held; each month-end it's topped up or trimmed back to
   gold% (the trade is the drift, charged at delivery costs).
@@ -23,7 +23,7 @@ from db import connect
 
 GOLD = "GOLDBEES"
 GOLD_SHARES = (0, 20, 30, 40)
-RSI_SHARES = (0, 30, 50, 70, 100)  # RSI(2)'s share of the books; low volatility has the rest
+RSI_SHARES = (50,)  # the books are always half each: no other split, so it can't be fitted to the past
 INSTRUMENTS = ("cash", "futures")
 CACHE_SECONDS = 6 * 3600
 _cache, _lock = {}, threading.Lock()
