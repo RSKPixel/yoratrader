@@ -13,12 +13,6 @@ const VERSIONS = [
   ["intraday", "Intraday (book)"],
   ["daily", "Daily"],
 ];
-const ENTRIES = [
-  ["0915", "09:15 (book)"],
-  ["0916", "09:16"],
-  ["0930", "09:30"],
-  ["0945", "09:45"],
-];
 const STOPS = [
   ["none", "None (book)"],
   ["1sd", "1σ"],
@@ -26,7 +20,7 @@ const STOPS = [
 
 export default function V2Xsmr({ params }) {
   const [version, setVersion] = useSetting("bt.xsmr.version", "intraday");
-  const [entry, setEntry] = useSetting("bt.xsmr.entry", "0915");
+  const entry = "0915"; // the 09:15 auction price only (later entries lose most of the edge)
   const [stop, setStop] = useSetting("bt.xsmr.stop", "none");
   const [slippage, setSlippage] = useSetting("bt.xsmr.slippage", 0.02);
   const [month, setMonth] = useState(null);
@@ -82,8 +76,8 @@ export default function V2Xsmr({ params }) {
           <Segmented label="Version" options={VERSIONS} value={version} onChange={setVersion} />
         </Field>
         {version === "intraday" && (
-          <Field label="Entry" hint="The book enters at the 09:15 auction price; later entries keep the same signal">
-            <Segmented label="Entry" options={ENTRIES} value={entry} onChange={setEntry} />
+          <Field label="Entry" hint="Fixed: the 09:15 auction price (the pre-open session), as in the book">
+            <span className="block py-1.5 text-sm">09:15 (open)</span>
           </Field>
         )}
         {stopAllowed && (
