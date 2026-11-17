@@ -9,8 +9,12 @@ import { SLIPPAGE, useBacktest } from "./V2BuyOnGap";
 // bought when it trades back up to that low; out at 15:15, or at the stop below the day's low so far.
 // 1-minute candles, today's F&O stocks, 2015 on. Max open = the day's first N fills.
 
+const EXITS = [
+  ["1515", "15:15 same day"],
+  ["nextopen", "Next day's open (book)"],
+];
 const STOPS = [
-  ["none", "None (out at 15:15)"],
+  ["none", "None"],
   ["low", "Below the day's low"],
 ];
 const TRENDS = [
@@ -20,11 +24,12 @@ const TRENDS = [
 
 export default function V2Oops({ params }) {
   const [stop, setStop] = useSetting("bt.oops.stop", "none");
+  const [exit, setExit] = useSetting("bt.oops.exit", "1515");
   const [trend, setTrend] = useSetting("bt.oops.trend", "any");
   const [slippage, setSlippage] = useSetting("bt.oops.slippage", 0.02);
   const [month, setMonth] = useState(null);
 
-  const query = `stop=${stop}&trend=${trend}&slippage=${slippage}&max_open=${params.maxOpen}`;
+  const query = `stop=${stop}&trend=${trend}&slippage=${slippage}&max_open=${params.maxOpen}&exit=${exit}`;
   const { data, error, loading } = useBacktest(`/api/v2/backtest/oops?${query}`);
   const value = useMemo(() => makeValue(params.show, params.capital), [params.show, params.capital]);
   const chartFormat = useCallback((v) => value(v, 1), [value]);
@@ -55,7 +60,10 @@ export default function V2Oops({ params }) {
   return (
     <div className="mt-4 flex flex-col gap-4">
       <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
-        <Field label="Stop" hint="None: out at 15:15 only. Below the day's low: 0.1% under the lowest price known at the buy, checked every minute after; most buys come in the first minute, so it's tight and noise takes it out.">
+        <Field label="Exit" hint="15:15: sold the same day at 15:15. Next day's open: held overnight and sold at the next trading day's opening price, as in the book (Williams: 'we buy today and are out on the opening tomorrow')">
+          <Segmented label="Exit" options={EXITS} value={exit} onChange={setExit} />
+        </Field>
+        <Field label="Stop" hint="None: out at the exit only. Below the day's low: 0.1% under the lowest price known at the buy, checked every minute after; most buys come in the first minute, so it's tight and noise takes it out.">
           <Segmented label="Stop" options={STOPS} value={stop} onChange={setStop} />
         </Field>
         <Field label="Trend" hint="Any stock, or only those whose close was above their 200-day average yesterday">
@@ -96,7 +104,7 @@ export default function V2Oops({ params }) {
           url={`/api/v2/backtest/oops/month?month=${month}&${query}`}
           columns={columns}
           value={value}
-          note="bought when the price trades back up to yesterday's low, out at 15:15 (or the stop)"
+          note={`bought when the price trades back up to yesterday's low, out ${exit === "nextopen" ? "at the next day's open" : "at 15:15"} (or the stop, on the buy day)`}
           onClose={closeMonth}
         />
       )}

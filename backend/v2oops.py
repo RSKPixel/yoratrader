@@ -29,6 +29,7 @@ START = "2015-03-01"
 EXIT_AT = "15:15"
 EXIT_MIN = 6 * 60  # minutes since 09:15: 15:15 (the 15:14 minute is the last one before it)
 STOP_BELOW = 0.999
+EXITS = ("1515", "nextopen")  # out at 15:15 the same day, or at the next trading day's open (the book: "out on the opening tomorrow")
 MAX_OPEN, BOOK_OPEN = 10, 3
 CACHE_SECONDS = 6 * 3600
 _cache, _lock = {"at": 0, "fills": None, "days": None}, threading.Lock()
@@ -118,7 +119,25 @@ def warm():
     threading.Thread(target=_fills, daemon=True, name="oops-warm").start()
 
 
-def _sized(stop="none", trend="any", max_open=3, slippage=0.0002):
+_next = {"at": 0, "data": None}
+
+
+def _next_opens():
+    """Each F&O stock's next trading day's opening price, by (symbol, day): the book's exit."""
+    if _next["data"] is not None and time.time() - _next["at"] < CACHE_SECONDS:
+        return _next["data"]
+    from db import connect
+    with connect() as conn:
+        d = pd.read_sql("SELECT symbol, day, open FROM bt_daily WHERE symbol IN (SELECT symbol FROM bt_symbols WHERE dataset = 'fno') "
+                        "AND close > 0 AND day >= %s ORDER BY symbol, day", conn, params=[START], parse_dates=["day"])
+    d["next_open"] = d.groupby("symbol")["open"].shift(-1)
+    d["next_day"] = d.groupby("symbol")["day"].shift(-1)
+    out = d.dropna(subset=["next_open"]).set_index(["symbol", "day"])[["next_open", "next_day"]]
+    _next.update(at=time.time(), data=out)
+    return out
+
+
+def _sized(stop="none", trend="any", max_open=3, slippage=0.0002, exit="1515"):
     f, days = _fills()
     t = f if trend == "any" else f[f["up"]]
     n = max_open or BOOK_OPEN
@@ -127,6 +146,18 @@ def _sized(stop="none", trend="any", max_open=3, slippage=0.0002):
     t["exit"] = np.where(stopped, t["exit_stop"], t["exit_time"])
     t["reason"] = np.where(stopped, "stop", "15:15")
     t["exit_hm"] = np.where(stopped, t["stop_at"].fillna(""), EXIT_AT)
+    t["exit_day"] = pd.to_datetime(t["day"])
+    if exit == "nextopen":  # held overnight, sold at the next day's open (a stop still works on the buy day)
+        nx = _next_opens()
+        key = pd.MultiIndex.from_arrays([t["symbol"], pd.to_datetime(t["day"])])
+        nxt = nx.reindex(key)
+        t = t[nxt["next_open"].notna().to_numpy() | stopped.to_numpy()].copy()
+        nxt = nx.reindex(pd.MultiIndex.from_arrays([t["symbol"], pd.to_datetime(t["day"])]))
+        stopped = t["exit_stop"].notna() if stop == "low" else pd.Series(False, index=t.index)
+        t["exit"] = np.where(stopped, t["exit_stop"], nxt["next_open"].to_numpy())
+        t["reason"] = np.where(stopped, "stop", "next open")
+        t["exit_hm"] = np.where(stopped, t["stop_at"].fillna(""), "09:15")
+        t["exit_day"] = np.where(stopped, pd.to_datetime(t["day"]), nxt["next_day"].to_numpy())
     t["gap_pct"] = 100 * (t["open"] / t["prev_low"] - 1)
     t["ret"] = t["exit"] / t["entry"] - 1
     t["w"] = 1.0 / n
@@ -138,8 +169,8 @@ def _sized(stop="none", trend="any", max_open=3, slippage=0.0002):
     return t.reset_index(drop=True), days
 
 
-def results(stop="none", trend="any", max_open=3, slippage=0.0002):
-    t, days = _sized(stop, trend, max_open, slippage)
+def results(stop="none", trend="any", max_open=3, slippage=0.0002, exit="1515"):
+    t, days = _sized(stop, trend, max_open, slippage, exit)
     extra = {}
     if len(t):
         extra = {"avg_positions": round(float(t.groupby("day").size().mean()), 1),
@@ -149,11 +180,11 @@ def results(stop="none", trend="any", max_open=3, slippage=0.0002):
     return v2common.build_results(t, days, slippage, extra)
 
 
-def month_trades(month, stop="none", trend="any", max_open=3, slippage=0.0002):
-    t, _ = _sized(stop, trend, max_open, slippage)
+def month_trades(month, stop="none", trend="any", max_open=3, slippage=0.0002, exit="1515"):
+    t, _ = _sized(stop, trend, max_open, slippage, exit)
     t = t[t["day"].dt.strftime("%Y-%m") == month]
     return [{"day": r.day.date().isoformat(), "entry_at": f"{r.day.date().isoformat()} {r.fill_at}",
-             "exit_at": f"{r.day.date().isoformat()} {r.exit_hm}",
+             "exit_at": f"{pd.Timestamp(r.exit_day).date().isoformat()} {r.exit_hm}",
              "symbol": r.symbol, "fill_at": r.fill_at, "gap_pct": round(float(r.gap_pct), 2),
              "prev_low": round(r.prev_low, 2), "open": round(r.open, 2), "entry": round(r.entry, 2),
              "stop": round(r.stop, 2) if stop == "low" else None, "exit": round(float(r.exit), 2), "reason": r.reason,
