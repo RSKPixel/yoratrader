@@ -22,7 +22,7 @@ import pandas as pd
 from db import connect
 
 GOLD = "GOLDBEES"
-GOLD_SHARES = (30,)  # fixed, like the split: nothing to tune
+GOLD_SHARES = (0, 30)  # none or 30%: nothing in between to tune
 RSI_SHARES = (50,)  # the books are always half each: no other split, so it can't be fitted to the past
 INSTRUMENTS = ("cash",)  # delivery only
 CACHE_SECONDS = 6 * 3600

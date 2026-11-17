@@ -1,17 +1,23 @@
 import { useCallback, useMemo, useState } from "react";
+import { useSetting } from "./settings";
+import { Field, Segmented } from "./V2Controls";
 import V2EquityChart from "./V2EquityChart";
 import { MonthGrid, MonthTradesModal, Panel, SummaryCards, makeValue, tone, AT_COLUMNS } from "./V2BacktestView";
 import { useBacktest } from "./V2BuyOnGap";
 
 // Books + gold (v2mix.py): RSI(2) and low volatility on (100 - gold)% of capital, half each (fixed: no
 // other split is offered, so it can't be tuned to the past), and
-// 30% in GOLDBEES, held and rebalanced to 30% at each month-end. All in cash. Nothing to choose.
+// 30% (or none) in GOLDBEES, held and rebalanced at each month-end. All in cash.
 
-// fixed, nothing to choose (so nothing to fit): gold 30%, the books half each of the rest, all in cash
-const ALLOCATION = [
-  ["RSI(2)", 35, "Short-term mean reversion: up to 3 stocks, held 5 days"],
-  ["Low volatility", 35, "Long trend low volatility: up to 10 stocks, 20% trailing stop"],
-  ["Gold", 30, "GOLDBEES, held; topped up or trimmed back to 30% at each month-end"],
+// gold: none or 30% (nothing in between, so nothing to fit); the books half each of the rest
+const GOLD = [
+  ["0", "None"],
+  ["30", "30%"],
+];
+const allocation = (gold) => [
+  ["RSI(2)", (100 - gold) / 2, "Short-term mean reversion: up to 3 stocks, held 5 days"],
+  ["Low volatility", (100 - gold) / 2, "Long trend low volatility: up to 10 stocks, 20% trailing stop"],
+  ["Gold", gold, gold ? `GOLDBEES, held; topped up or trimmed back to ${gold}% at each month-end` : "No gold"],
 ];
 // survivorship-free (each month's actual F&O list), 2008-2026
 const HONEST = "books only made 11.0% a year with a worst drop of −31%; with 30% gold 11.7% and −13%";
@@ -19,8 +25,9 @@ const HONEST = "books only made 11.0% a year with a worst drop of −31%; with 3
 const rupees = (v) => `₹${Math.round(v).toLocaleString("en-IN")}`;
 
 export default function V2Mix({ params }) {
+  const [gold, setGold] = useSetting("bt.mix.gold", "30");
   const [month, setMonth] = useState(null);
-  const query = "gold=30&instrument=cash";
+  const query = `gold=${gold === "0" ? 0 : 30}&instrument=cash`;
   const { data, error, loading } = useBacktest(`/api/v2/backtest/mix?${query}`);
   const value = useMemo(() => makeValue(params.show, params.capital), [params.show, params.capital]);
   const chartFormat = useCallback((v) => value(v, 1), [value]);
@@ -57,8 +64,11 @@ export default function V2Mix({ params }) {
 
   return (
     <div className="mt-4 flex flex-col gap-4">
+      <Field label="Gold" hint="Share of capital held in GOLDBEES, rebalanced at each month-end; the books share the rest equally">
+        <Segmented label="Gold" options={GOLD} value={gold === "0" ? "0" : "30"} onChange={setGold} />
+      </Field>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
-        {ALLOCATION.map(([label, pct, hint]) => (
+        {allocation(gold === "0" ? 0 : 30).map(([label, pct, hint]) => (
           <div key={label} className="rounded-lg border px-3 py-2" style={{ borderColor: "var(--border)", background: "var(--surface)" }} title={hint}>
             <p className="text-xs" style={{ color: "var(--muted)" }}>
               {label}
