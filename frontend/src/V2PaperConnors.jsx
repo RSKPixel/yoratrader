@@ -190,6 +190,11 @@ export default function V2PaperConnors({ params, version = 0, book = "rsi2", exi
     <div className="mt-4 flex flex-col gap-4">
       {chart.dialog}
       <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
+        <Field label="Instrument" hint="Fixed: one lot of the stock's future, the nearest expiring at least 10 days after the buy (so a hold never crosses expiry: no roll)">
+          <span className="inline-block rounded-md border px-3 py-1.5 text-sm font-medium" style={{ borderColor: "var(--border)", background: "var(--surface)" }}>
+            Futures
+          </span>
+        </Field>
         <Field label="Setup" hint="Fixed for this book: in a stock above its 200-day average">
           <span className="inline-block rounded-md border px-3 py-1.5 text-sm font-medium" style={{ borderColor: "var(--border)", background: "var(--surface)" }}>
             {book === "cum" ? "Cumulative RSI(2) < 35" : "RSI(2) < 10"}
