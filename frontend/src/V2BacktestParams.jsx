@@ -117,7 +117,8 @@ export function LiveMaxOpen({ value, onChange, saving, limit = MAX_OPEN }) {
   );
 }
 
-export default function V2BacktestParams({ params, onChange, universes = ["fno"], step = 1, live = null, lots = false, pit = null }) {
+export default function V2BacktestParams({ params, onChange, universes = ["fno"], step = 1, live = null, lots = false, pit = null, fixedOpen = null }) {
+  // fixedOpen: a page whose sizing is fixed by its own rules (text shown instead of the Max open stepper)
   // pit: a backtest page's survivorship choice ({ ok: the model can use it, value: "today" | "pit" }); null on paper pages
   // lots: paper trading in F&O, where each position is one lot: no capital input (the page shows the
   // capital required, the margin), and % results are of that margin.
@@ -180,14 +181,18 @@ export default function V2BacktestParams({ params, onChange, universes = ["fno"]
       <Field
         label="Max open"
         hint={
-          live
+          fixedOpen
+            ? "Fixed by each book's own rules (no option, so nothing to tune): RSI(2) holds up to 3 stocks, low volatility up to 10, each a share of its book"
+            : live
             ? "How many positions the scheduler may hold, saved on the server: it applies from the next run. Open positions keep the size they were bought at (1 / the max open then); lowering it only stops new buys until enough are sold."
             : step > 1
             ? "Long-short: as many shorts as longs, so this moves in 2s; Pairs picks how many of them are used. Capital ÷ N each. As per model: the model's own sizing."
             : "At most this many positions at once, capital ÷ N each. As per model: each model's own sizing."
         }
       >
-        {live ? (
+        {fixedOpen ? (
+          <span className="block py-1.5 text-sm">{fixedOpen}</span>
+        ) : live ? (
           <LiveMaxOpen value={live.maxOpen} onChange={live.onMaxOpen} saving={live.saving} limit={live.limit} />
         ) : (
           <MaxOpenStepper value={params.maxOpen} onChange={(maxOpen) => onChange({ maxOpen })} step={step} />
@@ -209,6 +214,8 @@ export default function V2BacktestParams({ params, onChange, universes = ["fno"]
           <>
             1 lot each · {maxOpen ? `${maxOpen} max` : "as per model"}
           </>
+        ) : fixedOpen ? (
+          "Sized by each book's own rules"
         ) : per ? (
           <>
             <span className="font-medium tabular-nums" style={{ color: "var(--text)" }}>

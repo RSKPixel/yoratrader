@@ -61,7 +61,7 @@ export const BACKTEST_GROUPS = [
   {
     title: "Portfolio",
     source: "Our books together, with gold",
-    models: [{ id: "books-gold", universes: ["fno"], short: "PG", label: "Books + gold", style: "Positional", pit: true }],
+    models: [{ id: "books-gold", universes: ["fno"], short: "PG", label: "Books + gold", style: "Positional", pit: true, fixedOpen: "RSI(2) 3 · Low volatility 10" }],
   },
 ];
 
@@ -128,7 +128,7 @@ function Model({ m, onSelect }) {
           </span>
         </div>
         <div className="mt-4">
-          <V2BacktestParams params={{ ...modelParams, universe }} onChange={setParams} universes={m.universes} step={step} pit={{ ok: !!m.pit, value: pit ? "pit" : "today" }} />
+          <V2BacktestParams params={{ ...modelParams, universe }} onChange={setParams} universes={m.universes} step={step} pit={{ ok: !!m.pit, value: pit ? "pit" : "today" }} fixedOpen={m.fixedOpen} />
         </div>
         {m.id === "buy-on-gap" && <V2BuyOnGap params={modelParams} />}
         {m.id === "oops" && <V2Oops params={modelParams} />}
