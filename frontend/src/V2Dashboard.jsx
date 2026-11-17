@@ -234,21 +234,14 @@ function Paper({ p, today, openOnly = false }) {
         error={tm.error}
         lines={[
           ["Now", tm.state === "waiting" ? `waiting · ${tm.days_to_buy} trading days to the buy` : tm.state ?? "—", tm.state && tm.state !== "waiting" ? "var(--warning)" : undefined],
-          ["Buy (close)", day(tm.buy)],
-          ["Sell (close)", day(tm.sell)],
-          ["Nifty 50", tm.nifty ? tm.nifty.toLocaleString("en-IN") : "Kite not connected"],
-          ...(tm.future ? [["Future (options follow it)", `${tm.future.toLocaleString("en-IN")} · +${tm.basis_pct}% over spot`]] : []),
-          [tm.call_label || "Call to buy", tm.strike ? `NIFTY ${tm.strike} CE · ${day(tm.expiry)} expiry` : tm.call_label?.startsWith("Call held") ? "buy day's close not stored yet" : "—"],
+          ["Buy · sell (close)", `${day(tm.buy)} · ${day(tm.sell)}`],
+          [tm.call_label || "Call to buy", tm.strike ? `NIFTY ${tm.strike} CE · ${day(tm.expiry)}` : tm.call_label?.startsWith("Call held") ? "buy day's close not stored yet" : "—"],
           ...(tm.best
             ? [
-                ["Limit price", `₹${tm.best.limit} (bid ${tm.best.bid ?? "—"} / ask ${tm.best.ask ?? "—"})`, tm.state?.startsWith("buy") ? "var(--warning)" : undefined],
-                ["Per lot", `${formatRs(tm.best.per_lot)} · ${tm.best.lot} units · ${tm.best.itm_pct}% in the money`],
-                ["Why this one", `tightest spread ${tm.best.spread_pct}% · OI ${(tm.best.oi ?? 0).toLocaleString("en-IN")} · time value ₹${tm.best.time_value}`],
-                ["Others", tm.calls.filter((c) => c.strike !== tm.best.strike).map((c) => `${c.strike} (${c.spread_pct ?? "—"}%)`).join(", ") || "—"],
-                ["Prices at", tm.quoted_at],
+                ["Limit price", `₹${tm.best.limit}`, tm.state?.startsWith("buy") ? "var(--warning)" : undefined],
+                ["Per lot", formatRs(tm.best.per_lot)],
               ]
             : []),
-          ["Dates from", tm.holidays_source ?? "—"],
         ]}
       />
       )}
@@ -429,6 +422,32 @@ function useDashboard() {
   return { d, error };
 }
 
+// Across every paper book (archived ones left out): what's open, and the net (SR and CR at futures prices)
+function PaperTotals({ p }) {
+  const statuses = useModelStatuses();
+  const on = (id) => statusOf(statuses, id) !== "archived";
+  const g = p.gap || {}, x = p.xsmr || {}, c = p.connors || {}, cc = p.connors_cum || {}, op = p.oops || {}, tm = p.tom || {};
+  const open = openNow(p);
+  const ids = Object.keys(open).filter(on);
+  const live = (b) => (b.today_status === "open" ? b.today_positions || 0 : 0);
+  const positions =
+    (on("buy-on-gap") ? live(g) : 0) + (on("xs-mean-reversion") ? live(x) : 0) + (on("oops") ? live(op) : 0) +
+    (on("short-term-reversion") ? c.open || 0 : 0) + (on("cumulative-rsi") ? cc.open || 0 : 0) + (on("turn-of-month") && open["turn-of-month"] ? 1 : 0);
+  const sum = (pairs) => pairs.filter(([id, v]) => on(id) && v != null).reduce((a, [, v]) => a + v, 0);
+  const today = sum([["buy-on-gap", g.today_net_rs], ["xs-mean-reversion", x.today_net_rs], ["oops", op.today_net_rs]]);
+  const total = sum([["buy-on-gap", g.total_net_rs], ["xs-mean-reversion", x.total_net_rs], ["oops", op.total_net_rs],
+    ["short-term-reversion", c.fut_net_rs], ["cumulative-rsi", cc.fut_net_rs]]);
+  const signed = (v) => `${v > 0 ? "+" : ""}${formatRs(v)}`;
+  return (
+    <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <Card label="Books with open trades" value={`${ids.filter((id) => open[id]).length} / ${ids.length}`} hint="Paper books holding something now (Turn of the month: the call is held)" />
+      <Card label="Open positions" value={positions} hint="Intraday books: today's live positions; SR and CR: positions held; Turn of the month: the call" />
+      <Card label="Today's net" value={signed(today)} color={tone(today)} hint="The intraday books today (gap, cross-sectional mean reversion, Oops), one lot each" />
+      <Card label="Total net" value={signed(total)} color={tone(total)} hint="Every paper book since it started, one lot each; SR and CR at futures prices. Turn of the month is traded by hand, so not in it" />
+    </div>
+  );
+}
+
 // The paper trading landing page: the dashboard's paper trading cards, each opening its model's page
 export function PaperOverview() {
   const { d, error } = useDashboard();
@@ -448,6 +467,7 @@ export function PaperOverview() {
           onChange={setFilter}
         />
       </div>
+      <PaperTotals p={d.paper} />
       <Paper p={d.paper} today={d.today} openOnly={filter === "open"} />
     </div>
   );
