@@ -377,7 +377,8 @@ function dashboardQuery(values) {
   return `gap_max_open=${max("buy-on-gap")}&xsmr_max_open=${max("xs-mean-reversion")}`;
 }
 
-export default function V2Dashboard() {
+// The dashboard's data (refreshed each minute in market hours, every 5 minutes otherwise)
+function useDashboard() {
   const [d, setD] = useState(null);
   const [error, setError] = useState("");
   const query = dashboardQuery(useSettings().values);
@@ -406,7 +407,19 @@ export default function V2Dashboard() {
       window.removeEventListener("kite-status-changed", onKite);
     };
   }, [query]);
+  return { d, error };
+}
 
+// The paper trading landing page: the dashboard's paper trading cards, each opening its model's page
+export function PaperOverview() {
+  const { d, error } = useDashboard();
+  if (error && !d) return <p className="text-sm" style={{ color: "var(--negative)" }}>{error}</p>;
+  if (!d) return <p className="text-sm" style={{ color: "var(--faint)" }}>Loading…</p>;
+  return <Paper p={d.paper} today={d.today} />;
+}
+
+export default function V2Dashboard() {
+  const { d, error } = useDashboard();
   if (error && !d) return <p className="text-sm" style={{ color: "var(--negative)" }}>{error}</p>;
   if (!d) return <p className="text-sm" style={{ color: "var(--faint)" }}>Loading…</p>;
   return (

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { displayName, useAuth } from "./AuthGate";
 import V2Backtesting, { DEFAULT_BACKTEST, findBacktest } from "./V2Backtesting";
-import V2Paper, { DEFAULT_PAPER, findPaper } from "./V2Paper";
+import V2Paper, { findPaper } from "./V2Paper";
 import V2Settings from "./V2Settings";
 import V2Data from "./V2Data";
 import { KiteButton } from "./V2Kite";
@@ -40,7 +40,7 @@ function backtestFromPath() {
 
 function paperFromPath() {
   const id = pathParts()[1];
-  return pathParts()[0] === "paper" && findPaper(id) ? id : DEFAULT_PAPER;
+  return pathParts()[0] === "paper" && findPaper(id) ? id : null; // null: the landing page
 }
 
 function Logo() {
@@ -91,7 +91,7 @@ export default function AppV2() {
   }, []);
 
   useEffect(() => {
-    const sub = page === "backtesting" ? `${findBacktest(backtest)?.label} · ` : page === "paper" ? `${findPaper(paper)?.label} · ` : "";
+    const sub = page === "backtesting" ? `${findBacktest(backtest)?.label} · ` : page === "paper" && paper ? `${findPaper(paper)?.label} · ` : "";
     document.title = `${sub}${PAGES.find((p) => p.id === page)?.label} · YoraTrader`;
   }, [page, backtest, paper]);
 
@@ -115,8 +115,9 @@ export default function AppV2() {
       setSettingsOpen(true);
       return;
     }
-    if (id === page) return;
-    window.history.pushState(null, "", id === "backtesting" ? `/v2/backtesting/${backtest}` : id === "paper" ? `/v2/paper/${paper}` : `/v2/${id}`);
+    if (id === "paper") setPaper(null); // the landing page, not the last book
+    if (id === page && !(id === "paper" && paper)) return;
+    window.history.pushState(null, "", id === "backtesting" ? `/v2/backtesting/${backtest}` : id === "paper" ? "/v2/paper" : `/v2/${id}`);
     setPage(id);
   };
 

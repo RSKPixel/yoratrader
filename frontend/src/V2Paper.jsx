@@ -2,6 +2,7 @@ import { StatusButtons } from "./modelStatus";
 import { useCallback, useEffect, useState } from "react";
 import V2BacktestParams, { useBacktestParams } from "./V2BacktestParams";
 import V2PaperConnors from "./V2PaperConnors";
+import { PaperOverview } from "./V2Dashboard";
 import V2PaperGap from "./V2PaperGap";
 import V2PaperXsmr from "./V2PaperXsmr";
 import V2PaperOops from "./V2PaperOops";
@@ -81,8 +82,35 @@ export const findPaper = (id) => ALL.find((m) => m.id === id);
 // The defaults each paper page's parameters start from (the dashboard reads the same saved values)
 export const paperDefaults = (m) => ({ universe: "fno", maxOpen: m.step > 1 ? 10 : 5 });
 
+// The landing page (no model picked): the same paper trading cards as the dashboard
+function Landing({ onSelect }) {
+  const { open, toggle, select } = useSideNav("yt-v2-paper-nav", onSelect);
+  return (
+    <div className="relative flex min-h-0 min-w-0 flex-1">
+      <SideNav groups={PAPER_GROUPS} base="/v2/paper" title="Paper trading" current={null} onSelect={select} open={open} onToggle={toggle} pinKey="paper" />
+      <section className="min-h-0 min-w-0 flex-1 overflow-auto px-4 py-6 md:px-8">
+        <p className="text-xs font-medium uppercase tracking-[0.14em]" style={{ color: "var(--faint)" }}>
+          Paper trading
+        </p>
+        <h1 className="mt-1 text-xl font-semibold tracking-tight">All paper books</h1>
+        <p className="mt-1 text-sm" style={{ color: "var(--muted)" }}>
+          Recorded by the production scheduler; nothing places orders. Open a book for its positions, trades and settings.
+        </p>
+        <div className="mt-4">
+          <PaperOverview />
+        </div>
+      </section>
+    </div>
+  );
+}
+
 export default function V2Paper({ model, onSelect }) {
-  const m = findPaper(model) || findPaper(DEFAULT_PAPER);
+  const m = findPaper(model);
+  if (!m) return <Landing onSelect={onSelect} />;
+  return <Book m={m} onSelect={onSelect} />;
+}
+
+function Book({ m, onSelect }) {
   const { open, toggle, select } = useSideNav("yt-v2-paper-nav", onSelect);
   const [params, setParams] = useBacktestParams(`paper-${m.id}`, paperDefaults(m));
   const step = m.step || 1;
