@@ -816,14 +816,30 @@ def v2_backtest_ltlv(max_open: int = Query(10, ge=0, le=10), trail: str = Query(
         return {"status": "error", "message": str(error)}
 
 
+def _v2mix_args(gold, rsi, instrument, slippage):
+    if gold not in v2mix.GOLD_SHARES or rsi not in v2mix.RSI_SHARES or instrument not in v2mix.INSTRUMENTS:
+        raise HTTPException(status_code=400, detail="gold, rsi or instrument not supported")
+    return dict(gold_pct=gold, rsi_pct=rsi, instrument=instrument, slippage=slippage / 100)
+
+
 @app.get("/api/v2/backtest/mix")
-def v2_backtest_mix(gold: int = Query(30), slippage: float = Query(0.02, ge=0, le=1)):
-    if gold not in v2mix.GOLD_SHARES:
-        raise HTTPException(status_code=400, detail="gold must be one of " + ", ".join(map(str, v2mix.GOLD_SHARES)))
+def v2_backtest_mix(gold: int = Query(30), rsi: int = Query(50), instrument: str = Query("cash"), slippage: float = Query(0.02, ge=0, le=1)):
+    args = _v2mix_args(gold, rsi, instrument, slippage)
     try:
-        return {"status": "success", **v2mix.results(gold, slippage / 100)}
+        return {"status": "success", **v2mix.results(**args)}
     except Exception as error:
         print("v2 books + gold backtest failed:", error)
+        return {"status": "error", "message": str(error)}
+
+
+@app.get("/api/v2/backtest/mix/month")
+def v2_backtest_mix_month(month: str = Query(..., pattern=r"^\d{4}-\d{2}$"), gold: int = Query(30), rsi: int = Query(50),
+                          instrument: str = Query("cash"), slippage: float = Query(0.02, ge=0, le=1)):
+    args = _v2mix_args(gold, rsi, instrument, slippage)
+    try:
+        return {"status": "success", "trades": v2mix.month_trades(month, **args)}
+    except Exception as error:
+        print("v2 books + gold month failed:", error)
         return {"status": "error", "message": str(error)}
 
 
