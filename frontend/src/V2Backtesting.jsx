@@ -30,7 +30,7 @@ export const BACKTEST_GROUPS = [
     models: [
       { id: "buy-on-gap", universes: ["fno", "stocks", "indices"], short: "BG", label: "Buy/Sell on gap", style: "Intraday" },
       { id: "gap-momentum", universes: ["indices", "fno"], short: "GM", label: "Opening gap momentum", style: "Intraday" },
-      { id: "xs-mean-reversion", step: 2, universes: ["fno", "stocks"], short: "XR", label: "Cross-sectional mean reversion", style: "Intraday" },
+      { id: "xs-mean-reversion", step: 2, universes: ["fno", "stocks"], short: "XR", label: "Cross-sectional mean reversion", style: "Intraday", noBook: true },
       { id: "pairs", step: 2, universes: ["fno"], short: "PT", label: "Pairs trading", style: "Positional" },
       { id: "xs-momentum", step: 2, universes: ["fno", "stocks"], short: "XM", label: "Cross-sectional momentum", style: "Positional", pit: true },
     ],
@@ -109,7 +109,9 @@ function Model({ m, onSelect }) {
   const universe = m.universes.includes(params.universe) ? params.universe : m.universes[0];
   // Long-short models need as many shorts as longs: Max open moves in 2s (an odd choice rounds up).
   const step = m.step || 1;
-  const maxOpen = params.maxOpen && step > 1 ? Math.min(10, Math.ceil(params.maxOpen / step) * step) : params.maxOpen;
+  // noBook: the model has no "As per model" sizing on its page (cross-sectional: always k + k, never Chan's every-stock book)
+  const savedOpen = m.noBook && !params.maxOpen ? 6 : params.maxOpen;
+  const maxOpen = savedOpen && step > 1 ? Math.min(10, Math.ceil(savedOpen / step) * step) : savedOpen;
   // Survivorship-free (each month's F&O list): the "fnopit" dataset, for daily-close models on F&O stocks
   const pit = !!m.pit && universe === "fno" && params.survivor === "pit";
   const modelParams = { ...params, universe: pit ? "fnopit" : universe, maxOpen };
@@ -131,6 +133,7 @@ function Model({ m, onSelect }) {
           <V2BacktestParams params={{ ...modelParams, universe }} onChange={setParams} universes={m.universes} step={step}
             pit={{ ok: !!m.pit, value: pit ? "pit" : "today" }}
             fixedOpen={m.fixedOpen}
+            noBook={!!m.noBook}
             books={
               m.books
                 ? [

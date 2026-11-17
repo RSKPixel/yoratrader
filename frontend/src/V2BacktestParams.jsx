@@ -5,15 +5,28 @@ import { Field, formatRs, inputStyle, Segmented } from "./V2Controls";
 // The parameters every backtest has: universe, capital, max open positions, and whether results show
 // as % of capital or rupees. Each model keeps its own values, remembered per browser.
 
-export const DEFAULT_PARAMS = { capital: 1000000, maxOpen: 5, show: "rs", universe: "fno" };
-export const UNIVERSES = { fno: "F&O stocks", stocks: "Nifty 50 stocks", indices: "Indices" };
+export const DEFAULT_PARAMS = {
+  capital: 1000000,
+  maxOpen: 5,
+  show: "rs",
+  universe: "fno",
+};
+export const UNIVERSES = {
+  fno: "F&O stocks",
+  stocks: "Nifty 50 stocks",
+  indices: "Indices",
+};
 const CAPITAL_PICKS = [500000, 1000000, 2500000, 5000000, 10000000];
 const MAX_OPEN = 10;
 
 // A model's saved parameters without the hook (e.g. the dashboard reading what a page was set to)
 export function savedParams(values, model, defaults = {}) {
   // values: the user's settings (useSettings().values)
-  return { ...DEFAULT_PARAMS, ...defaults, ...(values[`params.${model}`] || {}) };
+  return {
+    ...DEFAULT_PARAMS,
+    ...defaults,
+    ...(values[`params.${model}`] || {}),
+  };
 }
 
 // Parameters for one model: its saved values, else the defaults (its first universe; long-short models
@@ -22,7 +35,13 @@ export function useBacktestParams(model, defaults = {}) {
   // saved per user on the server (settings key params.<model>)
   const [saved, setSaved] = useSetting(`params.${model}`, null);
   const params = { ...DEFAULT_PARAMS, ...defaults, ...(saved || {}) };
-  const update = (patch) => setSaved((a) => ({ ...DEFAULT_PARAMS, ...defaults, ...(a || {}), ...patch }));
+  const update = (patch) =>
+    setSaved((a) => ({
+      ...DEFAULT_PARAMS,
+      ...defaults,
+      ...(a || {}),
+      ...patch,
+    }));
   return [params, update];
 }
 
@@ -58,7 +77,11 @@ function CapitalInput({ value, onChange }) {
             onClick={() => onChange(c)}
             aria-pressed={c === value}
             className="rounded-md border px-2 py-1 text-xs transition-colors hover:bg-[var(--surface-2)]"
-            style={c === value ? { borderColor: "var(--accent)", color: "var(--accent)" } : { borderColor: "var(--border)", color: "var(--muted)" }}
+            style={
+              c === value
+                ? { borderColor: "var(--accent)", color: "var(--accent)" }
+                : { borderColor: "var(--border)", color: "var(--muted)" }
+            }
           >
             {formatRs(c)}
           </button>
@@ -69,70 +92,142 @@ function CapitalInput({ value, onChange }) {
 }
 
 function BookStepper({ value, onChange }) {
-  const btn = "grid h-8 w-8 place-items-center text-base transition-colors hover:bg-[var(--surface)] disabled:opacity-40";
+  const btn =
+    "grid h-8 w-8 place-items-center text-base transition-colors hover:bg-[var(--surface)] disabled:opacity-40";
   return (
-    <div className="inline-flex items-center self-start overflow-hidden rounded-md border" style={inputStyle}>
-      <button type="button" className={btn} onClick={() => onChange(Math.max(1, value - 1))} disabled={value <= 1} aria-label="Fewer positions">
+    <div
+      className="inline-flex items-center self-start overflow-hidden rounded-md border"
+      style={inputStyle}
+    >
+      <button
+        type="button"
+        className={btn}
+        onClick={() => onChange(Math.max(1, value - 1))}
+        disabled={value <= 1}
+        aria-label="Fewer positions"
+      >
         −
       </button>
       <span className="w-10 text-center text-sm tabular-nums">{value}</span>
-      <button type="button" className={btn} onClick={() => onChange(Math.min(MAX_OPEN, value + 1))} disabled={value >= MAX_OPEN} aria-label="More positions">
+      <button
+        type="button"
+        className={btn}
+        onClick={() => onChange(Math.min(MAX_OPEN, value + 1))}
+        disabled={value >= MAX_OPEN}
+        aria-label="More positions"
+      >
         +
       </button>
     </div>
   );
 }
 
-function MaxOpenStepper({ value, onChange, step: by = 1 }) {
+function MaxOpenStepper({ value, onChange, step: by = 1, noBook = false }) {
   const book = value === 0;
   const start = by > 1 ? 6 : 5;
-  const step = (d) => onChange(Math.min(MAX_OPEN, Math.max(by, (book ? start : value) + d * by)));
-  const btn = "grid h-8 w-8 place-items-center text-base transition-colors hover:bg-[var(--surface)] disabled:opacity-40";
+  const step = (d) =>
+    onChange(Math.min(MAX_OPEN, Math.max(by, (book ? start : value) + d * by)));
+  const btn =
+    "grid h-8 w-8 place-items-center text-base transition-colors hover:bg-[var(--surface)] disabled:opacity-40";
   return (
     <div className="flex items-center gap-2">
-      <div className="flex items-center overflow-hidden rounded-md border" style={inputStyle}>
-        <button type="button" className={btn} onClick={() => step(-1)} disabled={!book && value <= by} aria-label="Fewer positions">
+      <div
+        className="flex items-center overflow-hidden rounded-md border"
+        style={inputStyle}
+      >
+        <button
+          type="button"
+          className={btn}
+          onClick={() => step(-1)}
+          disabled={!book && value <= by}
+          aria-label="Fewer positions"
+        >
           −
         </button>
-        <span className="w-10 text-center text-sm tabular-nums">{book ? "—" : value}</span>
-        <button type="button" className={btn} onClick={() => step(1)} disabled={!book && value >= MAX_OPEN} aria-label="More positions">
+        <span className="w-10 text-center text-sm tabular-nums">
+          {book ? "—" : value}
+        </span>
+        <button
+          type="button"
+          className={btn}
+          onClick={() => step(1)}
+          disabled={!book && value >= MAX_OPEN}
+          aria-label="More positions"
+        >
           +
         </button>
       </div>
-      <button
-        type="button"
-        onClick={() => onChange(book ? start : 0)}
-        aria-pressed={book}
-        className="rounded-md border px-2 py-1 text-xs transition-colors hover:bg-[var(--surface-2)]"
-        style={book ? { borderColor: "var(--accent)", color: "var(--accent)" } : { borderColor: "var(--border)", color: "var(--muted)" }}
-        title="Each model's own sizing instead of a fixed number of positions"
-      >
-        As per model
-      </button>
+      {!noBook && (
+        <button
+          type="button"
+          onClick={() => onChange(book ? start : 0)}
+          aria-pressed={book}
+          className="rounded-md border px-2 py-1 text-xs transition-colors hover:bg-[var(--surface-2)]"
+          style={
+            book
+              ? { borderColor: "var(--accent)", color: "var(--accent)" }
+              : { borderColor: "var(--border)", color: "var(--muted)" }
+          }
+          title="Each model's own sizing instead of a fixed number of positions"
+        >
+          As per model
+        </button>
+      )}
     </div>
   );
 }
 
 export function LiveMaxOpen({ value, onChange, saving, limit = MAX_OPEN }) {
   // A paper trader's own slot count, saved on the server (no "As per model")
-  const btn = "grid h-8 w-8 place-items-center text-base transition-colors hover:bg-[var(--surface)] disabled:opacity-40";
+  const btn =
+    "grid h-8 w-8 place-items-center text-base transition-colors hover:bg-[var(--surface)] disabled:opacity-40";
   return (
     <div className="flex items-center gap-2">
-      <div className="flex items-center overflow-hidden rounded-md border" style={inputStyle}>
-        <button type="button" className={btn} onClick={() => onChange(value - 1)} disabled={saving || value <= 1} aria-label="Fewer positions">
+      <div
+        className="flex items-center overflow-hidden rounded-md border"
+        style={inputStyle}
+      >
+        <button
+          type="button"
+          className={btn}
+          onClick={() => onChange(value - 1)}
+          disabled={saving || value <= 1}
+          aria-label="Fewer positions"
+        >
           −
         </button>
         <span className="w-10 text-center text-sm tabular-nums">{value}</span>
-        <button type="button" className={btn} onClick={() => onChange(value + 1)} disabled={saving || value >= limit} aria-label="More positions">
+        <button
+          type="button"
+          className={btn}
+          onClick={() => onChange(value + 1)}
+          disabled={saving || value >= limit}
+          aria-label="More positions"
+        >
           +
         </button>
       </div>
-      {saving && <span className="text-xs" style={{ color: "var(--faint)" }}>Saving…</span>}
+      {saving && (
+        <span className="text-xs" style={{ color: "var(--faint)" }}>
+          Saving…
+        </span>
+      )}
     </div>
   );
 }
 
-export default function V2BacktestParams({ params, onChange, universes = ["fno"], step = 1, live = null, lots = false, pit = null, fixedOpen = null, books = null }) {
+export default function V2BacktestParams({
+  params,
+  onChange,
+  universes = ["fno"],
+  step = 1,
+  live = null,
+  lots = false,
+  pit = null,
+  fixedOpen = null,
+  books = null,
+  noBook = false,
+}) {
   // books: a page that sizes several books ([{ label, value, onChange, hint }]): a stepper each instead of Max open
   // fixedOpen: a page whose sizing is fixed by its own rules (text shown instead of the Max open stepper)
   // pit: a backtest page's survivorship choice ({ ok: the model can use it, value: "today" | "pit" }); null on paper pages
@@ -143,21 +238,44 @@ export default function V2BacktestParams({ params, onChange, universes = ["fno"]
   const maxOpen = live ? live.maxOpen : params.maxOpen;
   const per = maxOpen ? params.capital / maxOpen : null;
   return (
-    <div className="flex flex-wrap items-end gap-x-8 gap-y-4 rounded-lg border px-4 py-3" style={{ borderColor: "var(--border)", background: "var(--surface)" }}>
+    <div
+      className="flex flex-wrap items-end gap-x-8 gap-y-4 rounded-lg border px-4 py-3"
+      style={{ borderColor: "var(--border)", background: "var(--surface)" }}
+    >
       {live ? (
-        <Field label="Universe" hint="The stocks the scheduler looks for signals in, saved on the server: it applies from the next run. Open positions are still sold as usual.">
+        <Field
+          label="Universe"
+          hint="The stocks the scheduler looks for signals in, saved on the server: it applies from the next run. Open positions are still sold as usual."
+        >
           <Segmented
             label="Universe"
-            options={Object.entries(UNIVERSES).map(([u, text]) => [u, text, live.saving || !live.universes.includes(u), live.universes.includes(u) ? undefined : "Not available for this model"])}
+            options={Object.entries(UNIVERSES).map(([u, text]) => [
+              u,
+              text,
+              live.saving || !live.universes.includes(u),
+              live.universes.includes(u)
+                ? undefined
+                : "Not available for this model",
+            ])}
             value={live.universe}
             onChange={(u) => u !== live.universe && live.onUniverse(u)}
           />
         </Field>
       ) : (
-        <Field label="Universe" hint="The stocks or indices the model trades; each model offers the ones it has">
+        <Field
+          label="Universe"
+          hint="The stocks or indices the model trades; each model offers the ones it has"
+        >
           <Segmented
             label="Universe"
-            options={Object.entries(UNIVERSES).map(([u, text]) => [u, text, !universes.includes(u), universes.includes(u) ? undefined : "Not available for this model"])}
+            options={Object.entries(UNIVERSES).map(([u, text]) => [
+              u,
+              text,
+              !universes.includes(u),
+              universes.includes(u)
+                ? undefined
+                : "Not available for this model",
+            ])}
             value={params.universe}
             onChange={(universe) => onChange({ universe })}
           />
@@ -173,25 +291,56 @@ export default function V2BacktestParams({ params, onChange, universes = ["fno"]
           }
         >
           <div className="self-start">
-          <Segmented
-            label="Survivorship bias"
-            options={[
-              ["today", "On", params.universe === "cash500", params.universe === "cash500" ? "Top 500 is always survivorship-free: each month's list from the data known then" : undefined],
-              ["pit", "Off", !pit.ok || !["fno", "cash500"].includes(params.universe), !pit.ok ? "Not available for this model" : !["fno", "cash500"].includes(params.universe) ? "F&O stocks or Top 500 only" : undefined],
-            ]}
-            value={params.universe === "cash500" ? "pit" : pit.ok && params.universe === "fno" ? pit.value : "today"}
-            onChange={(survivor) => onChange({ survivor })}
-          />
+            <Segmented
+              label="Survivorship bias"
+              options={[
+                [
+                  "today",
+                  "On",
+                  params.universe === "cash500",
+                  params.universe === "cash500"
+                    ? "Top 500 is always survivorship-free: each month's list from the data known then"
+                    : undefined,
+                ],
+                [
+                  "pit",
+                  "Off",
+                  !pit.ok || !["fno", "cash500"].includes(params.universe),
+                  !pit.ok
+                    ? "Not available for this model"
+                    : !["fno", "cash500"].includes(params.universe)
+                      ? "F&O stocks or Top 500 only"
+                      : undefined,
+                ],
+              ]}
+              value={
+                params.universe === "cash500"
+                  ? "pit"
+                  : pit.ok && params.universe === "fno"
+                    ? pit.value
+                    : "today"
+              }
+              onChange={(survivor) => onChange({ survivor })}
+            />
           </div>
         </Field>
       )}
       {lots ? (
-        <Field label="Size" hint="F&O trades in whole lots: each position is one lot of its future (today's lot sizes). The capital required is the margin, shown with the results.">
+        <Field
+          label="Size"
+          hint="F&O trades in whole lots: each position is one lot of its future (today's lot sizes). The capital required is the margin, shown with the results."
+        >
           <span className="block py-1.5 text-sm">1 lot per position</span>
         </Field>
       ) : (
-        <Field label="Capital" hint="The value of the positions held (not margin: futures margin is roughly a fifth of it)">
-          <CapitalInput value={params.capital} onChange={(capital) => onChange({ capital })} />
+        <Field
+          label="Capital"
+          hint="The value of the positions held (not margin: futures margin is roughly a fifth of it)"
+        >
+          <CapitalInput
+            value={params.capital}
+            onChange={(capital) => onChange({ capital })}
+          />
         </Field>
       )}
       {books &&
@@ -201,28 +350,45 @@ export default function V2BacktestParams({ params, onChange, universes = ["fno"]
           </Field>
         ))}
       {!books && (
+        <Field
+          label="Max open"
+          hint={
+            fixedOpen
+              ? "Fixed by each book's own rules (no option, so nothing to tune): RSI(2) holds up to 3 stocks, low volatility up to 10, each a share of its book"
+              : live
+                ? "How many positions the scheduler may hold, saved on the server: it applies from the next run. Open positions keep the size they were bought at (1 / the max open then); lowering it only stops new buys until enough are sold."
+                : step > 1
+                  ? "Long-short: as many shorts as longs, so this moves in 2s; Pairs picks how many of them are used. Capital ÷ N each. As per model: the model's own sizing."
+                  : "At most this many positions at once, capital ÷ N each. As per model: each model's own sizing."
+          }
+        >
+          {fixedOpen ? (
+            <span className="block py-1.5 text-sm">{fixedOpen}</span>
+          ) : live ? (
+            <LiveMaxOpen
+              value={live.maxOpen}
+              onChange={live.onMaxOpen}
+              saving={live.saving}
+              limit={live.limit}
+            />
+          ) : (
+            <MaxOpenStepper
+              value={params.maxOpen}
+              onChange={(maxOpen) => onChange({ maxOpen })}
+              step={step}
+              noBook={noBook}
+            />
+          )}
+        </Field>
+      )}
       <Field
-        label="Max open"
+        label="Show"
         hint={
-          fixedOpen
-            ? "Fixed by each book's own rules (no option, so nothing to tune): RSI(2) holds up to 3 stocks, low volatility up to 10, each a share of its book"
-            : live
-            ? "How many positions the scheduler may hold, saved on the server: it applies from the next run. Open positions keep the size they were bought at (1 / the max open then); lowering it only stops new buys until enough are sold."
-            : step > 1
-            ? "Long-short: as many shorts as longs, so this moves in 2s; Pairs picks how many of them are used. Capital ÷ N each. As per model: the model's own sizing."
-            : "At most this many positions at once, capital ÷ N each. As per model: each model's own sizing."
+          lots
+            ? "Results in rupees (one lot each), or as % of the contract value traded"
+            : "Results as % of capital or in rupees"
         }
       >
-        {fixedOpen ? (
-          <span className="block py-1.5 text-sm">{fixedOpen}</span>
-        ) : live ? (
-          <LiveMaxOpen value={live.maxOpen} onChange={live.onMaxOpen} saving={live.saving} limit={live.limit} />
-        ) : (
-          <MaxOpenStepper value={params.maxOpen} onChange={(maxOpen) => onChange({ maxOpen })} step={step} />
-        )}
-      </Field>
-      )}
-      <Field label="Show" hint={lots ? "Results in rupees (one lot each), or as % of the contract value traded" : "Results as % of capital or in rupees"}>
         <Segmented
           label="Show results as"
           options={[
@@ -233,16 +399,20 @@ export default function V2BacktestParams({ params, onChange, universes = ["fno"]
           onChange={(show) => onChange({ show })}
         />
       </Field>
-      <div className="ml-auto text-right text-sm" style={{ color: "var(--muted)" }}>
+      <div
+        className="ml-auto text-right text-sm"
+        style={{ color: "var(--muted)" }}
+      >
         {lots ? (
-          <>
-            1 lot each · {maxOpen ? `${maxOpen} max` : "as per model"}
-          </>
+          <>1 lot each · {maxOpen ? `${maxOpen} max` : "as per model"}</>
         ) : fixedOpen || books ? (
           "Each book: its share of capital ÷ its max open"
         ) : per ? (
           <>
-            <span className="font-medium tabular-nums" style={{ color: "var(--text)" }}>
+            <span
+              className="font-medium tabular-nums"
+              style={{ color: "var(--text)" }}
+            >
               {formatRs(per)}
             </span>{" "}
             per position · {maxOpen} max
