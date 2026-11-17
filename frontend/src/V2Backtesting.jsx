@@ -61,7 +61,7 @@ export const BACKTEST_GROUPS = [
   {
     title: "Portfolio",
     source: "Our books together, with gold",
-    models: [{ id: "books-gold", universes: ["fno"], short: "PG", label: "Books + gold", style: "Positional", pit: true, fixedOpen: "RSI(2) 3 · Low volatility 10" }],
+    models: [{ id: "books-gold", universes: ["fno"], short: "PG", label: "Books + gold", style: "Positional", pit: true, books: true }],
   },
 ];
 
@@ -128,7 +128,17 @@ function Model({ m, onSelect }) {
           </span>
         </div>
         <div className="mt-4">
-          <V2BacktestParams params={{ ...modelParams, universe }} onChange={setParams} universes={m.universes} step={step} pit={{ ok: !!m.pit, value: pit ? "pit" : "today" }} fixedOpen={m.fixedOpen} />
+          <V2BacktestParams params={{ ...modelParams, universe }} onChange={setParams} universes={m.universes} step={step}
+            pit={{ ok: !!m.pit, value: pit ? "pit" : "today" }}
+            books={
+              m.books
+                ? [
+                    { label: "RSI(2) max open", value: params.rsiOpen ?? 3, onChange: (n) => setParams({ rsiOpen: n }), hint: "Up to this many RSI(2) stocks at once, the RSI(2) share of capital ÷ N each (the book: 3)" },
+                    { label: "Low volatility max open", value: params.lvOpen ?? 10, onChange: (n) => setParams({ lvOpen: n }), hint: "Up to this many low volatility stocks at once, its share of capital ÷ N each (the book: 10)" },
+                  ]
+                : null
+            }
+          />
         </div>
         {m.id === "buy-on-gap" && <V2BuyOnGap params={modelParams} />}
         {m.id === "oops" && <V2Oops params={modelParams} />}

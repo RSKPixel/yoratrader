@@ -816,15 +816,15 @@ def v2_backtest_ltlv(max_open: int = Query(10, ge=0, le=10), trail: str = Query(
         return {"status": "error", "message": str(error)}
 
 
-def _v2mix_args(gold, rsi, instrument, slippage, dataset="fno"):
+def _v2mix_args(gold, rsi, instrument, slippage, dataset="fno", rsi_open=3, lv_open=10):
     if gold not in v2mix.GOLD_SHARES or rsi not in v2mix.RSI_SHARES or instrument not in v2mix.INSTRUMENTS or dataset not in v2mix.DATASETS:
         raise HTTPException(status_code=400, detail="gold, rsi, instrument or dataset not supported")
-    return dict(gold_pct=gold, rsi_pct=rsi, instrument=instrument, slippage=slippage / 100, dataset=dataset)
+    return dict(gold_pct=gold, rsi_pct=rsi, instrument=instrument, slippage=slippage / 100, dataset=dataset, rsi_open=rsi_open, lv_open=lv_open)
 
 
 @app.get("/api/v2/backtest/mix")
-def v2_backtest_mix(gold: int = Query(30), rsi: int = Query(50), instrument: str = Query("cash"), slippage: float = Query(0.02, ge=0, le=1), dataset: str = Query("fno")):
-    args = _v2mix_args(gold, rsi, instrument, slippage, dataset)
+def v2_backtest_mix(gold: int = Query(30), rsi: int = Query(50), instrument: str = Query("cash"), slippage: float = Query(0.02, ge=0, le=1), dataset: str = Query("fno"), rsi_open: int = Query(3, ge=1, le=10), lv_open: int = Query(10, ge=1, le=10)):
+    args = _v2mix_args(gold, rsi, instrument, slippage, dataset, rsi_open, lv_open)
     try:
         return {"status": "success", **v2mix.results(**args)}
     except Exception as error:
@@ -834,8 +834,8 @@ def v2_backtest_mix(gold: int = Query(30), rsi: int = Query(50), instrument: str
 
 @app.get("/api/v2/backtest/mix/month")
 def v2_backtest_mix_month(month: str = Query(..., pattern=r"^\d{4}-\d{2}$"), gold: int = Query(30), rsi: int = Query(50),
-                          instrument: str = Query("cash"), slippage: float = Query(0.02, ge=0, le=1), dataset: str = Query("fno")):
-    args = _v2mix_args(gold, rsi, instrument, slippage, dataset)
+                          instrument: str = Query("cash"), slippage: float = Query(0.02, ge=0, le=1), dataset: str = Query("fno"), rsi_open: int = Query(3, ge=1, le=10), lv_open: int = Query(10, ge=1, le=10)):
+    args = _v2mix_args(gold, rsi, instrument, slippage, dataset, rsi_open, lv_open)
     try:
         return {"status": "success", "trades": v2mix.month_trades(month, **args)}
     except Exception as error:

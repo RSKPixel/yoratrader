@@ -14,9 +14,9 @@ const GOLD = [
   ["0", "None"],
   ["30", "30%"],
 ];
-const allocation = (gold) => [
-  ["RSI(2)", (100 - gold) / 2, "Short-term mean reversion: up to 3 stocks, held 5 days"],
-  ["Low volatility", (100 - gold) / 2, "Long trend low volatility: up to 10 stocks, 20% trailing stop"],
+const allocation = (gold, rsiOpen, lvOpen) => [
+  ["RSI(2)", (100 - gold) / 2, `Short-term mean reversion: up to ${rsiOpen} stocks, held 5 days`],
+  ["Low volatility", (100 - gold) / 2, `Long trend low volatility: up to ${lvOpen} stocks, 20% trailing stop`],
   ["Gold", gold, gold ? `GOLDBEES, held; topped up or trimmed back to ${gold}% at each month-end` : "No gold"],
 ];
 
@@ -27,7 +27,7 @@ export default function V2Mix({ params }) {
   const [month, setMonth] = useState(null);
   const pit = params.universe === "fnopit" || params.universe === "cash500";
   const top500 = params.universe === "cash500";
-  const query = `gold=${gold === "0" ? 0 : 30}&instrument=cash&dataset=${params.universe}`;
+  const query = `gold=${gold === "0" ? 0 : 30}&instrument=cash&dataset=${params.universe}&rsi_open=${params.rsiOpen ?? 3}&lv_open=${params.lvOpen ?? 10}`;
   const { data, error, loading } = useBacktest(`/api/v2/backtest/mix?${query}`);
   const value = useMemo(() => makeValue(params.show, params.capital), [params.show, params.capital]);
   const chartFormat = useCallback((v) => value(v, 1), [value]);
@@ -70,7 +70,7 @@ export default function V2Mix({ params }) {
         </Field>
       </div>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
-        {allocation(gold === "0" ? 0 : 30).map(([label, pct, hint]) => (
+        {allocation(gold === "0" ? 0 : 30, params.rsiOpen ?? 3, params.lvOpen ?? 10).map(([label, pct, hint]) => (
           <div key={label} className="rounded-lg border px-3 py-2" style={{ borderColor: "var(--border)", background: "var(--surface)" }} title={hint}>
             <p className="text-xs" style={{ color: "var(--muted)" }}>
               {label}

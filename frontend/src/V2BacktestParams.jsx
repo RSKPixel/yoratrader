@@ -68,6 +68,21 @@ function CapitalInput({ value, onChange }) {
   );
 }
 
+function BookStepper({ value, onChange }) {
+  const btn = "grid h-8 w-8 place-items-center text-base transition-colors hover:bg-[var(--surface)] disabled:opacity-40";
+  return (
+    <div className="flex items-center overflow-hidden rounded-md border" style={inputStyle}>
+      <button type="button" className={btn} onClick={() => onChange(Math.max(1, value - 1))} disabled={value <= 1} aria-label="Fewer positions">
+        −
+      </button>
+      <span className="w-10 text-center text-sm tabular-nums">{value}</span>
+      <button type="button" className={btn} onClick={() => onChange(Math.min(MAX_OPEN, value + 1))} disabled={value >= MAX_OPEN} aria-label="More positions">
+        +
+      </button>
+    </div>
+  );
+}
+
 function MaxOpenStepper({ value, onChange, step: by = 1 }) {
   const book = value === 0;
   const start = by > 1 ? 6 : 5;
@@ -117,7 +132,8 @@ export function LiveMaxOpen({ value, onChange, saving, limit = MAX_OPEN }) {
   );
 }
 
-export default function V2BacktestParams({ params, onChange, universes = ["fno"], step = 1, live = null, lots = false, pit = null, fixedOpen = null }) {
+export default function V2BacktestParams({ params, onChange, universes = ["fno"], step = 1, live = null, lots = false, pit = null, fixedOpen = null, books = null }) {
+  // books: a page that sizes several books ([{ label, value, onChange, hint }]): a stepper each instead of Max open
   // fixedOpen: a page whose sizing is fixed by its own rules (text shown instead of the Max open stepper)
   // pit: a backtest page's survivorship choice ({ ok: the model can use it, value: "today" | "pit" }); null on paper pages
   // lots: paper trading in F&O, where each position is one lot: no capital input (the page shows the
@@ -178,6 +194,13 @@ export default function V2BacktestParams({ params, onChange, universes = ["fno"]
           <CapitalInput value={params.capital} onChange={(capital) => onChange({ capital })} />
         </Field>
       )}
+      {books &&
+        books.map((b) => (
+          <Field key={b.label} label={b.label} hint={b.hint}>
+            <BookStepper value={b.value} onChange={b.onChange} />
+          </Field>
+        ))}
+      {!books && (
       <Field
         label="Max open"
         hint={
@@ -198,6 +221,7 @@ export default function V2BacktestParams({ params, onChange, universes = ["fno"]
           <MaxOpenStepper value={params.maxOpen} onChange={(maxOpen) => onChange({ maxOpen })} step={step} />
         )}
       </Field>
+      )}
       <Field label="Show" hint={lots ? "Results in rupees (one lot each), or as % of the contract value traded" : "Results as % of capital or in rupees"}>
         <Segmented
           label="Show results as"
@@ -214,8 +238,8 @@ export default function V2BacktestParams({ params, onChange, universes = ["fno"]
           <>
             1 lot each · {maxOpen ? `${maxOpen} max` : "as per model"}
           </>
-        ) : fixedOpen ? (
-          "Sized by each book's own rules"
+        ) : fixedOpen || books ? (
+          "Each book: its share of capital ÷ its max open"
         ) : per ? (
           <>
             <span className="font-medium tabular-nums" style={{ color: "var(--text)" }}>
