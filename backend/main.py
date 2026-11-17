@@ -68,8 +68,6 @@ async def startup():
         gapwatch.start_scheduler(after_close=scheduled_live_download)
     v2xsmr.warm()  # the cross-sectional page's 15m prices (~40 s), so the first visit is quick
     v2oops.warm()  # the Oops backtest's fills from the 1-minute candles (~1-2 min)
-    import disaster
-    disaster.warm()  # the disaster stops from the gap and cross-sectional backtests
     v2dashboard.models()  # the dashboard's strategy table, built in the background
 
 
@@ -710,10 +708,10 @@ def backtest_portfolio_day(day: str = Query(..., pattern=r"^\d{4}-\d{2}-\d{2}$")
         return {"status": "error", "message": str(error)}
 
 
-def _v2gap_args(dataset, side, stop, max_open, slippage):
-    if dataset not in v2gap.DATASETS or side not in v2gap.SIDES or stop not in v2gap.STOPS:
-        raise HTTPException(status_code=400, detail="unknown dataset, side or stop")
-    return dict(dataset=dataset, side=side, stop=stop, max_open=max_open, slippage=slippage / 100)
+def _v2gap_args(dataset, side, stop, max_open, slippage, disaster="off"):
+    if dataset not in v2gap.DATASETS or side not in v2gap.SIDES or stop not in v2gap.STOPS or disaster not in ("on", "off"):
+        raise HTTPException(status_code=400, detail="unknown dataset, side, stop or disaster stop")
+    return dict(dataset=dataset, side=side, stop=stop, max_open=max_open, slippage=slippage / 100, disaster=disaster)
 
 
 def _v2oops_args(stop, trend, max_open, slippage, exit="1515"):
@@ -755,8 +753,7 @@ class LivePriceRequest(BaseModel):
 def v2_trade_modes():
     """Each live trading model's mode (off / manual / on) and which can be automatic."""
     import disaster
-    lv = disaster.levels()
-    stops = {"buy-on-gap": (lv.get("gap") or {}).get("stop_pct"), "xs-mean-reversion": (lv.get("xsmr") or {}).get("stop_pct")}
+    stops = {"buy-on-gap": disaster.PCT, "xs-mean-reversion": disaster.PCT}
     return {"status": "success", "modes": livetrade.modes(), "automatic": list(livetrade.AUTOMATIC), "disaster": stops}
 
 
@@ -936,9 +933,9 @@ def v2_backtest_oops_month(month: str = Query(..., pattern=r"^\d{4}-\d{2}$"), st
 
 @app.get("/api/v2/backtest/gap")
 def v2_backtest_gap(dataset: str = Query("fno"), side: str = Query("long"), stop: str = Query("none"),
-                    max_open: int = Query(5, ge=0, le=v2gap.MAX_OPEN), slippage: float = Query(0.02, ge=0, le=1)):
+                    max_open: int = Query(5, ge=0, le=v2gap.MAX_OPEN), slippage: float = Query(0.02, ge=0, le=1), disaster: str = Query("off")):
     """Buy on gap (v2 page): the stored trades sized by capital and max open, as fractions of capital."""
-    args = _v2gap_args(dataset, side, stop, max_open, slippage)
+    args = _v2gap_args(dataset, side, stop, max_open, slippage, disaster)
     try:
         return {"status": "success", **v2gap.results(**args)}
     except Exception as error:
@@ -949,8 +946,8 @@ def v2_backtest_gap(dataset: str = Query("fno"), side: str = Query("long"), stop
 @app.get("/api/v2/backtest/gap/month")
 def v2_backtest_gap_month(month: str = Query(..., pattern=r"^\d{4}-\d{2}$"), dataset: str = Query("fno"),
                           side: str = Query("long"), stop: str = Query("none"),
-                          max_open: int = Query(5, ge=0, le=v2gap.MAX_OPEN), slippage: float = Query(0.02, ge=0, le=1)):
-    args = _v2gap_args(dataset, side, stop, max_open, slippage)
+                          max_open: int = Query(5, ge=0, le=v2gap.MAX_OPEN), slippage: float = Query(0.02, ge=0, le=1), disaster: str = Query("off")):
+    args = _v2gap_args(dataset, side, stop, max_open, slippage, disaster)
     try:
         return {"status": "success", "trades": v2gap.month_trades(month, **args)}
     except Exception as error:
@@ -990,19 +987,20 @@ def v2_backtest_kbdt_month(month: str = Query(..., pattern=r"^\d{4}-\d{2}$"), da
         return {"status": "error", "message": str(error)}
 
 
-def _v2xsmr_args(dataset, version, entry, stop, max_open, pairs, slippage):
+def _v2xsmr_args(dataset, version, entry, stop, max_open, pairs, slippage, disaster="off"):
     if dataset not in v2xsmr.DATASETS or version not in ("intraday", "daily") or entry not in v2xsmr.ENTRIES \
-            or stop not in ("none", "1sd"):
-        raise HTTPException(status_code=400, detail="unknown dataset, version, entry or stop")
-    return dict(dataset=dataset, version=version, entry=entry, stop=stop, max_open=max_open, pairs=pairs, slippage=slippage / 100)
+            or stop not in ("none", "1sd") or disaster not in ("on", "off"):
+        raise HTTPException(status_code=400, detail="unknown dataset, version, entry, stop or disaster stop")
+    return dict(dataset=dataset, version=version, entry=entry, stop=stop, max_open=max_open, pairs=pairs, slippage=slippage / 100,
+                disaster=disaster)
 
 
 @app.get("/api/v2/backtest/xsmr")
 def v2_backtest_xsmr(dataset: str = Query("fno"), version: str = Query("intraday"), entry: str = Query("0915"),
                      stop: str = Query("none"), max_open: int = Query(6, ge=0, le=v2xsmr.MAX_OPEN),
-                     pairs: int = Query(3, ge=1, le=5), slippage: float = Query(0.02, ge=0, le=1)):
+                     pairs: int = Query(3, ge=1, le=5), slippage: float = Query(0.02, ge=0, le=1), disaster: str = Query("off")):
     """Cross-sectional mean reversion (v2 page): k long + k short within max open (or every stock), as fractions of capital."""
-    args = _v2xsmr_args(dataset, version, entry, stop, max_open, pairs, slippage)
+    args = _v2xsmr_args(dataset, version, entry, stop, max_open, pairs, slippage, disaster)
     try:
         return {"status": "success", **v2xsmr.results(**args)}
     except Exception as error:
@@ -1014,8 +1012,8 @@ def v2_backtest_xsmr(dataset: str = Query("fno"), version: str = Query("intraday
 def v2_backtest_xsmr_month(month: str = Query(..., pattern=r"^\d{4}-\d{2}$"), dataset: str = Query("fno"),
                            version: str = Query("intraday"), entry: str = Query("0915"), stop: str = Query("none"),
                            max_open: int = Query(6, ge=0, le=v2xsmr.MAX_OPEN), pairs: int = Query(3, ge=1, le=5),
-                           slippage: float = Query(0.02, ge=0, le=1)):
-    args = _v2xsmr_args(dataset, version, entry, stop, max_open, pairs, slippage)
+                           slippage: float = Query(0.02, ge=0, le=1), disaster: str = Query("off")):
+    args = _v2xsmr_args(dataset, version, entry, stop, max_open, pairs, slippage, disaster)
     try:
         return {"status": "success", "trades": v2xsmr.month_trades(month, **args)}
     except Exception as error:
@@ -1184,12 +1182,12 @@ def v2_backtest_connors_month(month: str = Query(..., pattern=r"^\d{4}-\d{2}$"),
 
 @app.get("/api/v2/paper/gap")
 def v2_paper_gap(side: str = Query("long"), stop: str = Query("none"), max_open: int = Query(5, ge=0, le=10),
-                 slippage: float = Query(0.02, ge=0, le=1)):
+                 slippage: float = Query(0.02, ge=0, le=1), disaster: str = Query("off")):
     """Buy/Sell on gap paper trading (v2 page): the recorded picks sized by capital and max open."""
     if side not in ("long", "both") or stop not in ("none", "1sd"):
         raise HTTPException(status_code=400, detail="unknown side or stop")
     try:
-        return {"status": "success", **v2paper.gap(side, stop, max_open, slippage / 100)}
+        return {"status": "success", **v2paper.gap(side, stop, max_open, slippage / 100, disaster)}
     except Exception as error:
         print("v2 gap paper failed:", error)
         return {"status": "error", "message": str(error)}
@@ -1272,12 +1270,12 @@ def v2_paper_oops_max_open(req: OopsMaxOpenRequest):
 
 @app.get("/api/v2/paper/xsmr")
 def v2_paper_xsmr(pairs: int = Query(5, ge=1, le=5), stop: str = Query("none"), max_open: int = Query(10, ge=0, le=10),
-                  slippage: float = Query(0.02, ge=0, le=1)):
+                  slippage: float = Query(0.02, ge=0, le=1), disaster: str = Query("off")):
     """Cross-sectional mean reversion paper trading (v2 page): the recorded 5 + 5, k + k of them by capital and max open."""
     if stop not in ("none", "1sd"):
         raise HTTPException(status_code=400, detail="unknown stop")
     try:
-        return {"status": "success", **v2paper.xsmr_(pairs, stop, max_open, slippage / 100)}
+        return {"status": "success", **v2paper.xsmr_(pairs, stop, max_open, slippage / 100, disaster)}
     except Exception as error:
         print("v2 xsmr paper failed:", error)
         return {"status": "error", "message": str(error)}

@@ -147,7 +147,8 @@ function MetaPanel({ meta, today }) {
 
 export default function V2PaperXsmr({ params }) {
   const [pairs, setPairs] = useSetting("paper.xsmr.pairs", 5);
-  const stop = "none"; // no stop, only Chan's disaster stop
+  const stop = "none"; // no stop, only the disaster stop
+  const [disaster, setDisaster] = useSetting("paper.xsmr.disaster", "on");
   const [slippage, setSlippage] = useSetting("paper.xsmr.slippage", 0.02);
   const maxPairs = Math.min(5, Math.floor(params.maxOpen / 2));
   const k = params.maxOpen ? Math.max(1, Math.min(pairs, maxPairs || 1)) : 5;
@@ -158,7 +159,7 @@ export default function V2PaperXsmr({ params }) {
     !params.maxOpen ? "As per model: the recorded 5 + 5" : 2 * n > params.maxOpen ? `Needs Max open ${2 * n} or more` : undefined,
   ]);
   const live = useLiveRefresh();
-  const { data, error, loading } = useBacktest(`/api/v2/paper/xsmr?pairs=${k}&stop=${stop}&slippage=${slippage}&max_open=${params.maxOpen}`, { refreshMs: live });
+  const { data, error, loading } = useBacktest(`/api/v2/paper/xsmr?pairs=${k}&stop=${stop}&slippage=${slippage}&max_open=${params.maxOpen}&disaster=${disaster}`, { refreshMs: live });
   const money = useMemo(() => lotMoney(params.show), [params.show]);
   const lot = lotColumns(money);
   const chart = usePaperChart();
@@ -189,7 +190,7 @@ export default function V2PaperXsmr({ params }) {
         <Field label="Pairs" hint="k long + k short of the recorded 5 + 5 (the furthest from the day's average move first); one lot each.">
           <Segmented label="Pairs" options={pairOptions} value={params.maxOpen ? k : null} onChange={setPairs} />
         </Field>
-        <DisasterStop pct={data?.disaster_stop_pct} />
+        <DisasterStop value={disaster} onChange={setDisaster} />
         <Field label="Slippage" hint="Per side, on top of NSE futures charges">
           <Segmented label="Slippage" options={SLIPPAGE} value={slippage} onChange={setSlippage} />
         </Field>

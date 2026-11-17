@@ -85,11 +85,12 @@ export default function V2BuyOnGap({ params, model = "gap" }) {
   const mom = model === "gapmom";
   const [side, setSide] = useSetting(`bt.${model}.side`, mom ? "both" : "long");
   const [savedStop, setStop] = useSetting(`bt.${model}.stop`, "none");
-  const stop = model === "gapmom" ? savedStop : "none"; // Buy/Sell on gap: no stop, only Chan's disaster stop
+  const stop = model === "gapmom" ? savedStop : "none"; // Buy/Sell on gap: no stop, only the disaster stop
+  const [disaster, setDisaster] = useSetting(`bt.${model}.disaster`, "on");
   const [slippage, setSlippage] = useSetting(`bt.${model}.slippage`, 0.02);
   const [month, setMonth] = useState(null);
 
-  const query = `dataset=${params.universe}&side=${side}&stop=${stop}&slippage=${slippage}&max_open=${params.maxOpen}`;
+  const query = `dataset=${params.universe}&side=${side}&stop=${stop}&slippage=${slippage}&max_open=${params.maxOpen}${model === "gap" ? `&disaster=${disaster}` : ""}`;
   const api = mom ? "/api/v2/backtest/gapmom" : "/api/v2/backtest/gap";
   const { data, error, loading } = useBacktest(`${api}?${query}`);
   const value = useMemo(() => makeValue(params.show, params.capital), [params.show, params.capital]);
@@ -133,7 +134,7 @@ export default function V2BuyOnGap({ params, model = "gap" }) {
           <Segmented label="Stop" options={STOPS} value={stop} onChange={setStop} />
         </Field>
         ) : (
-          <DisasterStop d={data?.summary?.disaster} />
+          <DisasterStop value={disaster} onChange={setDisaster} hits={disaster === "on" ? data?.summary?.disaster_hits : null} />
         )}
         <Field label="Slippage" hint="Per side, on top of NSE futures charges">
           <Segmented label="Slippage" options={SLIPPAGE} value={slippage} onChange={setSlippage} />

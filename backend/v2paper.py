@@ -88,13 +88,13 @@ def _summary(days):
             "cost_pct": round(sum(p["book_cost_pct"] for p in trades), 4) if trades else 0.0}
 
 
-def gap(side="long", stop="none", max_open=5, slippage=0.0002):
-    import disaster
+def gap(side="long", stop="none", max_open=5, slippage=0.0002, disaster="off"):
+    import disaster as ds
     data = gapwatch.paper(slippage)
     cps = xsmr.cost_per_side(slippage)
     lots = v2margin.table()
-    dpct = disaster.stop_pct("gap")  # Chan's disaster stop: wider than any backtest position's worst day
-    ranges = disaster.day_ranges([(p["symbol"], p["day"]) for p in data["picks"] if p["status"] == "closed"])
+    dpct = ds.PCT if disaster == "on" else None  # the 10% disaster stop (switch on the page)
+    ranges = ds.day_ranges([(p["symbol"], p["day"]) for p in data["picks"] if p["status"] == "closed"])
     by_day = {}
     for p in data["picks"]:
         if side == "long" and p["side"] != "long":
@@ -111,7 +111,7 @@ def gap(side="long", stop="none", max_open=5, slippage=0.0002):
             exit_px = (p.get("exit_stop") if stop == "1sd" else p.get("exit")) if closed else p.get("ltp")
             reason = (p.get("exit_reason_stop") if stop == "1sd" else p.get("exit_reason")) if closed else ("live" if exit_px else "open")
             lo, hi = ranges.get((p["symbol"], p["day"]), (None, None)) if closed else (None, None)
-            hit, level = disaster.apply(p["side"], p["entry"], lo, hi, None if closed else exit_px, dpct)
+            hit, level = ds.apply(p["side"], p["entry"], lo, hi, None if closed else exit_px, dpct)
             if hit:
                 exit_px, reason = level, "disaster stop"
             sign = 1 if p["side"] == "long" else -1
@@ -163,12 +163,12 @@ def _meta(data, days, cps):
             "net_margin_pct": v2margin.margin_pct(net, capital), "big": v2meta.BIG, "small": v2meta.SMALL}
 
 
-def xsmr_(pairs=5, stop="none", max_open=10, slippage=0.0002):
-    import disaster
+def xsmr_(pairs=5, stop="none", max_open=10, slippage=0.0002, disaster="off"):
+    import disaster as ds
     data = xsmrwatch.paper(slippage, stop=stop == "1sd")
     cps = xsmr.cost_per_side(slippage)
-    dpct = disaster.stop_pct("xsmr")  # Chan's disaster stop: wider than any backtest position's worst day
-    ranges = disaster.day_ranges([(p["symbol"], p["day"]) for p in data["positions"] if p["status"] == "closed"])
+    dpct = ds.PCT if disaster == "on" else None  # the 10% disaster stop (switch on the page)
+    ranges = ds.day_ranges([(p["symbol"], p["day"]) for p in data["positions"] if p["status"] == "closed"])
     lots = v2margin.table()
     k = max(1, min(int(pairs or 1), xsmrwatch.PER_SIDE, (max_open // 2) if max_open else xsmrwatch.PER_SIDE))
     w = 1.0 / max_open if max_open else xsmrwatch.WEIGHT
@@ -185,7 +185,7 @@ def xsmr_(pairs=5, stop="none", max_open=10, slippage=0.0002):
             reason = p.get("exit_reason") or ("live" if exit_px else "open")
             closed = p["status"] == "closed"
             lo, hi = ranges.get((p["symbol"], p["day"]), (None, None)) if closed else (None, None)
-            hit, level = disaster.apply(p["side"], p["entry"], lo, hi, None if closed else exit_px, dpct)
+            hit, level = ds.apply(p["side"], p["entry"], lo, hi, None if closed else exit_px, dpct)
             if hit:
                 exit_px, reason = level, "disaster stop"
                 ret = round(100 * (1 if p["side"] == "long" else -1) * (level / p["entry"] - 1), 3)

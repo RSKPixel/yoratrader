@@ -77,10 +77,16 @@ def _trades(dataset, side, stop, model="gap"):
     return value
 
 
-def _sized(dataset, side, stop, max_open, slippage, model="gap"):
+def _sized(dataset, side, stop, max_open, slippage, model="gap", disaster="off"):
     t, days = _trades(dataset, side, stop, model)
     cap = max_open or (MAX_OPEN if model == "gap" else None)  # gapmom's book takes every qualifier
     t = (t[t["rank"] <= cap] if cap else t).copy()
+    if disaster == "on" and len(t):  # the 10% disaster stop (disaster.py): out at the level if the day reached it
+        import disaster as ds
+        hit, level = ds.frame_hits(t)
+        t.loc[hit, "exit"] = level[hit]
+        t.loc[hit, "exit_reason"] = "disaster stop"
+        t["ret"] = np.where(t["side"] == "long", 1, -1) * (t["exit"] / t["entry"] - 1)
     t["w"] = 1.0 / max_open if max_open else 1.0 / t.groupby("day")["day"].transform("size")
     t["cost"] = (1 + t["exit"] / t["entry"]) * xsmr.cost_per_side(slippage)
     t["net"] = t["ret"] - t["cost"]
@@ -90,17 +96,17 @@ def _sized(dataset, side, stop, max_open, slippage, model="gap"):
     return t, days
 
 
-def results(dataset="fno", side="long", stop="none", max_open=5, slippage=0.0002, model="gap"):
-    t, days = _sized(dataset, side, stop, max_open, slippage, model)
+def results(dataset="fno", side="long", stop="none", max_open=5, slippage=0.0002, model="gap", disaster="off"):
+    t, days = _sized(dataset, side, stop, max_open, slippage, model, disaster)
     extra = {"avg_positions": round(float(t.groupby("day").size().mean()), 1)} if len(t) else {}
-    if model == "gap" and dataset == "fno":  # Chan's disaster stop: shown; it never fires in the backtest by design
-        import disaster
-        extra["disaster"] = disaster.levels().get("gap")
+    if disaster == "on":
+        import disaster as ds
+        extra.update(disaster_pct=ds.PCT, disaster_hits=int((t["exit_reason"] == "disaster stop").sum()))
     return v2common.build_results(t, days, slippage, extra)
 
 
-def month_trades(month, dataset="fno", side="long", stop="none", max_open=5, slippage=0.0002, model="gap"):
-    t, _ = _sized(dataset, side, stop, max_open, slippage, model)
+def month_trades(month, dataset="fno", side="long", stop="none", max_open=5, slippage=0.0002, model="gap", disaster="off"):
+    t, _ = _sized(dataset, side, stop, max_open, slippage, model, disaster)
     t = t[t["day"].dt.strftime("%Y-%m") == month]
     return [{"day": r.day.date().isoformat(), "entry_at": f"{r.day.date().isoformat()} 09:15",
              "exit_at": f"{r.day.date().isoformat()} {v2common.exit_time(r.exit_reason, '15:15')}",

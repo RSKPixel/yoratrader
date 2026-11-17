@@ -21,10 +21,11 @@ const STOPS = [
 
 export default function V2PaperGap({ params }) {
   const [side, setSide] = useSetting("paper.gap.side", "long");
-  const stop = "none"; // no stop, only Chan's disaster stop
+  const stop = "none"; // no stop, only the disaster stop
+  const [disaster, setDisaster] = useSetting("paper.gap.disaster", "on");
   const [slippage, setSlippage] = useSetting("paper.gap.slippage", 0.02);
   const live = useLiveRefresh();
-  const { data, error, loading } = useBacktest(`/api/v2/paper/gap?side=${side}&stop=${stop}&slippage=${slippage}&max_open=${params.maxOpen}`, { refreshMs: live });
+  const { data, error, loading } = useBacktest(`/api/v2/paper/gap?side=${side}&stop=${stop}&slippage=${slippage}&max_open=${params.maxOpen}&disaster=${disaster}`, { refreshMs: live });
   const money = useMemo(() => lotMoney(params.show), [params.show]);
   const lot = lotColumns(money);
   const chart = usePaperChart();
@@ -67,7 +68,7 @@ export default function V2PaperGap({ params }) {
         <Field label="Side" hint="Long: buy gaps down (the book). Long & short: also short the mirror image.">
           <Segmented label="Side" options={SIDES} value={side} onChange={setSide} />
         </Field>
-        <DisasterStop pct={data?.disaster_stop_pct} />
+        <DisasterStop value={disaster} onChange={setDisaster} />
         <Field label="Slippage" hint="Per side, on top of NSE futures charges">
           <Segmented label="Slippage" options={SLIPPAGE} value={slippage} onChange={setSlippage} />
         </Field>

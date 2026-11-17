@@ -90,7 +90,7 @@ def _rows(dataset, version, entry, stop, top):
     return _cached(("rows", dataset, version, entry, stop, top), build)
 
 
-def _sized(dataset, version, entry, stop, max_open, pairs, slippage):
+def _sized(dataset, version, entry, stop, max_open, pairs, slippage, disaster="off"):
     k = per_side(max_open, pairs)
     t, days = _rows(dataset, version, entry, stop, k)
     t = t.copy()
@@ -101,6 +101,14 @@ def _sized(dataset, version, entry, stop, max_open, pairs, slippage):
     cps = xsmr.cost_per_side(slippage)
     size = t["w"].abs()
     t["side"] = np.where(t["w"] > 0, "long", "short")
+    t["disaster"] = False
+    if disaster == "on" and version == "intraday" and len(t):  # the 10% disaster stop (disaster.py)
+        import disaster as ds
+        hit, level = ds.frame_hits(t)
+        t.loc[hit, "exit"] = level[hit]
+        t.loc[hit, "ret_w"] = -size[hit] * ds.PCT / 100
+        t.loc[hit, "stopped"] = True
+        t.loc[hit, "disaster"] = True
     t["book_ret"] = t["ret_w"]
     t["book_cost"] = t["traded"] * cps
     t["book_net"] = t["book_ret"] - t["book_cost"]
@@ -110,8 +118,8 @@ def _sized(dataset, version, entry, stop, max_open, pairs, slippage):
     return t, days
 
 
-def results(dataset="fno", version="intraday", entry="0915", stop="none", max_open=6, pairs=3, slippage=0.0002):
-    t, days = _sized(dataset, version, entry, stop, max_open, pairs, slippage)
+def results(dataset="fno", version="intraday", entry="0915", stop="none", max_open=6, pairs=3, slippage=0.0002, disaster="off"):
+    t, days = _sized(dataset, version, entry, stop, max_open, pairs, slippage, disaster)
     extra = {}
     if len(t):
         g = t.groupby("day")
@@ -120,17 +128,17 @@ def results(dataset="fno", version="intraday", entry="0915", stop="none", max_op
                  "short_net_pct": round(float(100 * t.loc[t["side"] == "short", "book_net"].sum()), 3),
                  "per_side": per_side(max_open, pairs),
                  "stopped_pct": round(float(100 * t["stopped"].astype(bool).mean()), 1)}
-    if dataset == "fno":  # Chan's disaster stop: shown; it never fires in the backtest by design
-        import disaster
-        extra["disaster"] = disaster.levels().get("xsmr")
+    if disaster == "on" and len(t):
+        import disaster as ds
+        extra.update(disaster_pct=ds.PCT, disaster_hits=int(t["disaster"].sum()))
     out = v2common.build_results(t, days, slippage, extra)
     if out.get("summary"):  # "trades" here are stock-days; the book trades every day it's live
         out["summary"]["trades_label"] = "Positions"
     return out
 
 
-def month_trades(month, dataset="fno", version="intraday", entry="0915", stop="none", max_open=6, pairs=3, slippage=0.0002):
-    t, days = _sized(dataset, version, entry, stop, max_open, pairs, slippage)
+def month_trades(month, dataset="fno", version="intraday", entry="0915", stop="none", max_open=6, pairs=3, slippage=0.0002, disaster="off"):
+    t, days = _sized(dataset, version, entry, stop, max_open, pairs, slippage, disaster)
     prev_day = dict(zip(days[1:], days[:-1]))  # daily version: bought at the previous day's 15:15
 
     def at(r):

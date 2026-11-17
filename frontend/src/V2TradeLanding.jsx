@@ -118,7 +118,7 @@ export default function V2TradeLanding() {
                     <div className="flex justify-between gap-3" title="Chan's disaster stop: wider than the worst move against any backtest position; place it in Kite with every position">
                       <dt style={{ color: "var(--muted)" }}>Disaster stop</dt>
                       <dd className="text-right font-medium" style={{ color: "var(--warning)" }}>
-                        {disaster[m.id]}% from the entry · place it in Kite
+                        {disaster[m.id]}% from the entry · place it in Kite with every position
                       </dd>
                     </div>
                   )}

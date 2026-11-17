@@ -22,7 +22,8 @@ const STOPS = [
 export default function V2Xsmr({ params }) {
   const [version, setVersion] = useSetting("bt.xsmr.version", "intraday");
   const entry = "0915"; // the 09:15 auction price only (later entries lose most of the edge)
-  const stop = "none"; // no stop, only Chan's disaster stop
+  const stop = "none"; // no stop, only the disaster stop
+  const [disaster, setDisaster] = useSetting("bt.xsmr.disaster", "on");
   const [slippage, setSlippage] = useSetting("bt.xsmr.slippage", 0.02);
   const [month, setMonth] = useState(null);
   const [pairs, setPairs] = useSetting("bt.xsmr.pairs", 3);
@@ -37,7 +38,7 @@ export default function V2Xsmr({ params }) {
     !params.maxOpen || 2 * n > params.maxOpen,
     !params.maxOpen ? "As per model: every stock (the book)" : 2 * n > params.maxOpen ? `Needs Max open ${2 * n} or more` : undefined,
   ]);
-  const query = `dataset=${params.universe}&version=${version}&entry=${entry}&stop=${stopAllowed ? stop : "none"}&slippage=${slippage}&max_open=${params.maxOpen}&pairs=${k || 1}`;
+  const query = `dataset=${params.universe}&version=${version}&entry=${entry}&stop=${stopAllowed ? stop : "none"}&slippage=${slippage}&max_open=${params.maxOpen}&pairs=${k || 1}&disaster=${disaster}`;
   const { data, error, loading } = useBacktest(`/api/v2/backtest/xsmr?${query}`);
   const value = useMemo(() => makeValue(params.show, params.capital), [params.show, params.capital]);
   const chartFormat = useCallback((v) => value(v, 1), [value]);
@@ -81,7 +82,7 @@ export default function V2Xsmr({ params }) {
             <span className="block py-1.5 text-sm">09:15 (open)</span>
           </Field>
         )}
-        <DisasterStop d={data?.summary?.disaster} />
+        {version === "intraday" && <DisasterStop value={disaster} onChange={setDisaster} hits={disaster === "on" ? data?.summary?.disaster_hits : null} />}
         <Field label="Slippage" hint="Per side, on top of NSE futures charges">
           <Segmented label="Slippage" options={SLIPPAGE} value={slippage} onChange={setSlippage} />
         </Field>
