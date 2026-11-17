@@ -23,6 +23,8 @@ from db import connect
 
 GOLD = "GOLDBEES"
 GOLD_SHARES = (0, 30)  # none or 30%: nothing in between to tune
+MR_SETUPS = ("rsi2", "cumrsi2")  # the mean-reversion book: RSI(2) below 10, or cumulative RSI(2) below 35
+MR_EXITS = ("5d", "0d")  # sold on the 5th trading day, or on strength (RSI(2) above 65, 5 days at most)
 RSI_SHARES = (50,)  # the books are always half each: no other split, so it can't be fitted to the past
 INSTRUMENTS = ("cash",)  # delivery only
 DATASETS = ("fno", "fnopit", "cash500")  # fnopit / cash500: survivorship-free (pit.py, cash500.py)
@@ -79,15 +81,15 @@ def _monthly(daily, key):
     return m.rename(columns={"book_ret": f"{key}_gross", "book_cost": f"{key}_cost"})
 
 
-def _inputs(instrument, dataset="fno", rsi_open=3, lv_open=10):
-    key = (instrument, dataset, rsi_open, lv_open)
+def _inputs(instrument, dataset="fno", rsi_open=3, lv_open=10, mr_setup="rsi2", mr_exit="5d"):
+    key = (instrument, dataset, rsi_open, lv_open, mr_setup, mr_exit)
     with _lock:
         hit = _cache.get(key)
         if hit and time.time() - hit[0] < CACHE_SECONDS:
             return hit[1]
     import v2connors
     import v2ltlv
-    t_r, _, daily_r = v2connors._sized(dataset, "rsi2", "5d", rsi_open, "none", "close", "all", 0.0002, "long", instrument)
+    t_r, _, daily_r = v2connors._sized(dataset, mr_setup, mr_exit, rsi_open, "none", "close", "all", 0.0002, "long", instrument)
     t_l, _, daily_l, _, _ = v2ltlv._book(lv_open, "20", 0.0002, instrument, dataset)
     daily_r = daily_r[daily_r.index >= t_r["entry_day"].min()]
     g = _gold_months()
@@ -136,10 +138,10 @@ def _scaled(t, k):
     return t
 
 
-def results(gold_pct=30, rsi_pct=50, instrument="cash", slippage=0.0002, dataset="fno", rsi_open=3, lv_open=10):
+def results(gold_pct=30, rsi_pct=50, instrument="cash", slippage=0.0002, dataset="fno", rsi_open=3, lv_open=10, mr_setup="rsi2", mr_exit="5d"):
     import v2ltlv
     import xsmr
-    df, t_r, t_l = _inputs(instrument, dataset, rsi_open, lv_open)
+    df, t_r, t_l = _inputs(instrument, dataset, rsi_open, lv_open, mr_setup, mr_exit)
     w, a, b = _weights(gold_pct, rsi_pct)
     cps = v2ltlv.cash_cost_per_side(slippage) if instrument == "cash" else xsmr.cost_per_side(slippage)
     gold_cost = _gold_cost(df, w, a, b, v2ltlv.cash_cost_per_side(slippage))
@@ -187,11 +189,11 @@ def results(gold_pct=30, rsi_pct=50, instrument="cash", slippage=0.0002, dataset
     return {"summary": s, "years": period(df.index.str[:4], "year"), "months": period(df.index, "month"), "equity": equity}
 
 
-def month_trades(month, gold_pct=30, rsi_pct=50, instrument="cash", slippage=0.0002, dataset="fno", rsi_open=3, lv_open=10):
+def month_trades(month, gold_pct=30, rsi_pct=50, instrument="cash", slippage=0.0002, dataset="fno", rsi_open=3, lv_open=10, mr_setup="rsi2", mr_exit="5d"):
     """The month's trades of both books, each sized to its share of capital, then the gold slice's month."""
     import v2connors
     import v2ltlv
-    df, _, _ = _inputs(instrument, dataset, rsi_open, lv_open)
+    df, _, _ = _inputs(instrument, dataset, rsi_open, lv_open, mr_setup, mr_exit)
     w, a, b = _weights(gold_pct, rsi_pct)
 
     def scale(rows, k, book):
@@ -205,7 +207,8 @@ def month_trades(month, gold_pct=30, rsi_pct=50, instrument="cash", slippage=0.0
 
     rows = []
     if a:
-        rows += scale(v2connors.month_trades(month, dataset, "rsi2", "5d", rsi_open, "none", "close", "all", slippage, "long", instrument), a, "RSI(2)")
+        rows += scale(v2connors.month_trades(month, dataset, mr_setup, mr_exit, rsi_open, "none", "close", "all", slippage, "long", instrument), a,
+                      "Cumulative RSI(2)" if mr_setup == "cumrsi2" else "RSI(2)")
     if b:
         rows += scale(v2ltlv.month_trades(month, lv_open, "20", slippage, instrument, dataset), b, "Low volatility")
     if w and month in df.index:

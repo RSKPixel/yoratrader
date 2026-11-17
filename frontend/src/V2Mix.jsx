@@ -10,12 +10,20 @@ import { useBacktest } from "./V2BuyOnGap";
 // 30% (or none) in GOLDBEES, held and rebalanced at each month-end. All in cash.
 
 // gold: none or 30% (nothing in between, so nothing to fit); the books half each of the rest
+const SETUPS = [
+  ["rsi2", "RSI(2) < 10"],
+  ["cumrsi2", "Cumulative RSI(2) < 35"],
+];
+const EXITS = [
+  ["5d", "5 days"],
+  ["0d", "Exit on strength"],
+];
 const GOLD = [
   ["0", "None"],
   ["30", "30%"],
 ];
-const allocation = (gold, rsiOpen, lvOpen) => [
-  ["RSI(2)", (100 - gold) / 2, `Short-term mean reversion: up to ${rsiOpen} stocks, held 5 days`],
+const allocation = (gold, rsiOpen, lvOpen, mr, exitLabel) => [
+  [mr, (100 - gold) / 2, `Short-term mean reversion: up to ${rsiOpen} stocks, ${exitLabel}`],
   ["Low volatility", (100 - gold) / 2, `Long trend low volatility: up to ${lvOpen} stocks, 20% trailing stop`],
   ["Gold", gold, gold ? `GOLDBEES, held; topped up or trimmed back to ${gold}% at each month-end` : "No gold"],
 ];
@@ -24,10 +32,13 @@ const rupees = (v) => `₹${Math.round(v).toLocaleString("en-IN")}`;
 
 export default function V2Mix({ params }) {
   const [gold, setGold] = useSetting("bt.mix.gold", "30");
+  const [setup, setSetup] = useSetting("bt.mix.setup", "rsi2");
+  const [exit, setExit] = useSetting("bt.mix.exit", "5d");
+  const mr = setup === "cumrsi2" ? "Cumulative RSI(2)" : "RSI(2)";
   const [month, setMonth] = useState(null);
   const pit = params.universe === "fnopit" || params.universe === "cash500";
   const top500 = params.universe === "cash500";
-  const query = `gold=${gold === "0" ? 0 : 30}&instrument=cash&dataset=${params.universe}&rsi_open=${params.rsiOpen ?? 3}&lv_open=${params.lvOpen ?? 10}`;
+  const query = `gold=${gold === "0" ? 0 : 30}&instrument=cash&dataset=${params.universe}&rsi_open=${params.rsiOpen ?? 3}&lv_open=${params.lvOpen ?? 10}&mr_setup=${setup}&mr_exit=${exit}`;
   const { data, error, loading } = useBacktest(`/api/v2/backtest/mix?${query}`);
   const value = useMemo(() => makeValue(params.show, params.capital), [params.show, params.capital]);
   const chartFormat = useCallback((v) => value(v, 1), [value]);
@@ -36,10 +47,10 @@ export default function V2Mix({ params }) {
   const p = s?.parts;
 
   const compare = s && [
-    [`The mix (RSI(2) ${s.split.rsi2}% · low volatility ${s.split.lv}% · gold ${s.split.gold}%)`, p.mix, true],
+    [`The mix (${mr} ${s.split.rsi2}% · low volatility ${s.split.lv}% · gold ${s.split.gold}%)`, p.mix, true],
     ["Books only", p.books],
     ["Gold only", p.gold],
-    ["RSI(2) only", p.rsi2],
+    [`${mr} only`, p.rsi2],
     ["Low volatility only", p.lv],
   ];
 
@@ -65,12 +76,18 @@ export default function V2Mix({ params }) {
   return (
     <div className="mt-4 flex flex-col gap-4">
       <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
+        <Field label="Mean reversion setup" hint="The short-term book: RSI(2) below 10 (Connors & Sen), or today's + yesterday's RSI(2) below 35 (Connors & Alvarez); above the 200-day average">
+          <Segmented label="Mean reversion setup" options={SETUPS} value={setup} onChange={setSetup} />
+        </Field>
+        <Field label="Exit" hint="Sold at the close on the 5th trading day, or at the first close the 2-day RSI is above 65 (the 5th day at the latest)">
+          <Segmented label="Exit" options={EXITS} value={exit} onChange={setExit} />
+        </Field>
         <Field label="Gold" hint="Share of capital held in GOLDBEES, rebalanced at each month-end; the books share the rest equally">
           <Segmented label="Gold" options={GOLD} value={gold === "0" ? "0" : "30"} onChange={setGold} />
         </Field>
       </div>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
-        {allocation(gold === "0" ? 0 : 30, params.rsiOpen ?? 3, params.lvOpen ?? 10).map(([label, pct, hint]) => (
+        {allocation(gold === "0" ? 0 : 30, params.rsiOpen ?? 3, params.lvOpen ?? 10, mr, exit === "0d" ? "sold on strength (5 days at most)" : "held 5 days").map(([label, pct, hint]) => (
           <div key={label} className="rounded-lg border px-3 py-2" style={{ borderColor: "var(--border)", background: "var(--surface)" }} title={hint}>
             <p className="text-xs" style={{ color: "var(--muted)" }}>
               {label}
@@ -96,7 +113,7 @@ export default function V2Mix({ params }) {
         <>
           <SummaryCards s={s} value={value} />
           <p className="-mt-1 text-xs" style={{ color: "var(--muted)" }}>
-            {s.from} → {s.to} · {value(s.net_year_pct)} net a year · Sharpe {s.sharpe ?? "—"} · {s.green_years}/{s.years} green years · RSI(2) {s.split.rsi2}% · low
+            {s.from} → {s.to} · {value(s.net_year_pct)} net a year · Sharpe {s.sharpe ?? "—"} · {s.green_years}/{s.years} green years · {mr} {s.split.rsi2}% · low
             volatility {s.split.lv}% · gold {s.split.gold}% · cash, no rolls · gold costs {value(-s.gold_cost_pct, 3)} ·
             books and gold moved together {s.corr_books_gold} (monthly) · trades are the books' (gold is held) ·{" "}
             {pit
@@ -146,12 +163,12 @@ export default function V2Mix({ params }) {
               </table>
             </div>
           </Panel>
-          <Panel title="By year" right="the mix; then books, RSI(2), low volatility and gold each on full capital">
+          <Panel title="By year" right={`the mix; then books, ${mr}, low volatility and gold each on full capital`}>
             <div className="overflow-x-auto">
               <table className="w-full text-sm" style={{ minWidth: 560 }}>
                 <thead>
                   <tr className="text-left text-xs" style={{ color: "var(--muted)" }}>
-                    {["Year", "Mix", "Books", "RSI(2)", "Low volatility", "Gold"].map((h) => (
+                    {["Year", "Mix", "Books", mr, "Low volatility", "Gold"].map((h) => (
                       <th key={h} className="px-2 py-1.5 font-medium">
                         {h}
                       </th>

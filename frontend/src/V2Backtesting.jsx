@@ -133,7 +133,7 @@ function Model({ m, onSelect }) {
             books={
               m.books
                 ? [
-                    { label: "RSI(2) max open", value: params.rsiOpen ?? 3, onChange: (n) => setParams({ rsiOpen: n }), hint: "Up to this many RSI(2) stocks at once, the RSI(2) share of capital ÷ N each (the book: 3)" },
+                    { label: "Mean reversion max open", value: params.rsiOpen ?? 3, onChange: (n) => setParams({ rsiOpen: n }), hint: "Up to this many short-term mean reversion stocks at once (RSI(2) or cumulative RSI(2)), that book's share of capital ÷ N each (the book: 3)" },
                     { label: "Low volatility max open", value: params.lvOpen ?? 10, onChange: (n) => setParams({ lvOpen: n }), hint: "Up to this many low volatility stocks at once, its share of capital ÷ N each (the book: 10)" },
                   ]
                 : null
