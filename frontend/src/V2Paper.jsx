@@ -153,7 +153,16 @@ function Book({ m, onSelect }) {
         </div>
         {m.id === "buy-on-gap" && <V2PaperGap params={modelParams} />}
         {m.id === "xs-mean-reversion" && <V2PaperXsmr params={modelParams} />}
-        {m.id === "oops" && <V2PaperOops params={modelParams} stop={ls?.stop} onStop={(stop) => liveSettings.save("stop", { stop })} saving={liveSettings.saving} />}
+        {m.id === "oops" && (
+          <V2PaperOops
+            params={modelParams}
+            stop={ls?.stop}
+            onStop={(stop) => liveSettings.save("stop", { stop })}
+            exit={ls?.exit}
+            onExit={(exit) => liveSettings.save("exit", { exit })}
+            saving={liveSettings.saving}
+          />
+        )}
         {m.book && (
           <V2PaperConnors
             key={m.book}

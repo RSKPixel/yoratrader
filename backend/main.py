@@ -1225,7 +1225,20 @@ def v2_paper_oops(slippage: float = Query(0.02, ge=0, le=1)):
 @app.get("/api/v2/paper/oops/settings")
 def v2_paper_oops_settings():
     return {"status": "success", "max_open": oopswatch.max_open(), "max_open_limit": oopswatch.MAX_OPEN_LIMIT,
-            "universe": "fno", "universes": ["fno"], "stop": oopswatch.stop_mode()}
+            "universe": "fno", "universes": ["fno"], "stop": oopswatch.stop_mode(), "exit": oopswatch.exit_mode()}
+
+
+class OopsExitRequest(BaseModel):
+    exit: str
+
+
+@app.post("/api/v2/paper/oops/exit")
+def v2_paper_oops_exit(req: OopsExitRequest):
+    """The Oops paper book's exit for new buys: 15:15 the same day, or the next day's open."""
+    try:
+        return {"status": "success", "exit": oopswatch.set_exit_mode(req.exit)}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 class OopsStopRequest(BaseModel):

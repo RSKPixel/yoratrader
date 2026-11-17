@@ -16,7 +16,7 @@ const STOPS = [
   ["low", "Below the day's low"],
 ];
 
-export default function V2PaperOops({ params, stop, onStop, saving }) {
+export default function V2PaperOops({ params, stop, onStop, exit, onExit, saving }) {
   const [slippage, setSlippage] = useSetting("paper.oops.slippage", 0.02);
   const live = useLiveRefresh();
   const { data, error, loading } = useBacktest(`/api/v2/paper/oops?slippage=${slippage}`, { refreshMs: live });
@@ -70,6 +70,19 @@ export default function V2PaperOops({ params, stop, onStop, saving }) {
     <div className="mt-4 flex flex-col gap-4">
       {chart.dialog}
       <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
+        {exit && (
+          <Field label="Exit" hint="For the next buys (saved on the server; each position keeps the exit it was bought under). 15:15: sold the same day. Next day's open: held overnight and sold at the next trading day's open, as in the book; a future that expires that day is still sold at 15:15.">
+            <Segmented
+              label="Exit"
+              options={[
+                ["1515", "15:15 same day"],
+                ["nextopen", "Next day's open (book)"],
+              ]}
+              value={exit}
+              onChange={(v) => !saving && onExit(v)}
+            />
+          </Field>
+        )}
         {stop && (
           <Field label="Stop" hint="For the next buys (shared, saved on the server). Below the day's low: 0.1% under the day's low at the buy; the 1-minute backtest shows it's too tight (about 4% a year against 24% without).">
             <Segmented label="Stop" options={STOPS} value={stop} onChange={(v) => !saving && onStop(v)} />
@@ -85,7 +98,8 @@ export default function V2PaperOops({ params, stop, onStop, saving }) {
         <>
           <StatusLine>
             Futures prices · watched tick by tick from 09:15{data.stream?.connected ? " (stream connected)" : ""}, with a minute check as backup: a future that opened below yesterday's low is bought when it trades back up to it (the day's first{" "}
-            {data.max_open}), {data.stop_mode === "low" ? "stop 0.1% below the day's low at the buy, " : "no stop, "}out at 15:15{data.ltp_at ? ` · live prices at ${data.ltp_at}` : ""} · costs{" "}
+            {data.max_open}), {data.stop_mode === "low" ? "stop 0.1% below the day's low at the buy, " : "no stop, "}
+            {data.exit_mode === "nextopen" ? "held overnight and sold at the next day's open (15:15 on an expiry day)" : "out at 15:15"}{data.ltp_at ? ` · live prices at ${data.ltp_at}` : ""} · costs{" "}
             {data.cost_per_side_bps} bps a side · nothing places orders
           </StatusLine>
           <FirstSecond f={data.first_second} />
