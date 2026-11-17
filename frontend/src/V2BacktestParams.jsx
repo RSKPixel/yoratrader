@@ -155,6 +155,7 @@ export default function V2BacktestParams({ params, onChange, universes = ["fno"]
               : "Survivorship-free data is daily: this model needs 15-minute or 1-minute candles (or stored intraday trades), which don't exist for stocks dropped from F&O"
           }
         >
+          <div className="self-start">
           <Segmented
             label="Survivorship bias"
             options={[
@@ -164,6 +165,7 @@ export default function V2BacktestParams({ params, onChange, universes = ["fno"]
             value={pit.ok && params.universe === "fno" ? pit.value : "today"}
             onChange={(survivor) => onChange({ survivor })}
           />
+          </div>
         </Field>
       )}
       {lots ? (
