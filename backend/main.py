@@ -1298,6 +1298,16 @@ def v2_data_candles(symbol: str = Query(..., min_length=1, max_length=40), inter
         return {"status": "error", "message": str(error)}
 
 
+@app.get("/api/v2/paper/curve")
+def v2_paper_curve(gap_max_open: int = Query(5, ge=0, le=v2gap.MAX_OPEN), xsmr_max_open: int = Query(10, ge=0, le=v2xsmr.MAX_OPEN)):
+    """Every paper book's cumulative net (rupees, one lot a position) by day, for the paper landing page."""
+    try:
+        return {"status": "success", **v2dashboard.paper_curve(gap_max_open, xsmr_max_open)}
+    except Exception as error:
+        print("Paper curve failed:", error)
+        return {"status": "error", "message": str(error)}
+
+
 @app.get("/api/v2/dashboard")
 def v2_dashboard(gap_max_open: int = Query(5, ge=0, le=v2gap.MAX_OPEN), xsmr_max_open: int = Query(10, ge=0, le=v2xsmr.MAX_OPEN)):
     """Today at a glance: market status, Kite, the scheduler's steps, indices, paper trading (at the

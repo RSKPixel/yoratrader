@@ -5,6 +5,7 @@ import { savedParams } from "./V2BacktestParams";
 import { useSetting, useSettings } from "./settings";
 import { STATUS, statusOf, useModelStatuses } from "./modelStatus";
 import { findPaper, paperDefaults } from "./V2Paper";
+import V2PaperCurve from "./V2PaperCurve";
 
 // v2 Dashboard: today at a glance. Refreshes every minute while the market is open (every 5 outside).
 
@@ -455,6 +456,7 @@ function PaperTotals({ p }) {
 // The paper trading landing page: the dashboard's paper trading cards, each opening its model's page
 export function PaperOverview() {
   const { d, error } = useDashboard();
+  const curveQuery = dashboardQuery(useSettings().values);
   const [filter, setFilter] = useSetting("paper.landing.filter", "all");
   if (error && !d) return <p className="text-sm" style={{ color: "var(--negative)" }}>{error}</p>;
   if (!d) return <p className="text-sm" style={{ color: "var(--faint)" }}>Loading…</p>;
@@ -472,6 +474,9 @@ export function PaperOverview() {
         />
       </div>
       <PaperTotals p={d.paper} />
+      <Panel title="Net P&L by day" right="cumulative, one lot a position · SR and CR at futures prices, open positions marked now">
+        <V2PaperCurve query={curveQuery} />
+      </Panel>
       <Paper p={d.paper} today={d.today} openOnly={filter === "open"} />
     </div>
   );

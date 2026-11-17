@@ -185,6 +185,46 @@ def _paper(gap_max_open=5, xsmr_max_open=10):
     return out
 
 
+def paper_curve(gap_max_open=5, xsmr_max_open=10):
+    """Each paper book's cumulative net in rupees by day (one lot a position; SR and CR at futures prices,
+    closed trades on their sale day and the open ones marked now), and their total."""
+    import pandas as pd
+    pairs = min(5, xsmr_max_open // 2) if xsmr_max_open else 5
+    daily, errors = {}, {}
+
+    def days_net(label, days):
+        daily[label] = {d["day"]: d["net_rs"] for d in days if d.get("net_rs") is not None}
+
+    for label, build in (("Buy/Sell on gap", lambda: v2paper.gap("long", "none", gap_max_open)["days"]),
+                         ("Cross-sectional mean reversion", lambda: v2paper.xsmr_(pairs, "none", xsmr_max_open)["days"]),
+                         ("Oops gap reversal", lambda: oopswatch.paper()["days"])):
+        try:
+            days_net(label, build())
+        except Exception as error:
+            errors[label] = str(error)
+    today = gapwatch._now().date().isoformat()
+    for label, book in (("Short-term mean reversion", "rsi2"), ("Cumulative RSI(2)", "cum")):
+        try:
+            c = connorswatch.paper(book=book)
+            per = {}
+            for t in c["closed"]:
+                if t.get("fut_net_rs") is not None:
+                    d = t["exit_at"][:10]
+                    per[d] = per.get(d, 0.0) + t["fut_net_rs"]
+            live = sum(t.get("fut_net_rs") or 0 for t in c["open"])
+            if c["open"]:
+                per[today] = per.get(today, 0.0) + live  # the open positions, marked now
+            daily[label] = per
+        except Exception as error:
+            errors[label] = str(error)
+    days = sorted({d for v in daily.values() for d in v})
+    if not days:
+        return {"days": [], "series": {}, "total": [], "errors": errors}
+    frame = pd.DataFrame({k: pd.Series(v, dtype=float) for k, v in daily.items()}).reindex(days).fillna(0.0).cumsum()
+    return {"days": days, "series": {k: [round(float(x), 2) for x in frame[k]] for k in frame.columns},
+            "total": [round(float(x), 2) for x in frame.sum(axis=1)], "errors": errors}
+
+
 def _freshness(cursor):
     def iso(v):
         return v.isoformat() if v else None
