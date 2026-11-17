@@ -10,7 +10,7 @@ Each book's exit is a setting (exit_mode, from its paper page): sold on the 5th 
 rsi2's default), or on strength, at the first 15:15 its 2-day RSI is above 65, the 5th trading day at
 the latest ("strength", cum's default).
 
-Each book has its own universe (F&O stocks or Nifty 50) and max open (1-10, set from its paper page,
+Each book trades F&O stocks (the Nifty 50 universe is off) and has its own max open (1-10, set from its paper page,
 read at each run); equal capital each, no stop. Each trade stores the slot count it was bought under,
 so it counts 1/N of its net in the book.
 
@@ -41,7 +41,7 @@ from db import connect
 
 MAX_OPEN, HOLD = 3, 5  # MAX_OPEN: the default; max_open() is what the scheduler uses
 MAX_OPEN_LIMIT = 10
-UNIVERSES = connors.DATASETS  # "fno" (F&O stocks, the default) or "stocks" (Nifty 50, all in F&O)
+UNIVERSES = ("fno",)  # F&O stocks only: the Nifty 50 universe is switched off for both books
 BOOKS = {
     "rsi2": {"label": "RSI(2) below 10", "setup": "rsi2", "trades": "connors_paper", "days": "connors_paper_days",
              "max_key": "CONNORS_PAPER_MAX_OPEN", "uni_key": "CONNORS_PAPER_UNIVERSE", "exit_key": "CONNORS_PAPER_EXIT", "exit": "hold"},
