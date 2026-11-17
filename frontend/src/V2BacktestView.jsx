@@ -58,7 +58,7 @@ export function Panel({ title, right, children }) {
 
 export function SummaryCards({ s, value }) {
   return (
-    <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 xl:grid-cols-8">
+    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-9">
       <Card
         label={s.trades_label || "Trades"}
         value={s.trades.toLocaleString("en-IN")}
@@ -71,6 +71,14 @@ export function SummaryCards({ s, value }) {
       <Card label="Net / trade" value={value(s.avg_net_pct, 3)} color={tone(s.avg_net_pct)} hint={`Each trade on its own position: ${s.avg_trade_net_pct}%`} />
       <Card label="Profit factor" value={s.profit_factor ?? "—"} color={s.profit_factor >= 1 ? "var(--positive)" : "var(--negative)"} hint="Net winning trades ÷ net losing trades" />
       <Card label="Max drawdown" value={value(s.max_dd_pct)} color="var(--negative)" hint="Largest fall in cumulative net, at a fixed capital" />
+      {s.green_years != null && s.years != null && (
+        <Card
+          label="Green years"
+          value={`${s.green_years}/${s.years}`}
+          color={s.green_years / s.years >= 0.7 ? "var(--positive)" : s.green_years / s.years >= 0.5 ? "var(--warning)" : "var(--negative)"}
+          hint="Calendar years that ended with a net profit, out of all the years tested (the current year counts too)"
+        />
+      )}
     </div>
   );
 }
