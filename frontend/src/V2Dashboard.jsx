@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import { Card, Panel, tone } from "./V2BacktestView";
-import { formatRs } from "./V2Controls";
+import { formatRs, Segmented } from "./V2Controls";
 import { savedParams } from "./V2BacktestParams";
-import { useSettings } from "./settings";
+import { useSetting, useSettings } from "./settings";
 import { STATUS, statusOf, useModelStatuses } from "./modelStatus";
 import { findPaper, paperDefaults } from "./V2Paper";
 
@@ -149,13 +149,34 @@ function PaperCard({ title, href, style, lines, error }) {
   );
 }
 
-function Paper({ p, today }) {
+// Whether a paper book holds anything now (the landing page's "With open trades" filter)
+function openNow(p) {
+  const g = p.gap || {}, x = p.xsmr || {}, c = p.connors || {}, cc = p.connors_cum || {}, op = p.oops || {}, tm = p.tom || {};
+  const live = (b) => b.today_status === "open" && (b.today_positions || 0) > 0;
+  return {
+    "buy-on-gap": live(g),
+    "xs-mean-reversion": live(x),
+    oops: live(op),
+    "turn-of-month": !!tm.state && (tm.state.startsWith("holding") || tm.state.startsWith("sell")),
+    "short-term-reversion": (c.open || 0) > 0,
+    "cumulative-rsi": (cc.open || 0) > 0,
+  };
+}
+
+function Paper({ p, today, openOnly = false }) {
   const statuses = useModelStatuses();
-  const shown = (id) => statusOf(statuses, id) !== "archived";
+  const open = openNow(p);
+  const shown = (id) => statusOf(statuses, id) !== "archived" && (!openOnly || open[id]);
   // one F&O lot a position: rupees, with % of the day's margin where there is one
   const rs = (v, m) => (v == null ? "—" : `${v > 0 ? "+" : ""}${formatRs(v)}${m == null ? "" : ` · ${pct(m, 2)}`}`);
   const g = p.gap || {}, x = p.xsmr || {}, c = p.connors || {}, cc = p.connors_cum || {}, op = p.oops || {};
   const tm = p.tom || {};
+  if (openOnly && !Object.keys(open).some(shown))
+    return (
+      <p className="text-sm" style={{ color: "var(--muted)" }}>
+        No paper book holds anything right now.
+      </p>
+    );
   const day = (iso) => (iso ? new Date(`${iso}T00:00:00`).toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" }) : "—");
   return (
     <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
@@ -241,7 +262,6 @@ function Paper({ p, today }) {
           ["Open", `${c.open ?? 0} / ${c.max_open ?? 3}${c.open_symbols?.length ? ` · ${c.open_symbols.join(", ")}` : ""}`],
           ["Closed trades", c.closed ?? 0],
           ["Open now", rs(c.open_net_rs), tone(c.open_net_rs)],
-          ["Net (stock prices)", rs(c.net_rs), tone(c.net_rs)],
           ["Net (futures prices)", rs(c.fut_net_rs), tone(c.fut_net_rs)],
           ["Capital required", c.capital_rs ? formatRs(c.capital_rs) : "—"],
         ]}
@@ -257,7 +277,6 @@ function Paper({ p, today }) {
           ["Open", `${cc.open ?? 0} / ${cc.max_open ?? 3}${cc.open_symbols?.length ? ` · ${cc.open_symbols.join(", ")}` : ""}`],
           ["Closed trades", cc.closed ?? 0],
           ["Open now", rs(cc.open_net_rs), tone(cc.open_net_rs)],
-          ["Net (stock prices)", rs(cc.net_rs), tone(cc.net_rs)],
           ["Net (futures prices)", rs(cc.fut_net_rs), tone(cc.fut_net_rs)],
           ["Capital required", cc.capital_rs ? formatRs(cc.capital_rs) : "—"],
         ]}
@@ -413,9 +432,25 @@ function useDashboard() {
 // The paper trading landing page: the dashboard's paper trading cards, each opening its model's page
 export function PaperOverview() {
   const { d, error } = useDashboard();
+  const [filter, setFilter] = useSetting("paper.landing.filter", "all");
   if (error && !d) return <p className="text-sm" style={{ color: "var(--negative)" }}>{error}</p>;
   if (!d) return <p className="text-sm" style={{ color: "var(--faint)" }}>Loading…</p>;
-  return <Paper p={d.paper} today={d.today} />;
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex">
+        <Segmented
+          label="Show"
+          options={[
+            ["open", "With open trades"],
+            ["all", "All"],
+          ]}
+          value={filter}
+          onChange={setFilter}
+        />
+      </div>
+      <Paper p={d.paper} today={d.today} openOnly={filter === "open"} />
+    </div>
+  );
 }
 
 export default function V2Dashboard() {
