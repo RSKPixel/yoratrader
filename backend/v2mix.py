@@ -22,9 +22,9 @@ import pandas as pd
 from db import connect
 
 GOLD = "GOLDBEES"
-GOLD_SHARES = (0, 20, 30, 40)
+GOLD_SHARES = (30,)  # fixed, like the split: nothing to tune
 RSI_SHARES = (50,)  # the books are always half each: no other split, so it can't be fitted to the past
-INSTRUMENTS = ("cash", "futures")
+INSTRUMENTS = ("cash",)  # delivery only
 CACHE_SECONDS = 6 * 3600
 _cache, _lock = {}, threading.Lock()
 

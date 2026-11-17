@@ -1,35 +1,26 @@
 import { useCallback, useMemo, useState } from "react";
-import { useSetting } from "./settings";
-import { Field, Segmented } from "./V2Controls";
 import V2EquityChart from "./V2EquityChart";
 import { MonthGrid, MonthTradesModal, Panel, SummaryCards, makeValue, tone, AT_COLUMNS } from "./V2BacktestView";
 import { useBacktest } from "./V2BuyOnGap";
 
 // Books + gold (v2mix.py): RSI(2) and low volatility on (100 - gold)% of capital, half each (fixed: no
 // other split is offered, so it can't be tuned to the past), and
-// gold% in GOLDBEES, held and rebalanced to gold% at each month-end. Books in cash or futures.
+// 30% in GOLDBEES, held and rebalanced to 30% at each month-end. All in cash. Nothing to choose.
 
-const GOLD = [
-  ["0", "None"],
-  ["20", "20%"],
-  ["30", "30%"],
-  ["40", "40%"],
+// fixed, nothing to choose (so nothing to fit): gold 30%, the books half each of the rest, all in cash
+const ALLOCATION = [
+  ["RSI(2)", 35, "Short-term mean reversion: up to 3 stocks, held 5 days"],
+  ["Low volatility", 35, "Long trend low volatility: up to 10 stocks, 20% trailing stop"],
+  ["Gold", 30, "GOLDBEES, held; topped up or trimmed back to 30% at each month-end"],
 ];
-const INSTRUMENTS = [
-  ["cash", "Cash"],
-  ["futures", "F&O"],
-];
-// survivorship-free (each month's actual F&O list), 2008-2026, books 50 / 50
-const HONEST = {
-  cash: "books only made 11.0% a year with a worst drop of −31%; with 30% gold 11.7% and −13%",
-  futures: "books only made 14.5% a year with a worst drop of −26%; with 30% gold 14.1% and −12%",
-};
+// survivorship-free (each month's actual F&O list), 2008-2026
+const HONEST = "books only made 11.0% a year with a worst drop of −31%; with 30% gold 11.7% and −13%";
+
+const rupees = (v) => `₹${Math.round(v).toLocaleString("en-IN")}`;
 
 export default function V2Mix({ params }) {
-  const [gold, setGold] = useSetting("bt.mix.gold", "30");
-  const [instrument, setInstrument] = useSetting("bt.mix.instrument", "cash");
   const [month, setMonth] = useState(null);
-  const query = `gold=${gold}&instrument=${instrument}`;
+  const query = "gold=30&instrument=cash";
   const { data, error, loading } = useBacktest(`/api/v2/backtest/mix?${query}`);
   const value = useMemo(() => makeValue(params.show, params.capital), [params.show, params.capital]);
   const chartFormat = useCallback((v) => value(v, 1), [value]);
@@ -66,14 +57,25 @@ export default function V2Mix({ params }) {
 
   return (
     <div className="mt-4 flex flex-col gap-4">
-      <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
-        <Field label="Gold allocation" hint="Share of capital held in GOLDBEES, rebalanced at each month-end; the rest goes to the books">
-          <Segmented label="Gold allocation" options={GOLD} value={gold} onChange={setGold} />
-        </Field>
-        <Field label="Price" hint="Cash: delivery, no rolls (STT 0.1% each side, stamp duty, DP charge). F&O: futures charges and a roll at each month end">
-          <Segmented label="Price" options={INSTRUMENTS} value={instrument} onChange={setInstrument} />
-        </Field>
-        {loading && <span className="pb-1.5 text-xs" style={{ color: "var(--faint)" }}>Loading…</span>}
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
+        {ALLOCATION.map(([label, pct, hint]) => (
+          <div key={label} className="rounded-lg border px-3 py-2" style={{ borderColor: "var(--border)", background: "var(--surface)" }} title={hint}>
+            <p className="text-xs" style={{ color: "var(--muted)" }}>
+              {label}
+            </p>
+            <p className="text-lg font-semibold tabular-nums">
+              {pct}% <span className="text-sm font-normal" style={{ color: "var(--muted)" }}>· {rupees((params.capital * pct) / 100)}</span>
+            </p>
+          </div>
+        ))}
+        <div className="rounded-lg border px-3 py-2" style={{ borderColor: "var(--border)", background: "var(--surface)" }} title="Delivery: STT 0.1% each side, stamp duty, DP charge; no futures, no rolls">
+          <p className="text-xs" style={{ color: "var(--muted)" }}>
+            Traded in
+          </p>
+          <p className="text-lg font-semibold">
+            Cash {loading && <span className="text-xs font-normal" style={{ color: "var(--faint)" }}>· loading…</span>}
+          </p>
+        </div>
       </div>
 
       {error && <p className="text-sm" style={{ color: "var(--negative)" }}>{error}</p>}
@@ -83,9 +85,9 @@ export default function V2Mix({ params }) {
           <SummaryCards s={s} value={value} />
           <p className="-mt-1 text-xs" style={{ color: "var(--muted)" }}>
             {s.from} → {s.to} · {value(s.net_year_pct)} net a year · Sharpe {s.sharpe ?? "—"} · {s.green_years}/{s.years} green years · RSI(2) {s.split.rsi2}% · low
-            volatility {s.split.lv}% · gold {s.split.gold}% · {instrument === "cash" ? "cash, no rolls" : "futures, rolled monthly"} · gold costs {value(-s.gold_cost_pct, 3)} ·
+            volatility {s.split.lv}% · gold {s.split.gold}% · cash, no rolls · gold costs {value(-s.gold_cost_pct, 3)} ·
             books and gold moved together {s.corr_books_gold} (monthly) · trades are the books' (gold is held) · today's F&O stocks (survivorship-biased: with each month's actual
-            F&O list, {HONEST[instrument]})
+            F&O list, {HONEST})
           </p>
           <Panel title="Net by month" right="click a month for its trades and the gold">
             <MonthGrid years={data.years} months={data.months} value={value} onOpen={setMonth} />
