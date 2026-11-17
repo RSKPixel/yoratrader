@@ -81,7 +81,7 @@ def _frame(d):
         f = f.rename(columns={"OPTIONTYPE": "OPTION_TYP"})  # some years' files name it so
         f = f[f["SYMBOL"].str.strip().isin(SYMBOLS) & f["INSTRUMENT"].str.strip().isin(["OPTIDX", "FUTIDX"])]
         return pd.DataFrame({
-            "symbol": f["SYMBOL"].str.strip(), "expiry": pd.to_datetime(f["EXPIRY_DT"].str.strip(), format="%d-%b-%Y").dt.date,
+            "symbol": f["SYMBOL"].str.strip(), "expiry": pd.to_datetime(f["EXPIRY_DT"].str.strip(), format="mixed", dayfirst=True).dt.date,
             "strike": f["STRIKE_PR"].astype(float), "type": f["OPTION_TYP"].str.strip().replace({"XX": "FUT"}),
             "open": f["OPEN"], "high": f["HIGH"], "low": f["LOW"], "close": f["CLOSE"], "settle": f["SETTLE_PR"],
             "oi": f["OPEN_INT"], "contracts": f["CONTRACTS"], "lot": None, "underlying": None})
