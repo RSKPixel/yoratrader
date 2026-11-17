@@ -79,8 +79,11 @@ export default function V2Mix({ params }) {
         <Field label="Mean reversion setup" hint="The short-term book: RSI(2) below 10 (Connors & Sen), or today's + yesterday's RSI(2) below 35 (Connors & Alvarez); above the 200-day average">
           <Segmented label="Mean reversion setup" options={SETUPS} value={setup} onChange={setSetup} />
         </Field>
-        <Field label="Exit" hint="Sold at the close on the 5th trading day, or at the first close the 2-day RSI is above 65 (the 5th day at the latest)">
-          <Segmented label="Exit" options={EXITS} value={exit} onChange={setExit} />
+        <Field label="Mean reversion exit" hint="Sold at the close on the 5th trading day, or at the first close the 2-day RSI is above 65 (the 5th day at the latest)">
+          <Segmented label="Mean reversion exit" options={EXITS} value={exit} onChange={setExit} />
+        </Field>
+        <Field label="Low volatility exit" hint="Fixed by the strategy: sold at the first close 20% or more under the highest close since the buy; nothing else">
+          <span className="block py-1.5 text-sm">As per strategy · 20% trailing stop</span>
         </Field>
         <Field label="Gold" hint="Share of capital held in GOLDBEES, rebalanced at each month-end; the books share the rest equally">
           <Segmented label="Gold" options={GOLD} value={gold === "0" ? "0" : "30"} onChange={setGold} />
