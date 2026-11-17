@@ -4,32 +4,24 @@ import { Field, formatRs, Segmented } from "./V2Controls";
 import V2EquityChart from "./V2EquityChart";
 import { makeValue, MonthGrid, MonthTradesModal, Panel, SummaryCards, tone, AT_COLUMNS } from "./V2BacktestView";
 import { SLIPPAGE, useBacktest } from "./V2BuyOnGap";
+import DisasterStop from "./V2Disaster";
 
 // Larry Williams' "Oops" gap reversal on v2 (v2oops.py): a stock opens below yesterday's low and is
-// bought when it trades back up to that low; out at 15:15, or at the stop below the day's low so far.
+// bought when it trades back up to that low; out at 15:15 or the next day's open, or at the 10% disaster stop.
 // 1-minute candles, today's F&O stocks, 2015 on. Max open = the day's first N fills.
 
 const EXITS = [
   ["1515", "15:15 same day"],
   ["nextopen", "Next day's open (book)"],
 ];
-const STOPS = [
-  ["none", "None"],
-  ["low", "Below the day's low"],
-];
-const TRENDS = [
-  ["any", "Any"],
-  ["up", "Above 200-day avg"],
-];
 
 export default function V2Oops({ params }) {
-  const [stop, setStop] = useSetting("bt.oops.stop", "none");
+  const [disaster, setDisaster] = useSetting("bt.oops.disaster", "on"); // the 10% disaster stop (no other stop, no trend filter)
   const [exit, setExit] = useSetting("bt.oops.exit", "1515");
-  const [trend, setTrend] = useSetting("bt.oops.trend", "any");
   const [slippage, setSlippage] = useSetting("bt.oops.slippage", 0.02);
   const [month, setMonth] = useState(null);
 
-  const query = `stop=${stop}&trend=${trend}&slippage=${slippage}&max_open=${params.maxOpen}&exit=${exit}`;
+  const query = `stop=none&trend=any&slippage=${slippage}&max_open=${params.maxOpen}&exit=${exit}&disaster=${disaster}`;
   const { data, error, loading } = useBacktest(`/api/v2/backtest/oops?${query}`);
   const value = useMemo(() => makeValue(params.show, params.capital), [params.show, params.capital]);
   const chartFormat = useCallback((v) => value(v, 1), [value]);
@@ -39,7 +31,7 @@ export default function V2Oops({ params }) {
 
   const columns = [
     ...AT_COLUMNS,
-    { h: "Reason", cell: (t) => t.reason, style: (t) => ({ color: t.reason === "stop" ? "var(--negative)" : "var(--muted)" }) },
+    { h: "Reason", cell: (t) => t.reason, style: (t) => ({ color: t.reason === "disaster stop" ? "var(--negative)" : "var(--muted)" }) },
     { h: "Stock", cell: (t) => <span className="font-medium">{t.symbol}</span> },
     { h: "Gap", cell: (t) => `${t.gap_pct.toFixed(2)}%`, style: () => ({ color: "var(--muted)" }), title: (t) => `Opened ${t.open}, yesterday's low ${t.prev_low}` },
     { h: "Entry", cell: (t) => t.entry },
@@ -48,7 +40,6 @@ export default function V2Oops({ params }) {
       cell: (t) => Math.round(((t.weight_pct / 100) * capital) / t.entry).toLocaleString("en-IN"),
       title: (t) => `${t.weight_pct}% of ${formatRs(capital)} ÷ ${t.entry}`,
     },
-    { h: "Stop", cell: (t) => t.stop ?? "—", style: () => ({ color: "var(--muted)" }) },
     { h: "Exit", cell: (t) => t.exit },
     { h: "Return", cell: (t) => `${t.ret_pct.toFixed(2)}%`, style: (t) => ({ color: tone(t.ret_pct) }) },
     { h: "Net", cell: (t) => `${t.net_pct.toFixed(2)}%`, style: (t) => ({ color: tone(t.net_pct) }) },
@@ -63,12 +54,7 @@ export default function V2Oops({ params }) {
         <Field label="Exit" hint="15:15: sold the same day at 15:15. Next day's open: held overnight and sold at the next trading day's opening price, as in the book (Williams: 'we buy today and are out on the opening tomorrow')">
           <Segmented label="Exit" options={EXITS} value={exit} onChange={setExit} />
         </Field>
-        <Field label="Stop" hint="None: out at the exit only. Below the day's low: 0.1% under the lowest price known at the buy, checked every minute after; most buys come in the first minute, so it's tight and noise takes it out.">
-          <Segmented label="Stop" options={STOPS} value={stop} onChange={setStop} />
-        </Field>
-        <Field label="Trend" hint="Any stock, or only those whose close was above their 200-day average yesterday">
-          <Segmented label="Trend" options={TRENDS} value={trend} onChange={setTrend} />
-        </Field>
+        <DisasterStop value={disaster} onChange={setDisaster} hits={disaster === "on" ? data?.summary?.disaster_hits : null} />
         <Field label="Slippage" hint="Per side, on top of NSE futures charges">
           <Segmented label="Slippage" options={SLIPPAGE} value={slippage} onChange={setSlippage} />
         </Field>
@@ -87,7 +73,7 @@ export default function V2Oops({ params }) {
           <SummaryCards s={s} value={value} />
           <p className="-mt-1 text-xs" style={{ color: "var(--muted)" }}>
             {s.from} → {s.to} · {value(s.net_year_pct)} net a year · Sharpe {s.sharpe ?? "—"} · {s.green_years}/{s.years} green years · traded on{" "}
-            {s.days_traded} of {s.days} days, {s.avg_positions} a day on average · {s.stopped_pct}% stopped · half the fills by {s.median_fill_at} ·
+            {s.days_traded} of {s.days} days, {s.avg_positions} a day on average · half the fills by {s.median_fill_at} ·
             today's F&O stocks (1-minute data)
           </p>
           <Panel title="Net by month" right="click a month for its trades">
@@ -104,7 +90,7 @@ export default function V2Oops({ params }) {
           url={`/api/v2/backtest/oops/month?month=${month}&${query}`}
           columns={columns}
           value={value}
-          note={`bought when the price trades back up to yesterday's low, out ${exit === "nextopen" ? "at the next day's open" : "at 15:15"} (or the stop, on the buy day)`}
+          note={`bought when the price trades back up to yesterday's low, out ${exit === "nextopen" ? "at the next day's open" : "at 15:15"} (or the 10% disaster stop, on the buy day)`}
           onClose={closeMonth}
         />
       )}

@@ -5,16 +5,13 @@ import { tone, AT_COLUMNS } from "./V2BacktestView";
 import { SLIPPAGE, useBacktest, useLiveRefresh } from "./V2BuyOnGap";
 import V2PnlChart from "./V2PnlChart";
 import { DayLog, LotCards, lotColumns, lotMoney, netBoth, usePaperChart, Panel, PositionsTable, StatusLine } from "./V2PaperView";
+import DisasterStop from "./V2Disaster";
 
 // Oops gap reversal paper trading on v2 (oopswatch.py), on the current-month futures (every price is
 // the future's): the production scheduler watches every F&O future that opened below yesterday's low and buys it when it trades back up to that low (the day's
 // first N, N = max open); out at 15:15, with an optional stop below the day's low (off by default: the 1-minute
 // backtest shows it's too tight). One lot each. Nothing places orders.
 
-const STOPS = [
-  ["none", "None (out at 15:15)"],
-  ["low", "Below the day's low"],
-];
 
 export default function V2PaperOops({ params, stop, onStop, exit, onExit, saving }) {
   const [slippage, setSlippage] = useSetting("paper.oops.slippage", 0.02);
@@ -34,10 +31,10 @@ export default function V2PaperOops({ params, stop, onStop, exit, onExit, saving
     },
     { h: "Gap", cell: (t) => `${t.gap_pct.toFixed(2)}%`, style: () => ({ color: "var(--muted)" }), title: (t) => `Opened ${t.open}, yesterday's low ${t.prev_low}` },
     ...AT_COLUMNS,
-    { h: "Reason", cell: (t) => t.reason, style: (t) => ({ color: t.reason === "stop" ? "var(--negative)" : "var(--muted)" }) },
+    { h: "Reason", cell: (t) => t.reason, style: (t) => ({ color: t.reason === "disaster stop" ? "var(--negative)" : "var(--muted)" }) },
     { h: "Entry", cell: (t) => t.entry, title: () => "Yesterday's low (a buy-stop order there)" },
     lot.qty,
-    { h: "Stop", cell: (t) => t.stop ?? "—", style: () => ({ color: "var(--muted)" }), title: (t) => (t.stop == null ? "Bought with no stop" : "0.1% below the day's low at the buy") },
+    { h: "Stop", cell: (t) => t.stop ?? "—", style: () => ({ color: "var(--muted)" }), title: (t) => (t.stop == null ? "Bought with no stop" : "The 10% disaster stop below the buy") },
     { h: "Exit / last", cell: (t) => t.exit ?? "—" },
     { h: "Return", cell: (t) => (t.ret_pct == null ? "—" : `${t.ret_pct.toFixed(2)}%`), style: (t) => ({ color: tone(t.ret_pct) }) },
     lot.value,
@@ -83,11 +80,7 @@ export default function V2PaperOops({ params, stop, onStop, exit, onExit, saving
             />
           </Field>
         )}
-        {stop && (
-          <Field label="Stop" hint="For the next buys (shared, saved on the server). Below the day's low: 0.1% under the day's low at the buy; the 1-minute backtest shows it's too tight (about 4% a year against 24% without).">
-            <Segmented label="Stop" options={STOPS} value={stop} onChange={(v) => !saving && onStop(v)} />
-          </Field>
-        )}
+        {stop && <DisasterStop value={stop === "off" ? "off" : "on"} onChange={(v) => !saving && onStop(v)} />}
         <Field label="Slippage" hint="Per side, on top of NSE futures charges">
           <Segmented label="Slippage" options={SLIPPAGE} value={slippage} onChange={setSlippage} />
         </Field>
@@ -98,7 +91,7 @@ export default function V2PaperOops({ params, stop, onStop, exit, onExit, saving
         <>
           <StatusLine>
             Futures prices · watched tick by tick from 09:15{data.stream?.connected ? " (stream connected)" : ""}, with a minute check as backup: a future that opened below yesterday's low is bought when it trades back up to it (the day's first{" "}
-            {data.max_open}), {data.stop_mode === "low" ? "stop 0.1% below the day's low at the buy, " : "no stop, "}
+            {data.max_open}), {data.stop_mode === "off" ? "no stop, " : "10% disaster stop below the buy, "}
             {data.exit_mode === "nextopen" ? "held overnight and sold at the next day's open (15:15 on an expiry day)" : "out at 15:15"}{data.ltp_at ? ` · live prices at ${data.ltp_at}` : ""} · costs{" "}
             {data.cost_per_side_bps} bps a side · nothing places orders
           </StatusLine>

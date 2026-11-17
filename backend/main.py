@@ -714,17 +714,17 @@ def _v2gap_args(dataset, side, stop, max_open, slippage, disaster="off"):
     return dict(dataset=dataset, side=side, stop=stop, max_open=max_open, slippage=slippage / 100, disaster=disaster)
 
 
-def _v2oops_args(stop, trend, max_open, slippage, exit="1515"):
-    if stop not in ("low", "none") or trend not in ("any", "up") or exit not in v2oops.EXITS:
-        raise HTTPException(status_code=400, detail="unknown stop, trend or exit")
-    return dict(stop=stop, trend=trend, max_open=max_open, slippage=slippage / 100, exit=exit)
+def _v2oops_args(stop, trend, max_open, slippage, exit="1515", disaster="off"):
+    if stop not in ("low", "none") or trend not in ("any", "up") or exit not in v2oops.EXITS or disaster not in ("on", "off"):
+        raise HTTPException(status_code=400, detail="unknown stop, trend, exit or disaster stop")
+    return dict(stop=stop, trend=trend, max_open=max_open, slippage=slippage / 100, exit=exit, disaster=disaster)
 
 
 @app.get("/api/v2/backtest/oops")
 def v2_backtest_oops(stop: str = Query("none"), trend: str = Query("any"), max_open: int = Query(3, ge=0, le=v2oops.MAX_OPEN),
-                     slippage: float = Query(0.02, ge=0, le=1), exit: str = Query("1515")):
+                     slippage: float = Query(0.02, ge=0, le=1), exit: str = Query("1515"), disaster: str = Query("off")):
     """Oops gap reversal (v2 page): the day's first N fills on 15-minute candles, capital / N each."""
-    args = _v2oops_args(stop, trend, max_open, slippage, exit)
+    args = _v2oops_args(stop, trend, max_open, slippage, exit, disaster)
     try:
         return {"status": "success", **v2oops.results(**args)}
     except Exception as error:
@@ -753,7 +753,7 @@ class LivePriceRequest(BaseModel):
 def v2_trade_modes():
     """Each live trading model's mode (off / manual / on) and which can be automatic."""
     import disaster
-    stops = {"buy-on-gap": disaster.PCT, "xs-mean-reversion": disaster.PCT}
+    stops = {"buy-on-gap": disaster.PCT, "xs-mean-reversion": disaster.PCT, "oops": disaster.PCT}
     return {"status": "success", "modes": livetrade.modes(), "automatic": list(livetrade.AUTOMATIC), "disaster": stops}
 
 
@@ -922,8 +922,8 @@ def v2_backtest_tom_month(month: str = Query(..., pattern=r"^\d{4}-\d{2}$"), ind
 
 @app.get("/api/v2/backtest/oops/month")
 def v2_backtest_oops_month(month: str = Query(..., pattern=r"^\d{4}-\d{2}$"), stop: str = Query("none"), trend: str = Query("any"),
-                           max_open: int = Query(3, ge=0, le=v2oops.MAX_OPEN), slippage: float = Query(0.02, ge=0, le=1), exit: str = Query("1515")):
-    args = _v2oops_args(stop, trend, max_open, slippage, exit)
+                           max_open: int = Query(3, ge=0, le=v2oops.MAX_OPEN), slippage: float = Query(0.02, ge=0, le=1), exit: str = Query("1515"), disaster: str = Query("off")):
+    args = _v2oops_args(stop, trend, max_open, slippage, exit, disaster)
     try:
         return {"status": "success", "trades": v2oops.month_trades(month, **args)}
     except Exception as error:

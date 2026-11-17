@@ -11,8 +11,8 @@ names it. Run by gapwatch's production scheduler every minute. Nothing here plac
 - From the open: Kite's live tick stream (WebSocket) on the watched and held futures. The first tick
   whose price (or day high) reaches yesterday's low is the buy, at that level (as a resting buy-stop
   order would fill), stamped with the exchange time; at most N a day, in the order they touch. The
-  once-a-minute quote stays as a backup (a dropped stream, a missed tick). Stop (a setting, OOPS_PAPER_STOP, off by default): 0.1% below the
-  day's low at that moment; an open position whose low of the day goes through it is sold at the stop.
+  once-a-minute quote stays as a backup (a dropped stream, a missed tick). Disaster stop (a setting,
+  OOPS_PAPER_STOP, on by default): 10% below the buy; an open position whose low goes through it is sold there.
 - Exit (a setting, OOPS_PAPER_EXIT; each position keeps the one it was bought under): "1515" sells what is
   still open at 15:15:01 at the price then; "nextopen" (the book's: "out on the opening tomorrow") holds it
   overnight and sells it at the next trading day's open (the future's opening price, at 09:15:01), except a
@@ -36,9 +36,10 @@ import xsmrwatch
 from db import connect
 
 PREPARE_AT, OPEN_AT, EXIT_AT, UNTIL = clock(9, 10), clock(9, 15, 1), clock(15, 15), clock(15, 30)
+DISASTER_PCT = 10.0  # disaster.PCT (not imported here: keep the scheduler's imports light)
 STOP_BELOW = 0.999
 MAX_OPEN, MAX_OPEN_LIMIT, MAX_OPEN_KEY = 3, 10, "OOPS_PAPER_MAX_OPEN"
-STOP_KEY, STOPS = "OOPS_PAPER_STOP", ("none", "low")
+STOP_KEY, STOPS = "OOPS_PAPER_STOP", ("on", "off")  # the 10% disaster stop (disaster.py), for new buys
 EXIT_KEY, EXITS = "OOPS_PAPER_EXIT", ("1515", "nextopen")
 
 
@@ -69,17 +70,18 @@ def _expiry_of(kite, today, fut):
 
 
 def stop_mode():
-    """'none' (out at 15:15 only) or 'low' (0.1% under the day's low at the buy), for new buys."""
+    """'on': the 10% disaster stop below the buy (Chan's, as on Buy/Sell on gap); 'off': no stop. For new
+    buys. Older values (the 0.1%-under-the-low stop, 'low' / 'none') read as the default, on."""
     try:
         v = db.get_settings([STOP_KEY]).get(STOP_KEY)
     except Exception:
         v = None
-    return v if v in STOPS else "none"
+    return v if v in STOPS else "on"
 
 
 def set_stop_mode(mode):
     if mode not in STOPS:
-        raise ValueError("Stop must be 'none' or 'low'.")
+        raise ValueError("Disaster stop must be 'on' or 'off'.")
     db.set_settings({STOP_KEY: mode})
     return mode
 
@@ -225,7 +227,7 @@ def _fill(today, s, pl, o, stamp, low, fut, slots, with_stop):
             return False
         cursor.execute("INSERT INTO oops_paper (day, symbol, prev_low, open, filled_at, entry, low_at_fill, stop, slots, fut, exit_mode) "
                        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT (day, symbol) DO NOTHING",
-                       (today, s, pl, o, stamp, pl, low, low * STOP_BELOW if with_stop else None, slots, fut, exit_mode()))
+                       (today, s, pl, o, stamp, pl, low, pl * (1 - DISASTER_PCT / 100) if with_stop else None, slots, fut, exit_mode()))
         conn.commit()
         return cursor.rowcount == 1
 
@@ -281,7 +283,7 @@ def _on_ticks(ws, ticks):
         try:
             if s in st["held"]:
                 stop, low = st["held"][s], ohlc.get("low")
-                if stop is not None and low and low <= stop and _exit(today, s, stamp, float(stop), "stop"):
+                if stop is not None and low and low <= stop and _exit(today, s, stamp, float(stop), "disaster stop"):
                     st["held"][s] = None
                     print("Oops paper (stream): stopped", s, stamp.strftime("%H:%M:%S"))
             elif s in st["watch"]:
@@ -291,7 +293,7 @@ def _on_ticks(ws, ticks):
                     low = ohlc.get("low") or ltp
                     del st["watch"][s]
                     if _fill(today, s, pl, o, stamp, float(low), fut, st["slots"], st["with_stop"]):
-                        st["held"][s] = float(low) * STOP_BELOW if st["with_stop"] else None
+                        st["held"][s] = float(pl) * (1 - DISASTER_PCT / 100) if st["with_stop"] else None
                         print("Oops paper (stream): bought", s, "at", pl, stamp.strftime("%H:%M:%S"))
         except Exception as error:
             print("Oops paper (stream):", s, error)
@@ -387,7 +389,7 @@ def tick(force=False, stream=True):
         cursor.execute("SELECT symbol FROM oops_paper WHERE day = %s", (today,))
         bought = {r[0] for r in cursor.fetchall()}
     slots = max_open()
-    with_stop = stop_mode() == "low"
+    with_stop = stop_mode() == "on"
     if stream and t < EXIT_AT:
         try:
             _sync_stream(kite, today, watch, fut_of, held, bought, slots, with_stop)
@@ -406,8 +408,8 @@ def tick(force=False, stream=True):
         q = quotes.get(s) or {}
         low, ltp = (q.get("ohlc") or {}).get("low"), q.get("last_price")
         if stop is not None and low is not None and low <= stop:
-            if _exit(today, s, stamp, float(stop), "stop"):
-                sold.append((s, "stop"))
+            if _exit(today, s, stamp, float(stop), "disaster stop"):
+                sold.append((s, "disaster stop"))
         elif t >= EXIT_AT and ltp:
             if s in overnight_ok and _expiry_of(kite, today, fut_of.get(s)) != today:
                 continue  # held overnight: sold at tomorrow's open

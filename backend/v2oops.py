@@ -83,6 +83,7 @@ def _build():
             exit_px = cl[last]
             if not (exit_px > 0) or abs(exit_px / entry - 1) > 0.25:  # a bad print
                 continue
+            low_after = float(l[j + 1: last + 1].min()) if last > j else float("nan")  # the lowest price after the buy minute
             hits = np.nonzero(l[j: last + 1] <= stop)[0]
             if len(hits):
                 i = j + hits[0]
@@ -90,8 +91,9 @@ def _build():
             else:
                 hit, hit_at = None, None
             fills.append((day, _hm(mi[j]), sym, bool(up.get(ts, False)), float(pl), float(o[0]), float(entry),
-                          float(stop), float(exit_px), float(hit) if hit is not None else None, hit_at))
-    f = pd.DataFrame(fills, columns=["day", "fill_at", "symbol", "up", "prev_low", "open", "entry", "stop", "exit_time", "exit_stop", "stop_at"])
+                          float(stop), float(exit_px), float(hit) if hit is not None else None, hit_at, low_after))
+    f = pd.DataFrame(fills, columns=["day", "fill_at", "symbol", "up", "prev_low", "open", "entry", "stop", "exit_time", "exit_stop", "stop_at",
+                                     "low_after"])
     days = v2common.trading_days("fno", pd.Timestamp(START))
     return f, days
 
@@ -137,7 +139,7 @@ def _next_opens():
     return out
 
 
-def _sized(stop="none", trend="any", max_open=3, slippage=0.0002, exit="1515"):
+def _sized(stop="none", trend="any", max_open=3, slippage=0.0002, exit="1515", disaster="off"):
     f, days = _fills()
     t = f if trend == "any" else f[f["up"]]
     n = max_open or BOOK_OPEN
@@ -158,6 +160,14 @@ def _sized(stop="none", trend="any", max_open=3, slippage=0.0002, exit="1515"):
         t["reason"] = np.where(stopped, "stop", "next open")
         t["exit_hm"] = np.where(stopped, t["stop_at"].fillna(""), "09:15")
         t["exit_day"] = np.where(stopped, pd.to_datetime(t["day"]), nxt["next_day"].to_numpy())
+    if disaster == "on":  # the 10% disaster stop (disaster.py): out at the level if, after the buy, the day traded through it
+        import disaster as ds
+        level = t["entry"] * (1 - ds.PCT / 100)
+        hit = (t["low_after"] <= level).fillna(False).to_numpy()
+        t.loc[hit, "exit"] = level[hit]
+        t.loc[hit, "reason"] = "disaster stop"
+        t.loc[hit, "exit_hm"] = ""
+        t.loc[hit, "exit_day"] = pd.to_datetime(t.loc[hit, "day"])
     t["gap_pct"] = 100 * (t["open"] / t["prev_low"] - 1)
     t["ret"] = t["exit"] / t["entry"] - 1
     t["w"] = 1.0 / n
@@ -169,19 +179,20 @@ def _sized(stop="none", trend="any", max_open=3, slippage=0.0002, exit="1515"):
     return t.reset_index(drop=True), days
 
 
-def results(stop="none", trend="any", max_open=3, slippage=0.0002, exit="1515"):
-    t, days = _sized(stop, trend, max_open, slippage, exit)
+def results(stop="none", trend="any", max_open=3, slippage=0.0002, exit="1515", disaster="off"):
+    t, days = _sized(stop, trend, max_open, slippage, exit, disaster)
     extra = {}
     if len(t):
         extra = {"avg_positions": round(float(t.groupby("day").size().mean()), 1),
                  "stopped_pct": round(float(100 * (t["reason"] == "stop").mean()), 1),
                  "avg_gap_pct": round(float(t["gap_pct"].mean()), 2),
-                 "median_fill_at": sorted(t["fill_at"])[len(t) // 2]}
+                 "median_fill_at": sorted(t["fill_at"])[len(t) // 2],
+                 "disaster_hits": int((t["reason"] == "disaster stop").sum())}
     return v2common.build_results(t, days, slippage, extra)
 
 
-def month_trades(month, stop="none", trend="any", max_open=3, slippage=0.0002, exit="1515"):
-    t, _ = _sized(stop, trend, max_open, slippage, exit)
+def month_trades(month, stop="none", trend="any", max_open=3, slippage=0.0002, exit="1515", disaster="off"):
+    t, _ = _sized(stop, trend, max_open, slippage, exit, disaster)
     t = t[t["day"].dt.strftime("%Y-%m") == month]
     return [{"day": r.day.date().isoformat(), "entry_at": f"{r.day.date().isoformat()} {r.fill_at}",
              "exit_at": f"{pd.Timestamp(r.exit_day).date().isoformat()} {r.exit_hm}",
