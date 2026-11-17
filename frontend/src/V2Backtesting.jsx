@@ -62,6 +62,7 @@ export const BACKTEST_GROUPS = [
   {
     title: "Options positional",
     source: "Nifty and Bank Nifty monthly options, held to expiry",
+    section: "Options positional",
     models: [
       { id: "straddle-short", universes: ["indices"], short: "SS", label: "Monthly short straddle", style: "Positional", fixedOpen: "1 straddle a month" },
       { id: "straddle-fly", universes: ["indices"], short: "IF", label: "Iron butterfly", style: "Positional", fixedOpen: "1 butterfly a month" },
