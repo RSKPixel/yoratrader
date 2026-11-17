@@ -151,16 +151,39 @@ function PaperCard({ title, href, style, lines, error }) {
 
 // Whether a paper book holds anything now (the landing page's "With open trades" filter)
 function openNow(p) {
-  const g = p.gap || {}, x = p.xsmr || {}, c = p.connors || {}, cc = p.connors_cum || {}, op = p.oops || {}, tm = p.tom || {};
+  const g = p.gap || {}, x = p.xsmr || {}, c = p.connors || {}, cc = p.connors_cum || {}, op = p.oops || {};
   const live = (b) => b.today_status === "open" && (b.today_positions || 0) > 0;
   return {
     "buy-on-gap": live(g),
     "xs-mean-reversion": live(x),
     oops: live(op),
-    "turn-of-month": !!tm.state && (tm.state.startsWith("holding") || tm.state.startsWith("sell")),
     "short-term-reversion": (c.open || 0) > 0,
     "cumulative-rsi": (cc.open || 0) > 0,
   };
+}
+
+// Turn of the month is traded by hand with real money (Live trading), not paper traded: its own card
+function TomCard({ tm = {} }) {
+  const day = (iso) => (iso ? new Date(`${iso}T00:00:00`).toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" }) : "—");
+  return (
+      <PaperCard
+        title="Turn of the month · manual"
+        href="/v2/trade"
+        style="Positional"
+        error={tm.error}
+        lines={[
+          ["Now", tm.state === "waiting" ? `waiting · ${tm.days_to_buy} trading days to the buy` : tm.state ?? "—", tm.state && tm.state !== "waiting" ? "var(--warning)" : undefined],
+          ["Buy · sell (close)", `${day(tm.buy)} · ${day(tm.sell)}`],
+          [tm.call_label || "Call to buy", tm.strike ? `NIFTY ${tm.strike} CE · ${day(tm.expiry)}` : tm.call_label?.startsWith("Call held") ? "buy day's close not stored yet" : "—"],
+          ...(tm.best
+            ? [
+                ["Limit price", `₹${tm.best.limit}`, tm.state?.startsWith("buy") ? "var(--warning)" : undefined],
+                ["Per lot", formatRs(tm.best.per_lot)],
+              ]
+            : []),
+        ]}
+      />
+  );
 }
 
 function Paper({ p, today, openOnly = false }) {
@@ -223,25 +246,6 @@ function Paper({ p, today, openOnly = false }) {
           ["Today's net", rs(op.today_net_rs, op.today_value_pct), tone(op.today_net_rs)],
           ["Total net", rs(op.total_net_rs), tone(op.total_net_rs)],
           ["Capital required", op.capital_rs ? formatRs(op.capital_rs) : "—"],
-        ]}
-      />
-      )}
-      {shown("turn-of-month") && (
-      <PaperCard
-        title="Turn of the month · manual"
-        href="/v2/trade"
-        style="Positional"
-        error={tm.error}
-        lines={[
-          ["Now", tm.state === "waiting" ? `waiting · ${tm.days_to_buy} trading days to the buy` : tm.state ?? "—", tm.state && tm.state !== "waiting" ? "var(--warning)" : undefined],
-          ["Buy · sell (close)", `${day(tm.buy)} · ${day(tm.sell)}`],
-          [tm.call_label || "Call to buy", tm.strike ? `NIFTY ${tm.strike} CE · ${day(tm.expiry)}` : tm.call_label?.startsWith("Call held") ? "buy day's close not stored yet" : "—"],
-          ...(tm.best
-            ? [
-                ["Limit price", `₹${tm.best.limit}`, tm.state?.startsWith("buy") ? "var(--warning)" : undefined],
-                ["Per lot", formatRs(tm.best.per_lot)],
-              ]
-            : []),
         ]}
       />
       )}
@@ -426,13 +430,13 @@ function useDashboard() {
 function PaperTotals({ p }) {
   const statuses = useModelStatuses();
   const on = (id) => statusOf(statuses, id) !== "archived";
-  const g = p.gap || {}, x = p.xsmr || {}, c = p.connors || {}, cc = p.connors_cum || {}, op = p.oops || {}, tm = p.tom || {};
+  const g = p.gap || {}, x = p.xsmr || {}, c = p.connors || {}, cc = p.connors_cum || {}, op = p.oops || {};
   const open = openNow(p);
   const ids = Object.keys(open).filter(on);
   const live = (b) => (b.today_status === "open" ? b.today_positions || 0 : 0);
   const positions =
     (on("buy-on-gap") ? live(g) : 0) + (on("xs-mean-reversion") ? live(x) : 0) + (on("oops") ? live(op) : 0) +
-    (on("short-term-reversion") ? c.open || 0 : 0) + (on("cumulative-rsi") ? cc.open || 0 : 0) + (on("turn-of-month") && open["turn-of-month"] ? 1 : 0);
+    (on("short-term-reversion") ? c.open || 0 : 0) + (on("cumulative-rsi") ? cc.open || 0 : 0);
   const sum = (pairs) => pairs.filter(([id, v]) => on(id) && v != null).reduce((a, [, v]) => a + v, 0);
   const today = sum([["buy-on-gap", g.today_net_rs], ["xs-mean-reversion", x.today_net_rs], ["oops", op.today_net_rs]]);
   const total = sum([["buy-on-gap", g.total_net_rs], ["xs-mean-reversion", x.total_net_rs], ["oops", op.total_net_rs],
@@ -440,10 +444,10 @@ function PaperTotals({ p }) {
   const signed = (v) => `${v > 0 ? "+" : ""}${formatRs(v)}`;
   return (
     <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-      <Card label="Books with open trades" value={`${ids.filter((id) => open[id]).length} / ${ids.length}`} hint="Paper books holding something now (Turn of the month: the call is held)" />
-      <Card label="Open positions" value={positions} hint="Intraday books: today's live positions; SR and CR: positions held; Turn of the month: the call" />
+      <Card label="Books with open trades" value={`${ids.filter((id) => open[id]).length} / ${ids.length}`} hint="Paper books holding something now" />
+      <Card label="Open positions" value={positions} hint="Intraday books: today's live positions; SR and CR: positions held" />
       <Card label="Today's net" value={signed(today)} color={tone(today)} hint="The intraday books today (gap, cross-sectional mean reversion, Oops), one lot each" />
-      <Card label="Total net" value={signed(total)} color={tone(total)} hint="Every paper book since it started, one lot each; SR and CR at futures prices. Turn of the month is traded by hand, so not in it" />
+      <Card label="Total net" value={signed(total)} color={tone(total)} hint="Every paper book since it started, one lot each; SR and CR at futures prices" />
     </div>
   );
 }
@@ -483,6 +487,12 @@ export default function V2Dashboard() {
       <section className="flex flex-col gap-2">
         <h2 className="text-sm font-semibold">Paper trading</h2>
         <Paper p={d.paper} today={d.today} />
+      </section>
+      <section className="flex flex-col gap-2">
+        <h2 className="text-sm font-semibold">Live trading</h2>
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          <TomCard tm={d.paper.tom} />
+        </div>
       </section>
       <div className="grid gap-4 lg:grid-cols-5">
         <div className="lg:col-span-3">
