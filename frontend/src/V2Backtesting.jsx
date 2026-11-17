@@ -12,6 +12,7 @@ import V2Oops from "./V2Oops";
 import V2Tom from "./V2Tom";
 import V2Ltlv from "./V2Ltlv";
 import V2Mix from "./V2Mix";
+import V2Straddle from "./V2Straddle";
 import { Models } from "./V2Dashboard";
 import { Panel } from "./V2BacktestView";
 
@@ -57,6 +58,11 @@ export const BACKTEST_GROUPS = [
     title: "Laurens Bensdorp",
     source: "Automated Stock Trading Systems (2020)",
     models: [{ id: "low-volatility", universes: ["fno"], short: "LV", label: "Long trend low volatility", style: "Positional", defaultOpen: 10, pit: true }],
+  },
+  {
+    title: "Option straddles",
+    source: "Nifty and Bank Nifty monthly options",
+    models: [{ id: "straddle-short", universes: ["indices"], short: "SS", label: "Monthly short straddle", style: "Positional", fixedOpen: "1 straddle a month" }],
   },
   {
     title: "Portfolio",
@@ -130,6 +136,7 @@ function Model({ m, onSelect }) {
         <div className="mt-4">
           <V2BacktestParams params={{ ...modelParams, universe }} onChange={setParams} universes={m.universes} step={step}
             pit={{ ok: !!m.pit, value: pit ? "pit" : "today" }}
+            fixedOpen={m.fixedOpen}
             books={
               m.books
                 ? [
@@ -145,6 +152,7 @@ function Model({ m, onSelect }) {
         {m.id === "turn-of-month" && <V2Tom params={modelParams} />}
         {m.id === "low-volatility" && <V2Ltlv params={modelParams} />}
         {m.id === "books-gold" && <V2Mix params={modelParams} />}
+        {m.id === "straddle-short" && <V2Straddle params={modelParams} strategy="short" />}
         {m.id === "gap-momentum" && <V2BuyOnGap params={modelParams} model="gapmom" key="gapmom" />}
         {m.id === "kbdt" && <V2Kbdt params={modelParams} />}
         {m.id === "xs-mean-reversion" && <V2Xsmr params={modelParams} />}
