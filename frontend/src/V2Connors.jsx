@@ -30,11 +30,6 @@ const STOPS = [
   ["7pc", "7%"],
   ["10pc", "10%"],
 ];
-const SIDES = [
-  ["long", "Long (book)"],
-  ["short", "Short"],
-  ["both", "Long & short"],
-];
 const TAKES = [
   ["all", "All signals"],
   ["top5", "Lowest 5 RSI"],
@@ -51,7 +46,7 @@ export default function V2Connors({ params }) {
   const timing = pit ? "close" : savedTiming; // survivorship-free data (F&O or top 500) is daily: closes only
   const [stop, setStop] = useSetting("bt.connors.stop", "none");
   const [take, setTake] = useSetting("bt.connors.take", "all");
-  const [side, setSide] = useSetting("bt.connors.side", "long");
+  const side = "long"; // cash (delivery) can only be bought: no short side
   const [slippage, setSlippage] = useSetting("bt.connors.slippage", 0.02);
   const [month, setMonth] = useState(null);
 
@@ -68,7 +63,7 @@ export default function V2Connors({ params }) {
   const columns = [
     ...AT_COLUMNS,
     { h: "Reason", cell: (t) => t.reason, style: (t) => ({ color: t.reason.startsWith("stop") ? "var(--negative)" : "var(--muted)" }) },
-    { h: "Days", cell: (t) => t.days, style: () => ({ color: "var(--muted)" }), title: (t) => (t.rolls ? `${t.rolls} futures roll` : undefined) },
+    { h: "Days", cell: (t) => t.days, style: () => ({ color: "var(--muted)" }), },
     { h: "Stock", cell: (t) => <span className="font-medium">{t.symbol}</span> },
     ...(side !== "long"
       ? [{ h: "Side", cell: (t) => t.side, style: (t) => ({ color: t.side === "long" ? "var(--positive)" : "var(--negative)" }) }]
@@ -92,6 +87,9 @@ export default function V2Connors({ params }) {
   return (
     <div className="mt-4 flex flex-col gap-4">
       <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
+        <Field label="Instrument" hint="Cash only: delivery (STT 0.1% each side, stamp duty, DP charge), no futures and no rolls">
+          <span className="block py-1.5 text-sm">Cash (delivery)</span>
+        </Field>
         <Field label="Setup" hint="In a stock above its 200-day average. RSI(2): Connors & Sen's book; cumulative RSI(2): Connors & Alvarez (Short Term Trading Strategies That Work), today's + yesterday's 2-day RSI.">
           <Segmented label="Setup" options={SETUPS} value={setup} onChange={setSetup} />
         </Field>
@@ -101,12 +99,6 @@ export default function V2Connors({ params }) {
         <Field label="Prices" hint="Close: official closes for the signal, buy and sale (daily candles, 2004 on). 15:15: today's 15:15 price, what you can trade (15m candles, 2015 on); its first load takes ~45 s.">
           <Segmented label="Prices" options={TIMINGS.map(([v, t]) => [v, t, pit && v !== "close", pit && v !== "close" ? "Survivorship-free data is daily: no 15:15 prices for removed stocks" : undefined])} value={timing} onChange={setTiming} />
         </Field>
-        <Field
-          label="Side"
-          hint="Long (the book): above the 200-day average, 2-day RSI below 10. Short: the mirror image, below the 200-day average with the 2-day RSI above 90, sold short and bought back after the hold. Long & short: either, the most extreme first."
-        >
-          <Segmented label="Side" options={SIDES} value={side} onChange={setSide} />
-        </Field>
         <Field label="Stop" hint="Not in the book. 1σ / 2σ of the stock's last 90 daily returns below the buy price, or a fixed % below it.">
           <Segmented label="Stop" options={STOPS} value={stop} onChange={setStop} />
         </Field>
@@ -115,7 +107,7 @@ export default function V2Connors({ params }) {
             <Segmented label="Take" options={TAKES} value={take} onChange={setTake} />
           </Field>
         )}
-        <Field label="Slippage" hint="Per side, on top of NSE futures charges">
+        <Field label="Slippage" hint="Per side, on top of the delivery charges">
           <Segmented label="Slippage" options={SLIPPAGE} value={slippage} onChange={setSlippage} />
         </Field>
         {loading && (

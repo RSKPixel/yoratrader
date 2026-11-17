@@ -1103,7 +1103,7 @@ def _v2connors_args(dataset, setup, hold, max_open, stop, timing, take, slippage
     if dataset in ("fnopit", "cash500") and timing != "close":
         raise HTTPException(status_code=400, detail="Survivorship-free data is daily only: use Close prices (there are no 15:15 prices for removed stocks)")
     return dict(dataset=dataset, setup=setup, hold=hold, max_open=max_open, stop=stop, timing=timing, take=take,
-                slippage=slippage / 100, side=side)
+                slippage=slippage / 100, side=side, instrument="cash")  # the backtest page is cash (delivery) only
 
 
 @app.get("/api/v2/backtest/connors")

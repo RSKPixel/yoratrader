@@ -234,7 +234,7 @@ MODELS = [
     ("xs-momentum", "Cross-sectional momentum", "Positional", "F&O · 3 + 3", lambda: v2xsmom.results("fno", "close", 6, 3)),
     ("quant-momentum", "Quantitative momentum", "Positional", "F&O · book · max 5", lambda: v2qmom.results("fno", "book", "none", 5)),
     ("short-term-reversion", "Short-term mean reversion", "Positional", "F&O · RSI(2) · max 3 · close",
-     lambda: v2connors.results("fno", "rsi2", "5d", 3, "none", "close", "all")),
+     lambda: v2connors.results("fno", "rsi2", "5d", 3, "none", "close", "all", instrument="cash")),
     ("oops", "Oops gap reversal", "Intraday", "F&O · no stop, out at 15:15 · first 3 a day",
      lambda: v2oops.results("none", "any", 3)),
     ("turn-of-month", "Turn of the month", "Positional", "Nifty 50 · last 4 days to the 3rd",
@@ -242,7 +242,7 @@ MODELS = [
     ("low-volatility", "Long trend low volatility", "Positional", "F&O stocks, cash · max 10 · 20% trailing stop",
      lambda: v2ltlv.results(10, "20", 0.0002, "cash")),
     ("cumulative-rsi", "Cumulative RSI(2) · exit on strength", "Positional", "F&O · cumulative RSI(2) · max 3 · close",
-     lambda: v2connors.results("fno", "cumrsi2", "0d", 3, "none", "close", "all")),
+     lambda: v2connors.results("fno", "cumrsi2", "0d", 3, "none", "close", "all", instrument="cash")),
 ]
 
 
