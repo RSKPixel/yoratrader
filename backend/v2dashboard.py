@@ -98,7 +98,7 @@ def _schedule(cursor, today, now):
              until=(9, 20)),
         step((15, 15), "Short-term mean reversion: sells and buys", con is not None and not (con[2] or "").startswith("market closed"),
              (f"{con[1] or 0} sold, {con[0] or 0} bought" if con and con[0] is not None else (con[2] if con else None)), until=(15, 25)),
-        step((15, 15), "Cumulative RSI(2): sells on strength and buys", con_cum is not None and not (con_cum[2] or "").startswith("market closed"),
+        step((15, 15), "Cumulative RSI(2): sells and buys", con_cum is not None and not (con_cum[2] or "").startswith("market closed"),
              (f"{con_cum[1] or 0} sold, {con_cum[0] or 0} bought" if con_cum and con_cum[0] is not None else (con_cum[2] if con_cum else None)),
              until=(15, 25)),
         step((15, 16), "Intraday exits at 15:15", exits_done and not oops_open and (gap is not None or xs is not None),

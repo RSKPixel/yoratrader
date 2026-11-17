@@ -13,6 +13,10 @@ import { LotCards, lotColumns, lotMoney, netBoth, Panel, usePaperChart, Position
 // the 15:15 run reads each day). One F&O lot a position; the capital required is the most margin held
 // on any day. Stock and futures prices are recorded at the same moment. Nothing places orders.
 
+const EXITS = [
+  ["hold", "5 days"],
+  ["strength", "Exit on strength"],
+];
 const PRICES = [
   ["stock", "Stock prices"],
   ["fut", "Futures prices"],
@@ -111,7 +115,7 @@ function Candidates({ live, book }) {
   );
 }
 
-export default function V2PaperConnors({ params, version = 0, book = "rsi2" }) {
+export default function V2PaperConnors({ params, version = 0, book = "rsi2", exit, onExit, saving }) {
   const [slippage, setSlippage] = useSetting(book === "rsi2" ? "paper.connors.slippage" : `paper.connors.${book}.slippage`, 0.02);
   const [prices, setPrices] = useSetting(book === "rsi2" ? "paper.connors.prices" : `paper.connors.${book}.prices`, "stock");
   const live = useLiveRefresh();
@@ -120,7 +124,8 @@ export default function V2PaperConnors({ params, version = 0, book = "rsi2" }) {
   const fut = prices === "fut";
   const key = fut ? "fut" : "stock";
   const maxOpen = data?.max_open ?? 3;
-  const strength = data?.exit === "strength";
+  const strength = (exit || data?.exit) === "strength";
+  const cum = data?.setup === "cumrsi2";
   // each trade's one-lot fields for the chosen prices (stock_* or fut_*), under the shared names
   const pick = (t) => ({ ...t, qty: t[`${key}_qty`], margin_rs: t[`${key}_margin_rs`], contract_rs: t[`${key}_contract_rs`], pnl_rs: t[`${key}_pnl_rs`], cost_rs: t[`${key}_cost_rs`], net_rs: t[`${key}_net_rs`], net_margin_pct: t[`${key}_net_margin_pct`], net_value_pct: t[`${key}_net_value_pct`] });
   const lot = lotColumns(money);
@@ -147,7 +152,7 @@ export default function V2PaperConnors({ params, version = 0, book = "rsi2" }) {
   const openCols = [
     { h: "Stock", cell: (t) => <span className="font-medium">{t.symbol}</span> },
     AT_COLUMNS[0],
-    { h: strength ? "Cum RSI" : "RSI", cell: (t) => t.rsi, style: () => ({ color: "var(--muted)" }), title: () => (strength ? "The cumulative 2-day RSI it was bought at" : "The 2-day RSI it was bought at") },
+    { h: cum ? "Cum RSI" : "RSI", cell: (t) => t.rsi, style: () => ({ color: "var(--muted)" }), title: () => (cum ? "The cumulative 2-day RSI it was bought at" : "The 2-day RSI it was bought at") },
     { h: fut ? "Future" : "Buy", cell: (t) => (fut ? `${t.fut ?? "—"} @ ${t.fut_buy ?? "—"}` : t.buy) },
     lot.qty,
     { h: "Last", cell: (t) => (fut ? t.fut_ltp : t.ltp) ?? "—" },
@@ -164,8 +169,8 @@ export default function V2PaperConnors({ params, version = 0, book = "rsi2" }) {
   const closedCols = [
     { h: "Stock", cell: (t) => <span className="font-medium">{t.symbol}</span> },
     ...AT_COLUMNS,
-    ...(strength ? [{ h: "Reason", cell: (t) => t.reason, style: (t) => ({ color: t.reason === "strength" ? "var(--positive)" : "var(--muted)" }) }] : []),
-    { h: strength ? "Cum RSI" : "RSI", cell: (t) => t.rsi, style: () => ({ color: "var(--muted)" }) },
+    { h: "Reason", cell: (t) => t.reason ?? "time", style: (t) => ({ color: t.reason === "strength" ? "var(--positive)" : "var(--muted)" }) },
+    { h: cum ? "Cum RSI" : "RSI", cell: (t) => t.rsi, style: () => ({ color: "var(--muted)" }) },
     { h: "Buy", cell: (t) => (fut ? t.fut_buy ?? "—" : t.buy) },
     lot.qty,
     { h: "Sell", cell: (t) => (fut ? t.fut_sell ?? "—" : t.sell) },
@@ -190,6 +195,14 @@ export default function V2PaperConnors({ params, version = 0, book = "rsi2" }) {
     <div className="mt-4 flex flex-col gap-4">
       {chart.dialog}
       <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
+        <Field label="Setup" hint="Fixed for this book: in a stock above its 200-day average">
+          <span className="inline-block rounded-md border px-3 py-1.5 text-sm font-medium" style={{ borderColor: "var(--border)", background: "var(--surface)" }}>
+            {book === "cum" ? "Cumulative RSI(2) < 35" : "RSI(2) < 10"}
+          </span>
+        </Field>
+        <Field label="Exit" hint="Read by the 15:15 run, from the next run (open positions too): sold on the 5th trading day, or on strength (the first 15:15 the 2-day RSI is above 65, the 5th day at the latest)">
+          <Segmented label="Exit" options={EXITS.map(([v, t]) => [v, t, saving])} value={exit || data?.exit || (book === "cum" ? "strength" : "hold")} onChange={onExit} />
+        </Field>
         <Field label="Prices" hint="Each trade is recorded at both the stock's and its future's price at the same moment (the future expiring at least 10 days out, so a hold never crosses expiry).">
           <Segmented label="Prices" options={PRICES} value={prices} onChange={setPrices} />
         </Field>
@@ -203,9 +216,8 @@ export default function V2PaperConnors({ params, version = 0, book = "rsi2" }) {
         <>
           <StatusLine>
             Recorded at 15:15 each trading day:{" "}
-            {strength
-              ? `sell positions whose 2-day RSI is above ${data.exit_rsi} (or on their ${data.hold}th trading day), then buy the lowest cumulative RSI(2) signals below 35`
-              : `sell positions on their ${data.hold}th trading day, then buy the most oversold signals`}
+            {strength ? `sell positions whose 2-day RSI is above ${data.exit_rsi} (or on their ${data.hold}th trading day)` : `sell positions on their ${data.hold}th trading day`}
+            {cum ? ", then buy the lowest cumulative RSI(2) signals below 35 " : ", then buy the most oversold signals (2-day RSI below 10) "}
             into the free slots (at most {maxOpen} open, {UNIVERSES[data.universe] || data.universe}, from the next run) · one lot each · backtest {data.backtest_variant} · costs {data.summary.cost_per_side_bps} bps a side ·
             nothing places orders
           </StatusLine>

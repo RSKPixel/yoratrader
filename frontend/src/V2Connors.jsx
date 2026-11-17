@@ -10,9 +10,6 @@ import { SLIPPAGE, useBacktest } from "./V2BuyOnGap";
 
 const SETUPS = [
   ["rsi2", "RSI(2) < 10 (book)"],
-  ["low10", "10-day low"],
-  ["down3", "3 down days"],
-  ["every", "No threshold"],
   ["cumrsi2", "Cumulative RSI(2) < 35"],
 ];
 const HOLDS = [
@@ -45,7 +42,9 @@ const TAKES = [
 ];
 
 export default function V2Connors({ params }) {
-  const [setup, setSetup] = useSetting("bt.connors.setup", "rsi2");
+  const [savedSetup, setSetup] = useSetting("bt.connors.setup", "rsi2");
+  // only the two book setups (more would be curve fitting); an older saved choice falls back to RSI(2)
+  const setup = SETUPS.some(([k]) => k === savedSetup) ? savedSetup : "rsi2";
   const [hold, setHold] = useSetting("bt.connors.hold", "5d");
   const [timing, setTiming] = useSetting("bt.connors.timing", "close");
   const [stop, setStop] = useSetting("bt.connors.stop", "none");
@@ -91,7 +90,7 @@ export default function V2Connors({ params }) {
   return (
     <div className="mt-4 flex flex-col gap-4">
       <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
-        <Field label="Setup" hint="In a stock above its 200-day average. No threshold: the day's lowest RSIs whatever their level (the control).">
+        <Field label="Setup" hint="In a stock above its 200-day average. RSI(2): Connors & Sen's book; cumulative RSI(2): Connors & Alvarez (Short Term Trading Strategies That Work), today's + yesterday's 2-day RSI.">
           <Segmented label="Setup" options={SETUPS} value={setup} onChange={setSetup} />
         </Field>
         <Field label="Hold" hint="Sold this many trading days after the buy (5 = the book's week), or on strength: at the first close the 2-day RSI is above 65 (5 days at most)">

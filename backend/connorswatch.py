@@ -1,11 +1,14 @@
 """Short-term mean reversion paper trading (Connors), two books side by side, recorded at the same
 15:15 by gapwatch's production scheduler (record()):
 
-- "rsi2" (the backtest page's book): 2-day RSI below 10 in a stock above its 200-day average, sold on
-  its 5th trading day. Tables connors_paper / connors_paper_days.
+- "rsi2" (the backtest page's book): 2-day RSI below 10 in a stock above its 200-day average.
+  Tables connors_paper / connors_paper_days.
 - "cum" (Connors & Alvarez's cumulative RSI): today's + yesterday's 2-day RSI below 35 above the
-  200-day average; sold on strength, at the first 15:15 its 2-day RSI is above 65, or on the 5th
-  trading day at the latest. Tables connors_paper_cum / connors_paper_cum_days.
+  200-day average. Tables connors_paper_cum / connors_paper_cum_days.
+
+Each book's exit is a setting (exit_mode, from its paper page): sold on the 5th trading day ("hold",
+rsi2's default), or on strength, at the first 15:15 its 2-day RSI is above 65, the 5th trading day at
+the latest ("strength", cum's default).
 
 Each book has its own universe (F&O stocks or Nifty 50) and max open (1-10, set from its paper page,
 read at each run); equal capital each, no stop. Each trade stores the slot count it was bought under,
@@ -40,13 +43,15 @@ MAX_OPEN, HOLD = 3, 5  # MAX_OPEN: the default; max_open() is what the scheduler
 MAX_OPEN_LIMIT = 10
 UNIVERSES = connors.DATASETS  # "fno" (F&O stocks, the default) or "stocks" (Nifty 50, all in F&O)
 BOOKS = {
-    "rsi2": {"label": "RSI(2) below 10, hold 5", "trades": "connors_paper", "days": "connors_paper_days",
-             "max_key": "CONNORS_PAPER_MAX_OPEN", "uni_key": "CONNORS_PAPER_UNIVERSE", "exit": "hold", "max_days": HOLD,
-             "variant": "rsi2-5d-max{n}-close"},
-    "cum": {"label": "Cumulative RSI(2) below 35, out on strength", "trades": "connors_paper_cum", "days": "connors_paper_cum_days",
-            "max_key": "CONNORS_PAPER_CUM_MAX_OPEN", "uni_key": "CONNORS_PAPER_CUM_UNIVERSE", "exit": "strength",
-            "max_days": connors.STRENGTH_MAX_DAYS, "variant": "cumrsi2-0d-max{n}-close"},
+    "rsi2": {"label": "RSI(2) below 10", "setup": "rsi2", "trades": "connors_paper", "days": "connors_paper_days",
+             "max_key": "CONNORS_PAPER_MAX_OPEN", "uni_key": "CONNORS_PAPER_UNIVERSE", "exit_key": "CONNORS_PAPER_EXIT", "exit": "hold"},
+    "cum": {"label": "Cumulative RSI(2) below 35", "setup": "cumrsi2", "trades": "connors_paper_cum", "days": "connors_paper_cum_days",
+            "max_key": "CONNORS_PAPER_CUM_MAX_OPEN", "uni_key": "CONNORS_PAPER_CUM_UNIVERSE", "exit_key": "CONNORS_PAPER_CUM_EXIT", "exit": "strength"},
 }
+# The setup is fixed per book; the exit is a setting (each book's "exit" above is its default):
+# "hold": sold on the 5th trading day; "strength": at the first 15:15 the 2-day RSI is above 65, the 5th day at the latest.
+EXITS = ("hold", "strength")
+MAX_DAYS = HOLD  # both exits: out on the 5th trading day at the latest (connors.STRENGTH_MAX_DAYS is also 5)
 MAX_OPEN_KEY = BOOKS["rsi2"]["max_key"]
 UNIVERSE_KEY = BOOKS["rsi2"]["uni_key"]
 
@@ -86,8 +91,21 @@ def set_max_open(n, book="rsi2"):
     return n
 
 
+def exit_mode(book="rsi2"):
+    b = _book(book)
+    e = db.get_settings([b["exit_key"]]).get(b["exit_key"], b["exit"])
+    return e if e in EXITS else b["exit"]
+
+
+def set_exit_mode(e, book="rsi2"):
+    if e not in EXITS:
+        raise ValueError(f"Exit must be one of {', '.join(EXITS)}.")
+    db.set_settings({_book(book)["exit_key"]: e})
+    return e
+
+
 def backtest_variant(n, book="rsi2"):
-    return _book(book)["variant"].format(n=n)
+    return f"{_book(book)['setup']}-{'0d' if exit_mode(book) == 'strength' else '5d'}-max{n}-close"
 
 RECORD_AT, RECORD_UNTIL = clock(15, 15), clock(15, 30)  # the scheduler wakes at hh:mm:01: 15:15:01
 MIN_EXPIRY_DAYS = 10
@@ -210,12 +228,12 @@ def _record_book(book, kite, today, stamp, prices, live, uni, futures):
     for s, d, f in open_rows:
         if s not in prices:
             continue
-        if age[(s, d)] >= b["max_days"]:
+        if age[(s, d)] >= MAX_DAYS:
             to_sell.append((s, d, f, "time"))
-        elif b["exit"] == "strength" and rsi_now.get(s) is not None and rsi_now[s] > connors.EXIT_RSI:
+        elif exit_mode(book) == "strength" and rsi_now.get(s) is not None and rsi_now[s] > connors.EXIT_RSI:
             to_sell.append((s, d, f, "strength"))
     held = {s for s, _, _ in open_rows} - {s for s, _, _, _ in to_sell}
-    if b["exit"] == "strength":  # the cumulative-RSI book: today's + yesterday's 2-day RSI below 35, lowest first
+    if b["setup"] == "cumrsi2":  # the cumulative-RSI book: today's + yesterday's 2-day RSI below 35, lowest first
         signals = sorted((x for x in live["stocks"] if x["signal_cum"] and x["symbol"] not in held), key=lambda x: x["cum"])
         score = "cum"
         n_signals = sum(x["signal_cum"] for x in live["stocks"])
@@ -269,7 +287,7 @@ def watchlist(book="rsi2"):
     now = gapwatch._now()
     today = now.date()
     uni = universe(book)
-    cum = b["exit"] == "strength"
+    cum = b["setup"] == "cumrsi2"
     out = {"book": book, "universe": uni, "at": now.strftime("%H:%M:%S"), "stocks": [], "rsi_max": connors.RSI_MAX,
            "cum_max": connors.CUM_RSI_MAX, "exit_rsi": connors.EXIT_RSI, "setup": "cumrsi2" if cum else "rsi2", "sma_days": connors.SMA_DAYS}
     if not kite_auth.status().get("connected"):
@@ -378,7 +396,7 @@ def paper(slippage=0.0002, book="rsi2"):
                "entry_at": f"{buy_day.isoformat()} {buy_at.astimezone(backtest.IST).strftime('%H:%M:%S')}",
                "rsi": round(rsi, 1), "buy": round(buy, 2), "fut": fut, "fut_buy": round(fut_buy, 2) if fut_buy else None}
         if sell_day is None:
-            row["day_of_hold"] = min(open_days[(symbol, buy_day)], b["max_days"])
+            row["day_of_hold"] = min(open_days[(symbol, buy_day)], MAX_DAYS)
             out_open.append(row)
             continue
         gross = sell / buy - 1
@@ -402,7 +420,7 @@ def paper(slippage=0.0002, book="rsi2"):
                "fut_book_net_pct": round(sum(t["fut_net_pct"] / t["slots"] for t in out_closed if "fut_net_pct" in t), 2) if fnets else None,
                "cost_per_side_bps": round(10000 * cost, 2)}
     return {"open": out_open, "closed": out_closed, "summary": summary, "max_open": n, "max_open_limit": MAX_OPEN_LIMIT,
-            "hold": b["max_days"], "exit": b["exit"], "exit_rsi": connors.EXIT_RSI, "book": book, "book_label": b["label"],
+            "hold": MAX_DAYS, "exit": exit_mode(book), "setup": b["setup"], "exit_rsi": connors.EXIT_RSI, "book": book, "book_label": b["label"],
             "universe": universe(book), "universes": list(UNIVERSES), "lots": lots, "ltp_at": ltp_at,
             "backtest_variant": backtest_variant(n, book),
             "days": [{"day": d.isoformat(), "recorded_at": r.astimezone(backtest.IST).strftime("%H:%M:%S"), "rankable": rk,

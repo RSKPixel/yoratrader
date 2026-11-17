@@ -27,7 +27,7 @@ export const PAPER_GROUPS = [
       {
         id: "cumulative-rsi",
         short: "CR",
-        label: "Cumulative RSI(2) · exit on strength",
+        label: "Cumulative RSI(2)",
         style: "Positional",
         live: "/api/connors/paper",
         liveQuery: "?book=cum",
@@ -126,7 +126,17 @@ export default function V2Paper({ model, onSelect }) {
         {m.id === "buy-on-gap" && <V2PaperGap params={modelParams} />}
         {m.id === "xs-mean-reversion" && <V2PaperXsmr params={modelParams} />}
         {m.id === "oops" && <V2PaperOops params={modelParams} stop={ls?.stop} onStop={(stop) => liveSettings.save("stop", { stop })} saving={liveSettings.saving} />}
-        {m.book && <V2PaperConnors key={m.book} book={m.book} params={modelParams} version={liveSettings.version} />}
+        {m.book && (
+          <V2PaperConnors
+            key={m.book}
+            book={m.book}
+            params={modelParams}
+            version={liveSettings.version}
+            exit={ls?.exit}
+            onExit={(exit) => liveSettings.save("exit", { exit })}
+            saving={liveSettings.saving}
+          />
+        )}
       </section>
     </div>
   );

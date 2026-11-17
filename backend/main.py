@@ -1364,7 +1364,22 @@ def connors_paper_settings(book: str = Query("rsi2")):
     """A book's live settings, read by the 15:15 run: universe and max open."""
     _connors_book(book)
     return {"status": "success", "universe": connorswatch.universe(book), "universes": list(connorswatch.UNIVERSES),
-            "max_open": connorswatch.max_open(book), "max_open_limit": connorswatch.MAX_OPEN_LIMIT}
+            "max_open": connorswatch.max_open(book), "max_open_limit": connorswatch.MAX_OPEN_LIMIT,
+            "exit": connorswatch.exit_mode(book), "exits": list(connorswatch.EXITS), "setup": connorswatch.BOOKS[book]["setup"]}
+
+
+class ConnorsExitRequest(BaseModel):
+    exit: str
+
+
+@app.post("/api/connors/paper/exit")
+def connors_paper_exit(req: ConnorsExitRequest, book: str = Query("rsi2")):
+    """A book's exit for the 15:15 run (from the next run, open positions included): 5 days or on strength."""
+    _connors_book(book)
+    try:
+        return {"status": "success", "exit": connorswatch.set_exit_mode(req.exit, book)}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 class ConnorsMaxOpenRequest(BaseModel):

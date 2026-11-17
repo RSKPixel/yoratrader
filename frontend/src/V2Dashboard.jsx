@@ -249,7 +249,7 @@ function Paper({ p, today }) {
       )}
       {shown("cumulative-rsi") && (
       <PaperCard
-        title="Cumulative RSI(2) · exit on strength"
+        title="Cumulative RSI(2)"
         href="/v2/paper/cumulative-rsi"
         style="Positional"
         error={cc.error}
