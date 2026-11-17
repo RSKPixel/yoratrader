@@ -71,7 +71,7 @@ function CapitalInput({ value, onChange }) {
 function BookStepper({ value, onChange }) {
   const btn = "grid h-8 w-8 place-items-center text-base transition-colors hover:bg-[var(--surface)] disabled:opacity-40";
   return (
-    <div className="flex items-center overflow-hidden rounded-md border" style={inputStyle}>
+    <div className="inline-flex items-center self-start overflow-hidden rounded-md border" style={inputStyle}>
       <button type="button" className={btn} onClick={() => onChange(Math.max(1, value - 1))} disabled={value <= 1} aria-label="Fewer positions">
         −
       </button>
