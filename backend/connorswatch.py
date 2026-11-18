@@ -22,7 +22,7 @@ buy), bought and sold at the same moment. Nothing here places orders.
 """
 
 import time
-from datetime import timedelta
+from datetime import datetime, timedelta
 from datetime import time as clock
 
 import pandas as pd
@@ -504,13 +504,18 @@ def decide(force=False):
     return {"decided": bool(out), **out}
 
 
+PREOPEN_FILL_FROM = clock(9, 9)  # the pre-open call auction (orders 09:00-09:08) has matched: its price is the open
+PREOPEN_STAMP = clock(9, 8)
+
+
 def execute_orders():
-    """The next session's open (09:15:01 on): fill every pending order at the opening price (the share's, and the
+    """The next session's pre-open (from 09:09; orders go in 09:00-09:08 and fill at the auction price, the
+    day's open; stamped 09:08): fill every pending order at the opening price (the share's, and the
     future's: the trade's own for a sale, the nearest expiring at least 10 days on for a buy). An order whose
     instrument hasn't traded yet waits for the next minute."""
     now = gapwatch._now()
     today = now.date()
-    if today.weekday() >= 5 or now.time() < gapwatch.OPEN_AT:
+    if today.weekday() >= 5 or now.time() < PREOPEN_FILL_FROM:
         return {"filled": 0}
     pending = {}
     with connect() as conn, conn.cursor() as cursor:
@@ -542,7 +547,8 @@ def execute_orders():
             ltt = x.get("last_trade_time")
             o = (x.get("ohlc") or {}).get("open")
             return float(o) if o and ltt and ltt.date() == today else None
-        stamp = gapwatch._now()
+        stamp = gapwatch.IST.localize(datetime.combine(today, PREOPEN_STAMP)) if hasattr(gapwatch.IST, "localize") \
+            else datetime.combine(today, PREOPEN_STAMP, tzinfo=gapwatch.IST)  # a pre-open order: in by 09:08, filled at the open
         on = disaster(book) == "on"
         with connect() as conn, conn.cursor() as cursor:
             for day, s_, action, rsi, reason, priced, slots, buy_day in rows:

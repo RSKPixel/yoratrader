@@ -477,7 +477,7 @@ def _tick():
         result = connorswatch.record()
         if result.get("recorded"):
             print("Short-term mean reversion paper: recorded", result)
-    if OPEN_AT <= t < clock(15, 30):  # next-open books: yesterday's after-close orders, at the open
+    if connorswatch.PREOPEN_FILL_FROM <= t < clock(15, 30):  # sales queued at the close: the pre-open auction (open) price
         result = connorswatch.execute_orders()
         if result.get("filled"):
             print("Short-term mean reversion paper: filled at the open", result)
