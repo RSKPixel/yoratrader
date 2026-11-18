@@ -62,6 +62,8 @@ def _expiries(days):
         wd = 1 if last >= pd.Timestamp("2025-09-01") else 3
         while last.dayofweek != wd:
             last -= pd.Timedelta(days=1)
+        if last > days[-1]:  # this month's expiry hasn't come yet (the data ends before it)
+            continue
         i = days.searchsorted(last, side="right") - 1
         if i >= 0 and days[i].to_period("M") == p:
             out.add(days[i])
