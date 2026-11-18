@@ -5,7 +5,7 @@ import V2CandleChart from "./V2CandleChart";
 import V2PnlChart from "./V2PnlChart";
 import { Field, formatRs, Segmented } from "./V2Controls";
 import { tone, AT_COLUMNS } from "./V2BacktestView";
-import { SLIPPAGE_DEFAULT, SLIPPAGE, useBacktest, useLiveRefresh } from "./V2BuyOnGap";
+import { SLIPPAGE_DEFAULT, useBacktest, useLiveRefresh } from "./V2BuyOnGap";
 import { UNIVERSES } from "./V2BacktestParams";
 import { LotCards, lotColumns, lotMoney, netBoth, Panel, usePaperChart, PositionsTable } from "./V2PaperView";
 
@@ -117,7 +117,7 @@ function Candidates({ live, book }) {
 }
 
 export default function V2PaperConnors({ params, version = 0, book = "rsi2", exit, onExit, price, onPrice, tradeAt, onTradeAt, disaster, onDisaster, saving }) {
-  const [slippage, setSlippage] = useSetting(book === "rsi2" ? "paper.connors.slippage" : `paper.connors.${book}.slippage`, SLIPPAGE_DEFAULT.connors);
+  const slippage = SLIPPAGE_DEFAULT.connors; // fixed per model (no control on paper: paper measures slippage, it doesn't tune it)
   const live = useLiveRefresh();
   const { data, error, loading } = useBacktest(`/api/connors/paper?slippage=${slippage}&v=${version}&book=${book}`, { refreshMs: live });
   const money = useMemo(() => lotMoney(params.show), [params.show]);
@@ -211,9 +211,6 @@ export default function V2PaperConnors({ params, version = 0, book = "rsi2", exi
         <DisasterStop value={disaster || data?.disaster || "off"} onChange={onDisaster} hits={null} />
         <Field label="Exit" hint="Read by the 15:15 run, from the next run (open positions too): sold on the 5th trading day, or on strength (the first 15:15 the 2-day RSI is above 65, the 5th day at the latest)">
           <Segmented label="Exit" options={EXITS.map(([v, t]) => [v, t, saving])} value={exit || data?.exit || (book === "cum" ? "strength" : "hold")} onChange={onExit} />
-        </Field>
-        <Field label="Slippage" hint="Per side, on top of NSE charges">
-          <Segmented label="Slippage" options={SLIPPAGE} value={slippage} onChange={setSlippage} />
         </Field>
         {loading && <span className="pb-1.5 text-xs" style={{ color: "var(--faint)" }}>Loading…</span>}
       </div>

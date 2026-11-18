@@ -18,7 +18,8 @@ import xsmr
 from db import connect
 
 RECORD_AT, RECORD_UNTIL = clock(15, 15), clock(15, 30)
-SLIPPAGE = 0.0002
+from slip import SLIPPAGE as _SL
+SLIPPAGE = _SL["tom"]
 
 
 def _ensure_tables(cursor):

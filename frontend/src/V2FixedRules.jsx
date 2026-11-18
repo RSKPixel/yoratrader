@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { SLIPPAGE_DEFAULT } from "./V2BuyOnGap";
 // The rules each model keeps fixed (not settings on its page), shown under Instrument on every backtest
 // and paper page so the whole model is visible. Values mirror the backend constants (backtest.py GAP_*,
 // xsmr.py, connors.py, v2oops.py, v2ltlv.py, qmom.py, xsmom.py, pairs.py, v2tom.py, v2mix.py).
@@ -106,6 +107,8 @@ export default function FixedRules({ id, paper = false, label = "" }) {
     rules = [["Index", "Nifty (one lot of the nearest future expiring after the sale: no roll)"],
              ["Buy", "15:15 on the month's 5th-last trading day"], ["Sell", "15:15 on the next month's 3rd trading day"],
              ["Side", "long only"]];
+  const slip = { "buy-on-gap": "gap", "xs-mean-reversion": "xsmr", oops: "oops", "short-term-reversion": "connors", "cumulative-rsi": "connors", "turn-of-month": "tom" }[id];
+  if (paper && slip) rules = [...rules, ["Slippage", `${SLIPPAGE_DEFAULT[slip]}% a side (fixed; measured from the paper fills over time)`]];
   if (paper && (id === "short-term-reversion" || id === "cumulative-rsi")) // these paper books buy at the 15:15 run
     rules = rules.map(([k, v]) => (k === "Entry" ? [k, "at the close: 15:15 (the paper run)"] : [k, v]));
   return (

@@ -1,6 +1,6 @@
 import { Card, Panel, tone } from "./V2BacktestView";
 import { formatRs } from "./V2Controls";
-import { useBacktest, useLiveRefresh } from "./V2BuyOnGap";
+import { SLIPPAGE_DEFAULT, useBacktest, useLiveRefresh } from "./V2BuyOnGap";
 import { PositionsTable } from "./V2PaperView";
 import { InstrumentSlot } from "./V2SideNav";
 
@@ -12,7 +12,7 @@ const day = (iso) => (iso ? new Date(`${iso}T00:00:00`).toLocaleDateString("en-I
 
 export default function V2PaperTom() {
   const live = useLiveRefresh();
-  const { data, error } = useBacktest("/api/v2/paper/tom", { refreshMs: live });
+  const { data, error } = useBacktest(`/api/v2/paper/tom?slippage=${SLIPPAGE_DEFAULT.tom}`, { refreshMs: live });
   if (error) return <p className="mt-4 text-sm" style={{ color: "var(--negative)" }}>{error}</p>;
   if (!data) return <p className="mt-4 text-sm" style={{ color: "var(--faint)" }}>Loading…</p>;
   const s = data.summary, p = data.plan;

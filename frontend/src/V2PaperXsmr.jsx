@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useSetting } from "./settings";
 import { Field, formatRs, Segmented } from "./V2Controls";
 import { tone, AT_COLUMNS } from "./V2BacktestView";
-import { SLIPPAGE_DEFAULT, SLIPPAGE, useBacktest, useLiveRefresh } from "./V2BuyOnGap";
+import { SLIPPAGE_DEFAULT, useBacktest, useLiveRefresh } from "./V2BuyOnGap";
 import V2PnlChart from "./V2PnlChart";
 import { DayLog, LotCards, lotColumns, lotMoney, netBoth, usePaperChart, Panel, PositionsTable } from "./V2PaperView";
 import DisasterStop from "./V2Disaster";
@@ -150,7 +150,7 @@ export default function V2PaperXsmr({ params }) {
   const [pairs, setPairs] = useSetting("paper.xsmr.pairs", 5);
   const stop = "none"; // no stop, only the disaster stop
   const [disaster, setDisaster] = useSetting("paper.xsmr.disaster", "on");
-  const [slippage, setSlippage] = useSetting("paper.xsmr.slippage", SLIPPAGE_DEFAULT.xsmr);
+  const slippage = SLIPPAGE_DEFAULT.xsmr; // fixed per model (no control on paper: paper measures slippage, it doesn't tune it)
   const maxPairs = Math.min(5, Math.floor(params.maxOpen / 2));
   const k = params.maxOpen ? Math.max(1, Math.min(pairs, maxPairs || 1)) : 5;
   const pairOptions = [1, 2, 3, 4, 5].map((n) => [
@@ -193,9 +193,6 @@ export default function V2PaperXsmr({ params }) {
           <Segmented label="Pairs" options={pairOptions} value={params.maxOpen ? k : null} onChange={setPairs} />
         </Field>
         <DisasterStop value={disaster} onChange={setDisaster} />
-        <Field label="Slippage" hint="Per side, on top of NSE futures charges">
-          <Segmented label="Slippage" options={SLIPPAGE} value={slippage} onChange={setSlippage} />
-        </Field>
         {loading && <span className="pb-1.5 text-xs" style={{ color: "var(--faint)" }}>Loading…</span>}
       </div>
       {error && <p className="text-sm" style={{ color: "var(--negative)" }}>{error}</p>}

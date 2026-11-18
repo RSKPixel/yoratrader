@@ -3,7 +3,7 @@ import { useMemo, useState } from "react";
 import { useSetting } from "./settings";
 import { Field, formatRs, Segmented } from "./V2Controls";
 import { tone, AT_COLUMNS } from "./V2BacktestView";
-import { SLIPPAGE_DEFAULT, SLIPPAGE, useBacktest, useLiveRefresh } from "./V2BuyOnGap";
+import { SLIPPAGE_DEFAULT, useBacktest, useLiveRefresh } from "./V2BuyOnGap";
 import V2PnlChart from "./V2PnlChart";
 import { DayLog, LotCards, lotColumns, lotMoney, netBoth, usePaperChart, Panel, PositionsTable } from "./V2PaperView";
 import DisasterStop from "./V2Disaster";
@@ -24,7 +24,7 @@ export default function V2PaperGap({ params }) {
   const [side, setSide] = useSetting("paper.gap.side", "long");
   const stop = "none"; // no stop, only the disaster stop
   const [disaster, setDisaster] = useSetting("paper.gap.disaster", "on");
-  const [slippage, setSlippage] = useSetting("paper.gap.slippage", SLIPPAGE_DEFAULT.gap);
+  const slippage = SLIPPAGE_DEFAULT.gap; // fixed per model (no control on paper: paper measures slippage, it doesn't tune it)
   const live = useLiveRefresh();
   const { data, error, loading } = useBacktest(`/api/v2/paper/gap?side=${side}&stop=${stop}&slippage=${slippage}&max_open=${params.maxOpen}&disaster=${disaster}`, { refreshMs: live });
   const money = useMemo(() => lotMoney(params.show), [params.show]);
@@ -71,9 +71,6 @@ export default function V2PaperGap({ params }) {
           <Segmented label="Side" options={SIDES} value={side} onChange={setSide} />
         </Field>
         <DisasterStop value={disaster} onChange={setDisaster} />
-        <Field label="Slippage" hint="Per side, on top of NSE futures charges">
-          <Segmented label="Slippage" options={SLIPPAGE} value={slippage} onChange={setSlippage} />
-        </Field>
         {loading && <span className="pb-1.5 text-xs" style={{ color: "var(--faint)" }}>Loading…</span>}
       </div>
       {error && <p className="text-sm" style={{ color: "var(--negative)" }}>{error}</p>}
