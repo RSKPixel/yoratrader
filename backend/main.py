@@ -1337,6 +1337,16 @@ def v2_paper_open_positions(gap_max_open: int = Query(5, ge=0, le=v2gap.MAX_OPEN
         return {"status": "error", "message": str(error)}
 
 
+@app.get("/api/backups")
+def backups():
+    """The nightly database backup's last run (scripts/nightly_backup.sh, the server's crontab at 22:00): result,
+    the dumps kept on the server and on the T7 drive (7 each)."""
+    import json
+    import db as dbm
+    raw = dbm.get_settings(["BACKUP_STATUS"]).get("BACKUP_STATUS")
+    return {"status": "success", "backup": json.loads(raw) if raw else None, "schedule": "every night at 22:00", "keep": 7}
+
+
 @app.get("/api/v2/paper/tom")
 def v2_paper_tom(slippage: float = Query(0.02, ge=0, le=1)):
     """Turn of the month paper trading: the Nifty future, one lot, bought and sold at 15:15 on the calendar's days."""

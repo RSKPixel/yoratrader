@@ -3,13 +3,14 @@ import { useAuth } from "./AuthGate";
 import { inputStyle, Segmented } from "./V2Controls";
 import { KitePanel, useKiteStatus } from "./V2Kite";
 
-// v2 Settings: a dialog with three tabs. General (theme), Kite (connection, daily token, credentials),
-// Profile (user name, password; the user ID is fixed and can't be changed).
+// v2 Settings: a dialog with four tabs. General (theme), Kite (connection, daily token, credentials),
+// Profile (user name, password; the user ID is fixed and can't be changed), Backups (the nightly database backup).
 
 const TABS = [
   ["general", "General"],
   ["kite", "Kite"],
   ["profile", "Profile"],
+  ["backups", "Backups"],
 ];
 const button = "rounded-md border px-3 py-1.5 text-sm transition-colors hover:bg-[var(--surface-2)] disabled:opacity-40";
 const primary = { background: "var(--accent)", color: "var(--accent-ink)", borderColor: "var(--accent)" };
@@ -39,6 +40,63 @@ async function post(url, payload) {
   const body = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(body.detail || `Request failed (${response.status})`);
   return body;
+}
+
+const size = (b) => (b == null ? "—" : b >= 1e9 ? `${(b / 1e9).toFixed(2)} GB` : `${Math.round(b / 1e6)} MB`);
+
+// The nightly database backup (scripts/nightly_backup.sh, the server's crontab): its last run and the dumps kept
+function Backups() {
+  const [d, setD] = useState(null);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    fetch("/api/backups")
+      .then((r) => r.json())
+      .then((p) => (p.status === "success" ? setD(p) : setError(p.message || "Could not read the backups")))
+      .catch(() => setError("Could not reach the API"));
+  }, []);
+  if (error) return <p className="text-sm" style={{ color: "var(--negative)" }}>{error}</p>;
+  if (!d) return <p className="text-sm" style={{ color: "var(--faint)" }}>Loading…</p>;
+  const b = d.backup;
+  const list = (title, rows, dir) => (
+    <section className="rounded-lg border" style={{ borderColor: "var(--border)" }}>
+      <div className="flex items-baseline justify-between gap-2 border-b px-3 py-2 text-sm font-medium" style={{ borderColor: "var(--border)" }}>
+        {title}
+        <span className="truncate text-xs font-normal" style={{ color: "var(--faint)" }}>{dir}</span>
+      </div>
+      {rows.length ? (
+        rows.map((f) => (
+          <div key={f.name} className="flex justify-between gap-3 border-t px-3 py-1.5 text-sm tabular-nums first:border-t-0" style={{ borderColor: "var(--border)" }}>
+            <span>{f.at.replace("T", " ")}</span>
+            <span style={{ color: "var(--muted)" }}>{size(f.bytes)}</span>
+          </div>
+        ))
+      ) : (
+        <p className="px-3 py-2 text-sm" style={{ color: "var(--muted)" }}>None yet.</p>
+      )}
+    </section>
+  );
+  return (
+    <div className="flex flex-col gap-3">
+      <p className="text-sm" style={{ color: "var(--muted)" }}>
+        The whole database is backed up {d.schedule}, copied to the T7 drive, and the last {d.keep} days are kept in each place.
+      </p>
+      {!b ? (
+        <p className="text-sm" style={{ color: "var(--warning)" }}>No nightly backup has run yet.</p>
+      ) : (
+        <div className="rounded-lg border px-3 py-2 text-sm" style={{ borderColor: "var(--border)" }}>
+          <div className="flex items-center gap-2 font-medium" style={{ color: b.ok ? "var(--positive)" : "var(--negative)" }}>
+            <span className="h-2 w-2 rounded-full" style={{ background: b.ok ? "var(--positive)" : "var(--negative)" }} aria-hidden="true" />
+            Last backup {b.ok ? "succeeded" : "failed"} · {b.ran_at.replace("T", " ")}
+          </div>
+          <div className="mt-1 text-xs" style={{ color: "var(--muted)" }}>
+            {b.ok ? `${b.tables} tables · ${size(b.local?.[0]?.bytes)} · ${b.seconds}s · T7: ${b.t7}` : b.error}
+          </div>
+        </div>
+      )}
+      {b && list("On the server", b.local || [], b.local_dir)}
+      {b && list("On the T7 drive", b.t7_files || [], b.t7_dir)}
+    </div>
+  );
 }
 
 function General({ theme, onTheme }) {
@@ -212,6 +270,7 @@ export default function V2Settings({ theme, onTheme, onClose, initialTab = "gene
           {tab === "general" && <General theme={theme} onTheme={onTheme} />}
           {tab === "kite" && <KiteTab />}
           {tab === "profile" && <Profile />}
+          {tab === "backups" && <Backups />}
         </div>
       </div>
     </div>
