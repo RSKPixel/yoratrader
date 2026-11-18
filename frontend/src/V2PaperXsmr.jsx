@@ -149,7 +149,7 @@ function MetaPanel({ meta, today }) {
 export default function V2PaperXsmr({ params }) {
   const [pairs, setPairs] = useSetting("paper.xsmr.pairs", 5);
   const stop = "none"; // no stop, only the disaster stop
-  const [disaster, setDisaster] = useSetting("paper.xsmr.disaster", "on");
+  const [disaster, setDisaster] = useSetting("paper.xsmr.disaster", "off"); // as the backtest page: off by default
   const slippage = SLIPPAGE_DEFAULT.xsmr; // fixed per model (no control on paper: paper measures slippage, it doesn't tune it)
   const maxPairs = Math.min(5, Math.floor(params.maxOpen / 2));
   const k = params.maxOpen ? Math.max(1, Math.min(pairs, maxPairs || 1)) : 5;
@@ -191,6 +191,12 @@ export default function V2PaperXsmr({ params }) {
         <InstrumentSlot />
         <Field label="Pairs" hint="k long + k short of the recorded 5 + 5 (the furthest from the day's average move first); one lot each.">
           <Segmented label="Pairs" options={pairOptions} value={params.maxOpen ? k : null} onChange={setPairs} />
+        </Field>
+        <Field label="Entry" hint="Fixed, as in the backtest: the 09:15 opening price">
+          <Segmented label="Entry" options={[["0915", "09:15 open"]]} value="0915" onChange={() => {}} />
+        </Field>
+        <Field label="Exit at" hint="Fixed, as in the backtest: sold the same day at 15:15 (the close of the 15:00 candle)">
+          <Segmented label="Exit at" options={[["1515", "15:15 same day"]]} value="1515" onChange={() => {}} />
         </Field>
         <DisasterStop value={disaster} onChange={setDisaster} />
         {loading && <span className="pb-1.5 text-xs" style={{ color: "var(--faint)" }}>Loading…</span>}

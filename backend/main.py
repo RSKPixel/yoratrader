@@ -989,20 +989,21 @@ def v2_backtest_kbdt_month(month: str = Query(..., pattern=r"^\d{4}-\d{2}$"), da
         return {"status": "error", "message": str(error)}
 
 
-def _v2xsmr_args(dataset, version, entry, stop, max_open, pairs, slippage, disaster="off"):
+def _v2xsmr_args(dataset, version, entry, stop, max_open, pairs, slippage, disaster="off", exit="1515"):
     if dataset not in v2xsmr.DATASETS or version not in ("intraday", "daily") or entry not in v2xsmr.ENTRIES \
-            or stop not in ("none", "1sd") or disaster not in ("on", "off"):
-        raise HTTPException(status_code=400, detail="unknown dataset, version, entry, stop or disaster stop")
+            or stop not in ("none", "1sd") or disaster not in ("on", "off") or exit not in v2xsmr.EXITS:
+        raise HTTPException(status_code=400, detail="unknown dataset, version, entry, stop, disaster stop or exit")
     return dict(dataset=dataset, version=version, entry=entry, stop=stop, max_open=max_open, pairs=pairs, slippage=slippage / 100,
-                disaster=disaster)
+                disaster=disaster, exit=exit)
 
 
 @app.get("/api/v2/backtest/xsmr")
 def v2_backtest_xsmr(dataset: str = Query("fno"), version: str = Query("intraday"), entry: str = Query("0915"),
                      stop: str = Query("none"), max_open: int = Query(6, ge=0, le=v2xsmr.MAX_OPEN),
-                     pairs: int = Query(3, ge=1, le=5), slippage: float = Query(0.02, ge=0, le=1), disaster: str = Query("off")):
+                     pairs: int = Query(3, ge=1, le=5), slippage: float = Query(0.02, ge=0, le=1), disaster: str = Query("off"),
+                     exit: str = Query("1515")):
     """Cross-sectional mean reversion (v2 page): k long + k short within max open (or every stock), as fractions of capital."""
-    args = _v2xsmr_args(dataset, version, entry, stop, max_open, pairs, slippage, disaster)
+    args = _v2xsmr_args(dataset, version, entry, stop, max_open, pairs, slippage, disaster, exit)
     try:
         return {"status": "success", **v2xsmr.results(**args)}
     except Exception as error:
@@ -1014,8 +1015,8 @@ def v2_backtest_xsmr(dataset: str = Query("fno"), version: str = Query("intraday
 def v2_backtest_xsmr_month(month: str = Query(..., pattern=r"^\d{4}-\d{2}$"), dataset: str = Query("fno"),
                            version: str = Query("intraday"), entry: str = Query("0915"), stop: str = Query("none"),
                            max_open: int = Query(6, ge=0, le=v2xsmr.MAX_OPEN), pairs: int = Query(3, ge=1, le=5),
-                           slippage: float = Query(0.02, ge=0, le=1), disaster: str = Query("off")):
-    args = _v2xsmr_args(dataset, version, entry, stop, max_open, pairs, slippage, disaster)
+                           slippage: float = Query(0.02, ge=0, le=1), disaster: str = Query("off"), exit: str = Query("1515")):
+    args = _v2xsmr_args(dataset, version, entry, stop, max_open, pairs, slippage, disaster, exit)
     try:
         return {"status": "success", "trades": v2xsmr.month_trades(month, **args)}
     except Exception as error:

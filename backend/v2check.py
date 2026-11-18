@@ -77,9 +77,9 @@ def compare(gap_max_open=5, xsmr_max_open=10):
     # Cross-sectional mean reversion
     try:
         pairs = min(5, xsmr_max_open // 2) if xsmr_max_open else 5
-        x = v2paper.xsmr_(pairs, "none", xsmr_max_open, SL["xsmr"], "on")
+        x = v2paper.xsmr_(pairs, "none", xsmr_max_open, SL["xsmr"], "off")
         paper = [(d["day"], p["symbol"], p["net_pct"]) for d in x["days"] for p in d["picks"] if p["closed"]]
-        t, days = v2xsmr._sized("fno", "intraday", "0915", "none", xsmr_max_open, pairs, SL["xsmr"], "on")
+        t, days = v2xsmr._sized("fno", "intraday", "0915", "none", xsmr_max_open, pairs, SL["xsmr"], "off")
         bt = pd.DataFrame({"entry": pd.to_datetime(t["day"]), "symbol": t["symbol"], "net": t["net"]})
         rows.append(_row("xsmr", "Cross-sectional mean reversion", "/v2/paper/xs-mean-reversion", paper, bt, _last(pd.DatetimeIndex(days))))
     except Exception as error:

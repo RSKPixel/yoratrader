@@ -75,11 +75,28 @@ def futures_prices(dataset, version):
     return _cached(("prices", dataset), lambda: xsmr._prices(dataset))
 
 
-def _rows(dataset, version, entry, stop, top):
+EXITS = ("1515", "nextopen")
+
+
+def _next_open_exit(p, b):
+    """Held overnight: out at the next trading day's open. The overnight move is the next day's open against its own
+    previous close (for the futures, the new contract's after an expiry), applied to today's close, so a switch of
+    contract overnight isn't counted as a move."""
+    prev = p["prev_close"] if "prev_close" in p else p["day_close"].shift(1)
+    exit_ = p["day_close"] * (p["open915"].shift(-1) / prev.shift(-1))
+    pos = exit_ / b["entry"] - 1
+    pos = pos.where(pos.abs() <= xsmr.MAX_MOVE)
+    # a position whose next open isn't known yet (the latest day) or has no price isn't a trade yet
+    return {**b, "exit": exit_, "pos": pos, "w": b["w"].where(pos.notna(), 0.0)}
+
+
+def _rows(dataset, version, entry, stop, top, exit="1515"):
     """One row per stock and day held: weight, the position's return, and the share of capital traded."""
     def build():
         p = futures_prices(dataset, version)
         b = xsmr._book(p, _variant(version, entry, stop), top=top)
+        if exit == "nextopen" and version == "intraday":
+            b = _next_open_exit(p, b)
         live = b["n"] >= xsmr.MIN_STOCKS
         w = b["w"].mul(live.astype(float), axis=0)
         if version == "daily":
@@ -100,12 +117,12 @@ def _rows(dataset, version, entry, stop, top):
         frame = frame[frame["w"].notna() & (frame["w"] != 0)].reset_index(drop=True)  # held positions only
         days = w.index[live.to_numpy()]
         return frame, pd.DatetimeIndex(days)
-    return _cached(("rows", dataset, version, entry, stop, top), build)
+    return _cached(("rows", dataset, version, entry, stop, top, exit), build)
 
 
-def _sized(dataset, version, entry, stop, max_open, pairs, slippage, disaster="off"):
+def _sized(dataset, version, entry, stop, max_open, pairs, slippage, disaster="off", exit="1515"):
     k = per_side(max_open, pairs)
-    t, days = _rows(dataset, version, entry, stop, k)
+    t, days = _rows(dataset, version, entry, stop, k, exit)
     t = t.copy()
     if k:  # the stored book is fully invested (0.5 / k a position): scale to capital / max_open each
         scale = 2 * k / max(max_open, 2 * k)
@@ -135,8 +152,8 @@ def _sized(dataset, version, entry, stop, max_open, pairs, slippage, disaster="o
     return t, days
 
 
-def results(dataset="fno", version="intraday", entry="0915", stop="none", max_open=6, pairs=3, slippage=0.0002, disaster="off"):
-    t, days = _sized(dataset, version, entry, stop, max_open, pairs, slippage, disaster)
+def results(dataset="fno", version="intraday", entry="0915", stop="none", max_open=6, pairs=3, slippage=0.0002, disaster="off", exit="1515"):
+    t, days = _sized(dataset, version, entry, stop, max_open, pairs, slippage, disaster, exit)
     extra = {}
     if len(t):
         g = t.groupby("day")
@@ -155,8 +172,10 @@ def results(dataset="fno", version="intraday", entry="0915", stop="none", max_op
     return out
 
 
-def month_trades(month, dataset="fno", version="intraday", entry="0915", stop="none", max_open=6, pairs=3, slippage=0.0002, disaster="off"):
-    t, days = _sized(dataset, version, entry, stop, max_open, pairs, slippage, disaster)
+def month_trades(month, dataset="fno", version="intraday", entry="0915", stop="none", max_open=6, pairs=3, slippage=0.0002, disaster="off",
+                 exit="1515"):
+    t, days = _sized(dataset, version, entry, stop, max_open, pairs, slippage, disaster, exit)
+    next_day = dict(zip(days[:-1], days[1:]))  # next-open exit: sold the next trading day
     prev_day = dict(zip(days[1:], days[:-1]))  # daily version: bought at the previous day's 15:15
 
     def at(r):
@@ -164,6 +183,9 @@ def month_trades(month, dataset="fno", version="intraday", entry="0915", stop="n
         if version == "daily":
             p = prev_day.get(r.day)
             return f"{p.date().isoformat() if p is not None else d} 15:15", f"{d} 15:15"
+        if exit == "nextopen" and not r.stopped:
+            n = next_day.get(r.day)
+            return f"{d} {entry[:2]}:{entry[2:]}", f"{n.date().isoformat() if n is not None else d} 09:15 (open)"
         return f"{d} {entry[:2]}:{entry[2:]}", f"{d} {v2common.STOP_INTRADAY if r.stopped else '15:15'}"
     t = t[t["day"].dt.strftime("%Y-%m") == month].sort_values(["day", "book_net"], ascending=[True, False])
     return [{"day": r.day.date().isoformat(), "entry_at": at(r)[0], "exit_at": at(r)[1],

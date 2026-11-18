@@ -51,9 +51,9 @@ export function backtestRequest(m, values) {
                settings: `${u} · ${side === "long" ? "long" : "both sides"} · ${stop === "none" ? "no stop" : "1σ stop"} · max ${p.maxOpen}` };
     }
     case "xs-mean-reversion": {
-      const version = v("bt.xsmr.version", "intraday"), dis = v("bt.xsmr.disaster", "on"), n = k("bt.xsmr.pairs");
-      return { p, url: `/api/v2/backtest/xsmr?dataset=${p.universe}&version=${version}&entry=0915&stop=none&slippage=${v("bt.xsmr.slippage", SLIPPAGE_DEFAULT.xsmr)}&max_open=${p.maxOpen}&pairs=${n}&disaster=${dis}`,
-               settings: `${u} · ${version} · ${n} + ${n} · max ${p.maxOpen} · disaster stop ${dis}` };
+      const version = "intraday", dis = v("bt.xsmr.disaster", "off"), n = k("bt.xsmr.pairs"), ex = "1515";
+      return { p, url: `/api/v2/backtest/xsmr?dataset=${p.universe}&version=${version}&entry=0915&stop=none&slippage=${v("bt.xsmr.slippage", SLIPPAGE_DEFAULT.xsmr)}&max_open=${p.maxOpen}&pairs=${n}&disaster=${dis}&exit=${ex}`,
+               settings: `${u} · ${n} + ${n} · exit ${ex === "nextopen" ? "next open" : "15:15"} · max ${p.maxOpen} · disaster stop ${dis}` };
     }
     case "pairs": {
       const method = v("bt.pairs.method", "bollinger"), fill = v("bt.pairs.fill", "close"), n = k("bt.pairs.pairs");

@@ -11,20 +11,17 @@ import DisasterStop from "./V2Disaster";
 // at the open, short the ones that led. Capital = gross exposure (half long, half short); Max open N =
 // N/2 long + N/2 short; As per model = linear weights on every stock.
 
-const VERSIONS = [
-  ["intraday", "Intraday (book)"],
-  ["daily", "Daily"],
-];
 const STOPS = [
   ["none", "None (book)"],
   ["1sd", "1σ"],
 ];
 
 export default function V2Xsmr({ params }) {
-  const [version, setVersion] = useSetting("bt.xsmr.version", "intraday");
+  const version = "intraday"; // fixed: the book's intraday version (the daily version is no longer offered)
   const entry = "0915"; // the 09:15 auction price only (later entries lose most of the edge)
   const stop = "none"; // no stop, only the disaster stop
-  const [disaster, setDisaster] = useSetting("bt.xsmr.disaster", "on");
+  const [disaster, setDisaster] = useSetting("bt.xsmr.disaster", "off");
+  const exit = "1515"; // fixed: the book's same-day exit (the next-day-open test is no longer offered)
   const [slippage, setSlippage] = useSetting("bt.xsmr.slippage", SLIPPAGE_DEFAULT.xsmr);
   const [month, setMonth] = useState(null);
   const [pairs, setPairs] = useSetting("bt.xsmr.pairs", 3);
@@ -39,7 +36,7 @@ export default function V2Xsmr({ params }) {
     !params.maxOpen || 2 * n > params.maxOpen,
     !params.maxOpen ? "As per model: every stock (the book)" : 2 * n > params.maxOpen ? `Needs Max open ${2 * n} or more` : undefined,
   ]);
-  const query = `dataset=${params.universe}&version=${version}&entry=${entry}&stop=${stopAllowed ? stop : "none"}&slippage=${slippage}&max_open=${params.maxOpen}&pairs=${k || 1}&disaster=${disaster}`;
+  const query = `dataset=${params.universe}&version=${version}&entry=${entry}&stop=${stopAllowed ? stop : "none"}&slippage=${slippage}&max_open=${params.maxOpen}&pairs=${k || 1}&disaster=${disaster}&exit=${exit}`;
   const { data, error, loading } = useBacktest(`/api/v2/backtest/xsmr?${query}`);
   const value = useMemo(() => makeValue(params.show, params.capital), [params.show, params.capital]);
   const chartFormat = useCallback((v) => value(v, 1), [value]);
@@ -76,15 +73,13 @@ export default function V2Xsmr({ params }) {
         >
           <Segmented label="Pairs" options={pairOptions} value={k} onChange={setPairs} />
         </Field>
-        <Field label="Version" hint="Intraday: signal = previous close → open, held to 15:15 (the book). Daily: signal 15:15 → 15:15, held to the next 15:15.">
-          <Segmented label="Version" options={VERSIONS} value={version} onChange={setVersion} />
+        <Field label="Entry" hint="Fixed: the 09:15 opening auction price, as in the book">
+          <Segmented label="Entry" options={[["0915", "09:15 open"]]} value="0915" onChange={() => {}} />
         </Field>
-        {version === "intraday" && (
-          <Field label="Entry" hint="Fixed: the 09:15 auction price (the pre-open session), as in the book">
-            <span className="block py-1.5 text-sm">09:15 (open)</span>
-          </Field>
-        )}
-        {version === "intraday" && <DisasterStop value={disaster} onChange={setDisaster} hits={disaster === "on" ? data?.summary?.disaster_hits : null} />}
+        <Field label="Exit at" hint="Fixed, as in the book: sold the same day at 15:15 (the close of the 15:00 candle)">
+          <Segmented label="Exit at" options={[["1515", "15:15 same day"]]} value="1515" onChange={() => {}} />
+        </Field>
+        <DisasterStop value={disaster} onChange={setDisaster} hits={disaster === "on" ? data?.summary?.disaster_hits : null} />
         <Field label="Slippage" hint="Per side, on top of NSE futures charges">
           <Segmented label="Slippage" options={SLIPPAGE} value={slippage} onChange={setSlippage} />
         </Field>
@@ -114,7 +109,7 @@ export default function V2Xsmr({ params }) {
           url={`/api/v2/backtest/xsmr/month?month=${month}&${query}`}
           columns={columns}
           value={value}
-          note={version === "daily" ? "each day's book, 15:15 to the next 15:15" : `in at ${entry.slice(0, 2)}:${entry.slice(2)}, out at 15:15${stop === "1sd" && stopAllowed ? " or the stop" : ""}`}
+          note={version === "daily" ? "each day's book, 15:15 to the next 15:15" : `in at ${entry.slice(0, 2)}:${entry.slice(2)}, out ${exit === "nextopen" ? "at the next day's open" : "at 15:15"}${stop === "1sd" && stopAllowed ? " or the stop" : ""}`}
           onClose={closeMonth}
           groupByDay
         />
