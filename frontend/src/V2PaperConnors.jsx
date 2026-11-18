@@ -205,8 +205,8 @@ export default function V2PaperConnors({ params, version = 0, book = "rsi2", exi
             {book === "cum" ? "Cumulative RSI(2) < 35" : "RSI(2) < 10"}
           </span>
         </Field>
-        <Field label="Trade at" hint="Read by the runs, for new decisions. At close: the 15:15 run decides on the price then and trades at it (the closest live stand-in for the close). Next open: decided after the close on the official closes (from 16:15), and every buy and sale is done at the next session's open (09:15). Buy at close, sell at next open: the 15:15 run buys at the price then; each sale (on the exit chosen) is decided then and done at the next session's open.">
-          <Segmented label="Trade at" options={[["close", "At close", saving], ["nextopen", "Next open", saving], ["closeopen", "Buy at close, sell at next open", saving]]} value={tradeAt || data?.trade_at || "close"} onChange={onTradeAt} />
+        <Field label="Exit at" hint="Read by the 15:15 run. Entry is always at the close: the 15:15 run buys at the price then. The exit (5 days or on strength, as chosen) is decided at 15:15 and done then (At close) or at the next session's open (At next open).">
+          <Segmented label="Exit at" options={[["close", "At close", saving], ["closeopen", "At next open", saving]]} value={(tradeAt || data?.trade_at) === "closeopen" ? "closeopen" : "close"} onChange={onTradeAt} />
         </Field>
         <DisasterStop value={disaster || data?.disaster || "off"} onChange={onDisaster} hits={null} />
         <Field label="Exit" hint="Read by the 15:15 run, from the next run (open positions too): sold on the 5th trading day, or on strength (the first 15:15 the 2-day RSI is above 65, the 5th day at the latest)">

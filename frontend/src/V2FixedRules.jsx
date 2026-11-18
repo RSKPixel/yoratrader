@@ -8,7 +8,7 @@ const RSI_COMMON = [
   ["RSI", "Wilder's 2-day RSI"],
   ["Ranking", "most oversold first, into free slots"],
   ["Longest hold", "5 trading days"],
-  ["Entry / exit", "at the close (or 15:15, as chosen)"],
+  ["Entry", "at the close"],
   ["Data check", "90% of the last 200 closes; a daily move over 20% earns nothing"],
 ];
 
@@ -101,8 +101,8 @@ export default function FixedRules({ id, paper = false, label = "" }) {
   }, [open]);
   let rules = RULES[id];
   if (!rules) return null;
-  if (paper) // the paper books trade at the 15:15 run
-    rules = rules.map(([k, v]) => (k === "Entry / exit" ? [k, "15:15 (the paper run)"] : [k, v]));
+  if (paper && (id === "short-term-reversion" || id === "cumulative-rsi")) // these paper books buy at the 15:15 run
+    rules = rules.map(([k, v]) => (k === "Entry" ? [k, "at the close: 15:15 (the paper run)"] : [k, v]));
   return (
     <>
       <button
