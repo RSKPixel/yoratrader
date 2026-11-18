@@ -442,6 +442,12 @@ def _tick():
         return
     t = now.time()
     import xsmrwatch  # cross-sectional paper trading shares this scheduler (imported here: it imports gapwatch)
+    import ticklog  # the open, tick by tick (every current stock future, to 09:15:30): would real orders fill?
+
+    if ticklog.START_AT <= t < ticklog.UNTIL:
+        threading.Thread(target=ticklog.start, daemon=True, name="ticklog-start").start()
+    if clock(9, 16) <= t < clock(9, 18) and ticklog.status()["recording"]:
+        ticklog.stop()
     if clock(9, 14) <= t < OPEN_AT:  # work out the zones a minute early so 09:15:01 is one quote call (futures: Kite)
         try:
             futs = xsmrwatch._current_futures(kite_auth.trading_client(), now.date())
