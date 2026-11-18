@@ -1,3 +1,4 @@
+import { InstrumentSlot } from "./V2SideNav";
 import { useCallback, useMemo, useState } from "react";
 import { useSetting } from "./settings";
 import { Field, formatRs, Segmented } from "./V2Controls";
@@ -65,6 +66,7 @@ export default function V2Kbdt({ params }) {
   return (
     <div className="mt-4 flex flex-col gap-4">
       <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
+        <InstrumentSlot />
         <Field label="Exit" hint="Out at 15:15 on this trading day (entry day = day 1), unless the stop is hit first">
           <Segmented label="Exit" options={HOLDS} value={hold} onChange={setHold} />
         </Field>

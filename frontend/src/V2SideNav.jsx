@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { useSetting } from "./settings";
 import { STATUS, statusOf, useModelStatuses } from "./modelStatus";
+import { Field, Segmented } from "./V2Controls";
 
 // The v2 side nav, used by Backtesting and Paper trading: a rail of short codes. On wide screens,
 // hovering the rail slides the full list (grouped by source) out over the page, and moving the mouse
@@ -19,6 +20,87 @@ function useWide() {
     return () => m.removeEventListener("change", on);
   }, []);
   return wide;
+}
+
+// The prices a model's signal and results use, by model and universe (backtest and paper pages).
+// Futures: the near-month future's own prices; Spot: the stock's (cash market) prices; Index: the index's.
+// connors: the short-term mean reversion backtest's Spot / Futures choice ("cash" / "futures").
+export function instrumentOf(id, universe = "fno", paper = false, connors = "cash", price = "spot") {
+  const share = { text: "Spot", title: "Signal and results on the share's (cash market) prices" };
+  const fut = { text: "Futures", title: "Signal, fill and exit on the near-month future's prices" };
+  const index = { text: "Index", title: "Signal and results on the index's prices" };
+  switch (id) {
+    case "buy-on-gap":
+      return universe === "fno" ? fut : universe === "indices" ? index : share;
+    case "xs-mean-reversion":
+      return universe === "fno" ? { ...fut, title: `${fut.title} (the intraday versions; the daily version uses the share's 15:15 prices)` } : share;
+    case "oops":
+      return fut;
+    case "gap-momentum":
+    case "kbdt":
+      return universe === "indices" ? index : share;
+    case "turn-of-month":
+      return { text: "Index", title: "Signal on the index's closes; traded as the index future / call option" };
+    case "short-term-reversion":
+    case "cumulative-rsi":
+      if (paper)
+        return price === "futures"
+          ? { ...fut, title: "New buys: the signal and the result on the future's prices (each trade keeps the prices it was bought under)" }
+          : { ...share, title: "New buys: the signal and the result on the share's prices (each trade keeps the prices it was bought under)" };
+      return universe === "fno" && connors === "futures"
+        ? { ...fut, title: "Signal (RSI(2), the 200-day average) and fills on the near-month future's prices (2011 on), futures costs and rolls" }
+        : { ...share, title: "Signal and fills on the share's prices, delivery costs" };
+    default:
+      return share;
+  }
+}
+
+// The Instrument control on every backtest and paper page (the first control in the model's own settings row): Spot / Futures, with the one a model can't use
+// greyed out. The short-term mean reversion pages have their own (both work there), so none here.
+const FUTURES_ONLY = { oops: true, "xs-mean-reversion": "fno", "buy-on-gap": "fno" };
+export function InstrumentField({ id, universe = "fno" }) {
+  if (id === "short-term-reversion" || id === "cumulative-rsi") return null;
+  const f = FUTURES_ONLY[id];
+  const fut = f === true || (f && f === universe);
+  const i = instrumentOf(id, universe);
+  const spotNote = "This model trades the near-month future: its signal, fill and exit are the future's prices";
+  const futNote = f
+    ? "Futures prices exist only for today's F&O stocks: this universe uses the share's (or index's) prices"
+    : "No futures version: this model uses the share's (or index's) prices";
+  return (
+    <Field label="Instrument" hint={`${i.title}.`}>
+      <Segmented
+        label="Instrument"
+        options={[
+          ["spot", i.text === "Index" ? "Spot (index)" : "Spot", fut, fut ? spotNote : undefined],
+          ["futures", "Futures", !fut, !fut ? futNote : undefined],
+        ]}
+        value={fut ? "futures" : "spot"}
+        onChange={() => {}}
+      />
+    </Field>
+  );
+}
+
+// The page passes { id, universe } down; each model's settings row puts <InstrumentSlot /> first.
+export const InstrumentContext = createContext(null);
+export function InstrumentSlot() {
+  const v = useContext(InstrumentContext);
+  return v ? <InstrumentField {...v} /> : null;
+}
+
+export function InstrumentTag({ id, universe, paper, live, price }) {
+  const [connors] = useSetting("bt.connors.instrument", "cash"); // the backtest page's Spot / Futures choice (live: follow it)
+  const i = instrumentOf(id, universe, paper, live ? connors : "cash", price);
+  return (
+    <span
+      className="shrink-0 rounded border px-1.5 py-0.5 text-[0.625rem] font-medium uppercase tracking-[0.08em]"
+      style={{ borderColor: "var(--border)", color: i.text === "Futures" ? "var(--warning)" : "var(--muted)" }}
+      title={i.title}
+    >
+      {i.text}
+    </span>
+  );
 }
 
 export function StyleTag({ style, active }) {

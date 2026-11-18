@@ -1,3 +1,4 @@
+import { InstrumentSlot } from "./V2SideNav";
 import { useCallback, useMemo, useState } from "react";
 import { useSetting } from "./settings";
 import { Field, Segmented } from "./V2Controls";
@@ -45,6 +46,7 @@ export default function V2Tom({ params }) {
   return (
     <div className="mt-4 flex flex-col gap-4">
       <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
+        <InstrumentSlot />
         <Field label="Index" hint="Traded as the near-month future; tested on the index closes">
           <Segmented label="Index" options={INDICES} value={index} onChange={setIndex} />
         </Field>

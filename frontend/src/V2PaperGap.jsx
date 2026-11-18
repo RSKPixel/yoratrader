@@ -1,3 +1,4 @@
+import { InstrumentSlot } from "./V2SideNav";
 import { useMemo, useState } from "react";
 import { useSetting } from "./settings";
 import { Field, formatRs, Segmented } from "./V2Controls";
@@ -65,6 +66,7 @@ export default function V2PaperGap({ params }) {
     <div className="mt-4 flex flex-col gap-4">
       {chart.dialog}
       <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
+        <InstrumentSlot />
         <Field label="Side" hint="Long: buy gaps down (the book). Long & short: also short the mirror image.">
           <Segmented label="Side" options={SIDES} value={side} onChange={setSide} />
         </Field>
@@ -83,7 +85,7 @@ export default function V2PaperGap({ params }) {
               : data.market_open
               ? "Waiting for today's 09:15 open (the production scheduler records it)"
               : `Next session ${data.session} · picks are recorded from the 09:15 open on trading days`}
-            {data.daily_as_of ? ` · daily candles to ${data.daily_as_of}` : ""} · costs {data.cost_per_side_bps} bps a side · nothing places orders
+            {data.daily_as_of ? ` · futures daily candles to ${data.daily_as_of}` : ""} · costs {data.cost_per_side_bps} bps a side · nothing places orders
           </StatusLine>
           <LotCards s={{ ...data.summary, win_rate: data.summary.win_rate_lots, win_days: data.summary.win_days_lots }} money={money} />
           <Panel title={`Today · ${data.today}`} right={today ? `${today.status === "open" ? "open, live" : "closed"} · margin ${formatRs(today.margin_rs)} · net ${netBoth(today.net_rs, today.net_value_pct)}` : undefined}>
@@ -96,7 +98,7 @@ export default function V2PaperGap({ params }) {
           </Panel>
           <Panel title={`Watchlist for ${data.session}`} right={`${data.watchlist.length} stocks · a pick if it opens past its level and stays on the right side of its 20-day average`}>
             <div className="max-h-96 overflow-auto">
-              <PositionsTable rows={data.watchlist} columns={watchCols} minWidth={700} empty="No levels yet (daily candles refresh at 15:45)." />
+              <PositionsTable rows={data.watchlist} columns={watchCols} minWidth={700} empty="No levels yet (futures daily candles download at 15:50)." />
             </div>
           </Panel>
           <Panel title="Paper log" right="a row a day · click for its positions">

@@ -1,3 +1,4 @@
+import { InstrumentSlot } from "./V2SideNav";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSetting } from "./settings";
 import { Field, formatRs, Segmented } from "./V2Controls";
@@ -123,6 +124,7 @@ export default function V2BuyOnGap({ params, model = "gap" }) {
   return (
     <div className="mt-4 flex flex-col gap-4">
       <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
+        <InstrumentSlot />
         <Field
           label="Side"
           hint={mom ? "Long & short: buy opens above the previous high by 0.1σ, short opens below the previous low (the book)." : "Long: buy gaps down (the book). Long & short: also short the mirror image."}

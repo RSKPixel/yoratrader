@@ -62,10 +62,23 @@ def _variant(version, entry, stop):
     return f"intraday-{entry}" + ("-1sd" if stop == "1sd" and entry == "0915" else "")
 
 
+def on_futures(dataset, version):
+    """The F&O stocks' intraday book trades the near-month future: its signal, fill and exit are the
+    future's (futsig). The daily version (not paper traded) stays on the share's 15:15 prices."""
+    return dataset == "fno" and version == "intraday"
+
+
+def futures_prices(dataset, version):
+    if on_futures(dataset, version):
+        import futsig
+        return futsig.prices(dataset)
+    return _cached(("prices", dataset), lambda: xsmr._prices(dataset))
+
+
 def _rows(dataset, version, entry, stop, top):
     """One row per stock and day held: weight, the position's return, and the share of capital traded."""
     def build():
-        p = _cached(("prices", dataset), lambda: xsmr._prices(dataset))
+        p = futures_prices(dataset, version)
         b = xsmr._book(p, _variant(version, entry, stop), top=top)
         live = b["n"] >= xsmr.MIN_STOCKS
         w = b["w"].mul(live.astype(float), axis=0)
@@ -104,7 +117,11 @@ def _sized(dataset, version, entry, stop, max_open, pairs, slippage, disaster="o
     t["disaster"] = False
     if disaster == "on" and version == "intraday" and len(t):  # the 10% disaster stop (disaster.py)
         import disaster as ds
-        hit, level = ds.frame_hits(t)
+        if on_futures(dataset, version):
+            import futsig
+            hit, level = futsig.frame_hits(t, ds.PCT)
+        else:
+            hit, level = ds.frame_hits(t)
         t.loc[hit, "exit"] = level[hit]
         t.loc[hit, "ret_w"] = -size[hit] * ds.PCT / 100
         t.loc[hit, "stopped"] = True
@@ -134,6 +151,7 @@ def results(dataset="fno", version="intraday", entry="0915", stop="none", max_op
     out = v2common.build_results(t, days, slippage, extra)
     if out.get("summary"):  # "trades" here are stock-days; the book trades every day it's live
         out["summary"]["trades_label"] = "Positions"
+        out["summary"]["priced_on"] = "futures" if on_futures(dataset, version) else "share"
     return out
 
 

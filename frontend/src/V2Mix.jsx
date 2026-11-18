@@ -1,3 +1,4 @@
+import { InstrumentSlot } from "./V2SideNav";
 import { useCallback, useMemo, useState } from "react";
 import { useSetting } from "./settings";
 import { Field, Segmented } from "./V2Controls";
@@ -76,6 +77,7 @@ export default function V2Mix({ params }) {
   return (
     <div className="mt-4 flex flex-col gap-4">
       <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
+        <InstrumentSlot />
         <Field label="Mean reversion setup" hint="The short-term book: RSI(2) below 10 (Connors & Sen), or today's + yesterday's RSI(2) below 35 (Connors & Alvarez); above the 200-day average">
           <Segmented label="Mean reversion setup" options={SETUPS} value={setup} onChange={setSetup} />
         </Field>

@@ -75,6 +75,17 @@ def _lot_summary(days, lots):
             "margins_as_of": v2margin.as_of(lots)}
 
 
+def _ranges(ds, picks):
+    """The closed rows' day ranges for the disaster stop: the future's daily candle for a row traded on the
+    future, the share's for the older share rows."""
+    closed = [p for p in picks if p["status"] == "closed"]
+    day = lambda p: p["day"] if isinstance(p["day"], str) else p["day"].isoformat()
+    import futsig
+    out = ds.day_ranges([(p["symbol"], day(p)) for p in closed if not p.get("fut")])
+    fut = futsig.fut_ranges([(p["symbol"], day(p)) for p in closed if p.get("fut")])
+    return {**out, **fut} if fut else out
+
+
 def _summary(days):
     closed = [d for d in days if d["status"] == "closed"]
     nets = [d["net_pct"] for d in closed]
@@ -94,7 +105,7 @@ def gap(side="long", stop="none", max_open=5, slippage=0.0002, disaster="off"):
     cps = xsmr.cost_per_side(slippage)
     lots = v2margin.table()
     dpct = ds.PCT if disaster == "on" else None  # the 10% disaster stop (switch on the page)
-    ranges = ds.day_ranges([(p["symbol"], p["day"]) for p in data["picks"] if p["status"] == "closed"])
+    ranges = _ranges(ds, data["picks"])
     by_day = {}
     for p in data["picks"]:
         if side == "long" and p["side"] != "long":
@@ -117,7 +128,7 @@ def gap(side="long", stop="none", max_open=5, slippage=0.0002, disaster="off"):
             sign = 1 if p["side"] == "long" else -1
             ret = sign * (exit_px / p["entry"] - 1) if exit_px else None
             cost = (1 + (exit_px / p["entry"] if exit_px else 1)) * cps
-            rows.append({"symbol": p["symbol"], "side": p["side"], "rank": i + 1, "gap_pct": p["gap_pct"],
+            rows.append({"symbol": p["symbol"], "fut": p.get("fut"), "side": p["side"], "rank": i + 1, "gap_pct": p["gap_pct"],
                          "sigma_pct": p.get("sigma_pct"), "entry": p["entry"], "entry_live": p.get("entry_live"),
                          "live_at": p.get("live_at"), "stop": p["stop"], "exit": exit_px, "reason": reason, "closed": closed,
                          "weight_pct": round(100 * w, 3), "ret_pct": round(100 * ret, 3) if ret is not None else None,
@@ -168,7 +179,7 @@ def xsmr_(pairs=5, stop="none", max_open=10, slippage=0.0002, disaster="off"):
     data = xsmrwatch.paper(slippage, stop=stop == "1sd")
     cps = xsmr.cost_per_side(slippage)
     dpct = ds.PCT if disaster == "on" else None  # the 10% disaster stop (switch on the page)
-    ranges = ds.day_ranges([(p["symbol"], p["day"]) for p in data["positions"] if p["status"] == "closed"])
+    ranges = _ranges(ds, data["positions"])
     lots = v2margin.table()
     k = max(1, min(int(pairs or 1), xsmrwatch.PER_SIDE, (max_open // 2) if max_open else xsmrwatch.PER_SIDE))
     w = 1.0 / max_open if max_open else xsmrwatch.WEIGHT
@@ -190,7 +201,7 @@ def xsmr_(pairs=5, stop="none", max_open=10, slippage=0.0002, disaster="off"):
                 exit_px, reason = level, "disaster stop"
                 ret = round(100 * (1 if p["side"] == "long" else -1) * (level / p["entry"] - 1), 3)
             cost = (1 + (exit_px / p["entry"] if exit_px else 1)) * cps
-            rows.append({"symbol": p["symbol"], "side": p["side"], "rank": p["rank"], "signal_pct": p.get("signal_pct"),
+            rows.append({"symbol": p["symbol"], "fut": p.get("fut"), "side": p["side"], "rank": p["rank"], "signal_pct": p.get("signal_pct"),
                          "entry": p["entry"], "entry_live": p.get("entry_live"), "live_at": p.get("live_at"), "stop": p.get("stop"),
                          "exit": exit_px, "reason": reason,
                          "closed": p["status"] == "closed", "weight_pct": round(100 * w, 3),

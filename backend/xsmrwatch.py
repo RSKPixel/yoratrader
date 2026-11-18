@@ -60,6 +60,8 @@ def _ensure_tables(cursor):
         ALTER TABLE xsmr_paper ADD COLUMN IF NOT EXISTS stopped BOOLEAN;
         ALTER TABLE xsmr_paper ADD COLUMN IF NOT EXISTS ret_stop DOUBLE PRECISION;
         ALTER TABLE xsmr_paper ADD COLUMN IF NOT EXISTS ret_stop_live DOUBLE PRECISION;
+        -- the near-month future traded (from 19 Nov 2026: every price on the row is the future's; NULL: the share's)
+        ALTER TABLE xsmr_paper ADD COLUMN IF NOT EXISTS fut TEXT;
         CREATE TABLE IF NOT EXISTS xsmr_paper_days (
             day DATE PRIMARY KEY,
             recorded_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -71,21 +73,10 @@ def _ensure_tables(cursor):
 
 
 def _sigmas(symbols, today):
-    """1σ for the stop, as in the backtest: the standard deviation of the last 90 daily
-    close-to-close returns before today."""
-    with connect() as conn, conn.cursor() as cursor:
-        cursor.execute(
-            """
-            WITH r AS (
-              SELECT symbol, day, close / lag(close) OVER (PARTITION BY symbol ORDER BY day) - 1 AS ret
-              FROM bt_daily WHERE close > 0 AND symbol = ANY(%(s)s) AND day < %(d)s AND day >= %(d)s::date - 200
-            ), last AS (
-              SELECT symbol, ret, row_number() OVER (PARTITION BY symbol ORDER BY day DESC) AS n FROM r
-            )
-            SELECT symbol, CASE WHEN count(ret) = %(n)s THEN stddev_samp(ret) END
-            FROM last WHERE n <= %(n)s GROUP BY symbol
-            """, {"s": list(symbols), "d": today, "n": backtest.GAP_SD_DAYS})
-        return {s_: float(v) for s_, v in cursor.fetchall() if v is not None}
+    """1σ for the stop, as in the backtest: the standard deviation of the near-month future's last 90 daily
+    returns before today (futsig: the stored continuous futures candles, the share's return on roll days)."""
+    import futsig
+    return {s_: sd for s_, (sd, _) in futsig.paper_stats(list(symbols), today).items()}
 
 
 def record_open(force=False):
@@ -100,7 +91,9 @@ def record_open(force=False):
         if cursor.fetchone() and not force:
             return {"recorded": False, "reason": "already recorded"}
     kite = kite_auth.trading_client()
-    quotes = gapwatch._quotes(kite, gapwatch._symbols())
+    futs = _current_futures(kite, today)  # the book trades each stock's near-month future: its own open and previous close
+    by_fut = {fut: stock for stock, (fut, _) in futs.items()}
+    quotes = {by_fut[f]: q for f, q in gapwatch._fut_quotes(kite, list(by_fut)).items() if f in by_fut}
     snap = gapwatch._now()
     live_ok = snap.time() <= gapwatch.LIVE_FILL_BY
     stocks = []
@@ -132,11 +125,11 @@ def record_open(force=False):
     rows = [(today, s["symbol"], side, rank, s["prev"], s["open"], round(100 * s["signal"], 3),
              round(100 * (s["signal"] - mean), 3), s["live"] or None,
              snap.time().replace(microsecond=0) if s["live"] else None,
-             sigmas.get(s["symbol"]), stop_for(side, s)) for side, rank, s in picks]
+             sigmas.get(s["symbol"]), stop_for(side, s), futs[s["symbol"]][0]) for side, rank, s in picks]
     with connect() as conn, conn.cursor() as cursor:
         if rows:
             execute_values(cursor, "INSERT INTO xsmr_paper (day, symbol, side, rank, prev_close, entry, signal_pct, dev_pct, "
-                                   "entry_live, live_at, sigma, stop) VALUES %s ON CONFLICT DO NOTHING", rows)
+                                   "entry_live, live_at, sigma, stop, fut) VALUES %s ON CONFLICT DO NOTHING", rows)
         cursor.execute("INSERT INTO xsmr_paper_days (day, quoted, mean_signal_pct) VALUES (%s, %s, %s) ON CONFLICT (day) "
                        "DO UPDATE SET recorded_at = now(), quoted = EXCLUDED.quoted, mean_signal_pct = EXCLUDED.mean_signal_pct",
                        (today, len(stocks), round(100 * mean, 3) if mean is not None else None))
@@ -151,14 +144,14 @@ def finalize():
     with connect() as conn, conn.cursor() as cursor:
         _ensure_tables(cursor)
         conn.commit()
-        cursor.execute("SELECT day, symbol, side, entry, entry_live, stop FROM xsmr_paper WHERE status = 'open' ORDER BY day")
+        cursor.execute("SELECT day, symbol, side, entry, entry_live, stop, fut FROM xsmr_paper WHERE status = 'open' ORDER BY day")
         pending = [r for r in cursor.fetchall() if r[0] < now.date() or now.time() >= gapwatch.EXIT_AT]
     if not pending:
         return 0
     kite = kite_auth.trading_client()
     closed = 0
-    for day, symbol, side, entry, entry_live, stop in pending:
-        token = gapwatch._token(kite, symbol)
+    for day, symbol, side, entry, entry_live, stop, fut in pending:
+        token = gapwatch.instrument_token(kite, symbol, fut)
         if token is None:
             continue
         bars = kite.historical_data(token, from_date=datetime.combine(day, clock(9, 0)),
@@ -221,10 +214,11 @@ def paper(slippage=0.0002, stop=False):
     ltp_at = None
     if open_today:
         try:
-            quotes = kite_auth.trading_client().ltp([f"NSE:{r['symbol']}" for r in open_today])
+            key = lambda r: f"NFO:{r['fut']}" if r.get("fut") else f"NSE:{r['symbol']}"
+            quotes = kite_auth.trading_client().ltp([key(r) for r in open_today])
             ltp_at = now.strftime("%H:%M:%S")
             for r in open_today:
-                q = quotes.get(f"NSE:{r['symbol']}")
+                q = quotes.get(key(r))
                 if q:
                     sign = 1 if r["side"] == "long" else -1
                     r["ltp"] = float(q["last_price"])

@@ -1,3 +1,4 @@
+import { InstrumentSlot } from "./V2SideNav";
 import { useCallback, useMemo, useState } from "react";
 import { useSetting } from "./settings";
 import { Field, Segmented } from "./V2Controls";
@@ -46,9 +47,7 @@ export default function V2Ltlv({ params }) {
   return (
     <div className="mt-4 flex flex-col gap-4">
       <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
-        <Field label="Instrument" hint="Cash only: delivery (STT 0.1% each side, stamp duty, DP charge), no rolls. Positions are held for months, so futures would need a roll every month">
-          <span className="block py-1.5 text-sm">Cash (delivery)</span>
-        </Field>
+        <InstrumentSlot />
         <Field label="Trailing stop" hint="Sold at the close that ends this far under the highest close since the buy">
           <Segmented label="Trailing stop" options={TRAILS} value={trail} onChange={setTrail} />
         </Field>

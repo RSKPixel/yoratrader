@@ -71,6 +71,8 @@ def _ensure_tables(cursor):
         ALTER TABLE gap_paper ADD COLUMN IF NOT EXISTS entry_live DOUBLE PRECISION;
         ALTER TABLE gap_paper ADD COLUMN IF NOT EXISTS live_at TIME;
         ALTER TABLE gap_paper ADD COLUMN IF NOT EXISTS r_live DOUBLE PRECISION;
+        -- the near-month future traded (from 19 Nov 2026: every price on the row is the future's; NULL: the share's)
+        ALTER TABLE gap_paper ADD COLUMN IF NOT EXISTS fut TEXT;
         CREATE TABLE IF NOT EXISTS gap_paper_days (
             day DATE PRIMARY KEY,
             recorded_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -100,33 +102,28 @@ def next_session(now=None):
     return day
 
 
-def levels(session):
-    """Buy and sell zones for `session` from the daily candles before it, per F&O stock."""
+def levels(session, futs=None):
+    """Buy and sell zones for `session`, per F&O stock, at its near-month FUTURE's level (futsig): the
+    contract's previous low / high / close, and the 20-day average and 90-day σ of the stored continuous
+    futures candles up to the day before. futs: {stock: (future, token)} when Kite is at hand."""
+    import futsig
     symbols = _symbols()
-    with connect() as conn:
-        frame = pd.read_sql(
-            "SELECT symbol, day, open, high, low, close FROM ("
-            "  SELECT *, row_number() OVER (PARTITION BY symbol ORDER BY day DESC) AS rn"
-            "  FROM bt_daily WHERE symbol = ANY(%s) AND day < %s) t "
-            "WHERE rn <= %s ORDER BY symbol, day",
-            conn, params=[symbols, session, HISTORY_ROWS],
-        )
+    stats = futsig.paper_stats(symbols, session)
+    prevs = futsig.prev_candles(session, futs)
     out = []
-    for symbol, g in frame.groupby("symbol"):
-        if len(g) <= backtest.GAP_SD_DAYS:
+    for symbol in symbols:
+        if symbol not in stats or symbol not in prevs:
             continue
-        closes = g["close"].to_numpy(float)
-        sigma = float(pd.Series(closes[-(backtest.GAP_SD_DAYS + 1):]).pct_change().std())
-        ma = float(closes[-backtest.GAP_MA_DAYS:].mean())
-        prev = g.iloc[-1]
-        if not sigma or sigma <= 0:
+        sigma, ma = stats[symbol]
+        fut, low, high, close = prevs[symbol]
+        if not low or not high or not close:
             continue
-        buy_below = float(prev["low"]) * (1 - sigma)
-        sell_above = float(prev["high"]) * (1 + sigma)
-        close = float(prev["close"])
+        buy_below = float(low) * (1 - sigma)
+        sell_above = float(high) * (1 + sigma)
+        close = float(close)
         out.append({
-            "symbol": symbol, "as_of": prev["day"].isoformat(), "prev_close": round(close, 2),
-            "prev_low": round(float(prev["low"]), 2), "prev_high": round(float(prev["high"]), 2),
+            "symbol": symbol, "fut": fut, "prev_close": round(close, 2),
+            "prev_low": round(float(low), 2), "prev_high": round(float(high), 2),
             "ma20": round(ma, 2), "sigma_pct": round(sigma * 100, 2),
             # Buy zone: ma20 < open < buy_below. Sell zone: sell_above < open < ma20.
             "buy_below": round(buy_below, 2) if buy_below > ma else None,
@@ -136,6 +133,22 @@ def levels(session):
             "_sigma": sigma, "_ma": ma,
         })
     return out
+
+
+def _fut_quotes(kite, futs):
+    """{future: quote} for near-month future tradingsymbols."""
+    quotes, keys = {}, [f"NFO:{f}" for f in futs]
+    for i in range(0, len(keys), 400):
+        quotes.update(kite.quote(keys[i:i + 400]))
+    return {k.split(":", 1)[1]: v for k, v in quotes.items()}
+
+
+def instrument_token(kite, symbol, fut=None):
+    """The token of the row's instrument: its future when it has one, else the NSE share."""
+    if fut:
+        import v2dashboard
+        return v2dashboard._instrument_token(kite, f"NFO:{fut}")
+    return _token(kite, symbol)
 
 
 def _quotes(kite, symbols):
@@ -167,14 +180,19 @@ def record_open(force=False):
         if _is_recorded(cursor, today) and not force:
             return {"recorded": False, "reason": "already recorded"}
     cached = _state.get("zones")
-    zones = cached[1] if cached and cached[0] == today else [z for z in levels(today) if z["buy_below"] or z["sell_above"]]
     kite = kite_auth.trading_client()
-    quotes = _quotes(kite, [z["symbol"] for z in zones]) if zones else {}
+    import xsmrwatch
+    futs = xsmrwatch._current_futures(kite, today)
+    every = cached[1] if cached and cached[0] == today else levels(today, futs)
+    zones = [dict(z) for z in every if (z["buy_below"] or z["sell_above"]) and z["symbol"] in futs]
+    for z in zones:
+        z["fut"] = futs[z["symbol"]][0]
+    quotes = _fut_quotes(kite, [z["fut"] for z in zones]) if zones else {}
     snap = _now()
     live_ok = snap.time() <= LIVE_FILL_BY
     rows, quoted = [], 0
     for z in zones:
-        q = quotes.get(z["symbol"])
+        q = quotes.get(z["fut"])
         if not q:
             continue
         traded = q.get("last_trade_time")
@@ -195,7 +213,7 @@ def record_open(force=False):
         live = float(q.get("last_price") or 0) if live_ok else 0
         rows.append((today, z["symbol"], side, z["prev_low"], z["prev_high"], z["prev_close"], round(ma, 2),
                      sigma, opened, round(gap * 100, 3), round(abs(gap) / sigma, 3), round(stop, 2),
-                     live or None, snap.time().replace(microsecond=0) if live else None))
+                     live or None, snap.time().replace(microsecond=0) if live else None, z["fut"]))
     if zones and quoted == 0 and not force:
         # Nothing traded today: a holiday, or quotes not in yet. Only a holiday after 10:00.
         if now.time() < clock(10, 0):
@@ -203,7 +221,7 @@ def record_open(force=False):
     with connect() as conn, conn.cursor() as cursor:
         if rows:
             execute_values(cursor, "INSERT INTO gap_paper (day, symbol, side, prev_low, prev_high, prev_close, ma20, "
-                                   "sigma, entry, gap_pct, gap_sigmas, stop, entry_live, live_at) VALUES %s "
+                                   "sigma, entry, gap_pct, gap_sigmas, stop, entry_live, live_at, fut) VALUES %s "
                                    "ON CONFLICT DO NOTHING", rows)
         cursor.execute("INSERT INTO gap_paper_days (day, quoted, candidates) VALUES (%s, %s, %s) ON CONFLICT (day) "
                        "DO UPDATE SET recorded_at = now(), quoted = EXCLUDED.quoted, candidates = EXCLUDED.candidates",
@@ -231,14 +249,14 @@ def finalize():
     with connect() as conn, conn.cursor() as cursor:
         _ensure_tables(cursor)
         conn.commit()
-        cursor.execute("SELECT day, symbol, side, entry, stop, entry_live FROM gap_paper WHERE status = 'open' ORDER BY day")
+        cursor.execute("SELECT day, symbol, side, entry, stop, entry_live, fut FROM gap_paper WHERE status = 'open' ORDER BY day")
         pending = [r for r in cursor.fetchall() if r[0] < now.date() or now.time() >= EXIT_AT]
     if not pending:
         return 0
     kite = kite_auth.trading_client()
     closed = 0
-    for day, symbol, side, entry, stop, entry_live in pending:
-        result = _exit_for(kite, day, symbol, side, entry, stop, past=day < now.date())
+    for day, symbol, side, entry, stop, entry_live, fut in pending:
+        result = _exit_for(kite, day, symbol, side, entry, stop, past=day < now.date(), fut=fut)
         if result is None:
             continue
         sign = 1 if side == "long" else -1
@@ -255,13 +273,13 @@ def finalize():
     return closed
 
 
-def _exit_for(kite, day, symbol, side, entry, stop, past=True):
+def _exit_for(kite, day, symbol, side, entry, stop, past=True, fut=None):
     """(exit, reason, r, exit_stop, reason_stop, r_stop, entry_0916, r_0916) from the day's 15m
     candles (and the 09:16 minute candle), or None if the 15:00 candle isn't there yet. Same rules
     as the backtest: out at the 15:00 candle's close; the 1σ variant stops out if any candle up to
     and including that one touches the stop. entry_0916 / r_0916: the same trade entered at the
-    09:16 price (a market order sent once the open is known), no stop, same 1R."""
-    token = _token(kite, symbol)
+    09:16 price (a market order sent once the open is known), no stop, same 1R. fut: the future's candles."""
+    token = instrument_token(kite, symbol, fut)
     if token is None:
         return None
     bars = kite.historical_data(token, from_date=datetime.combine(day, clock(9, 0)),
@@ -355,7 +373,7 @@ def paper(slippage=SLIPPAGE):
         rows = [dict(zip(cols, r)) for r in cursor.fetchall()]
         cursor.execute("SELECT day, recorded_at, quoted, candidates FROM gap_paper_days ORDER BY day DESC LIMIT 1")
         last_day = cursor.fetchone()
-        cursor.execute("SELECT max(day) FROM bt_daily WHERE symbol = ANY(%s)", (_symbols(),))
+        cursor.execute("SELECT max(datetime) FROM eod WHERE exchange = 'NSE'")  # the futures daily candles the levels use
         daily_as_of = cursor.fetchone()[0]
     for r in rows:
         r["day"] = r["day"].isoformat()
@@ -368,10 +386,11 @@ def paper(slippage=SLIPPAGE):
     ltp_at = None
     if open_today:
         try:
-            quotes = kite_auth.trading_client().ltp([f"NSE:{r['symbol']}" for r in open_today])
+            key = lambda r: f"NFO:{r['fut']}" if r.get("fut") else f"NSE:{r['symbol']}"
+            quotes = kite_auth.trading_client().ltp([key(r) for r in open_today])
             ltp_at = now.strftime("%H:%M:%S")
             for r in open_today:
-                q = quotes.get(f"NSE:{r['symbol']}")
+                q = quotes.get(key(r))
                 if q:
                     sign = 1 if r["side"] == "long" else -1
                     risk = abs(r["entry"] - r["stop"])
@@ -422,9 +441,13 @@ def _tick():
     if now.weekday() >= 5:
         return
     t = now.time()
-    if clock(9, 14) <= t < OPEN_AT:  # work out the zones a minute early so 09:15:01 is one quote call
-        _state["zones"] = (now.date(), [z for z in levels(now.date()) if z["buy_below"] or z["sell_above"]])
     import xsmrwatch  # cross-sectional paper trading shares this scheduler (imported here: it imports gapwatch)
+    if clock(9, 14) <= t < OPEN_AT:  # work out the zones a minute early so 09:15:01 is one quote call (futures: Kite)
+        try:
+            futs = xsmrwatch._current_futures(kite_auth.trading_client(), now.date())
+            _state["zones"] = (now.date(), [z for z in levels(now.date(), futs) if z["buy_below"] or z["sell_above"]])
+        except Exception as error:
+            print("Gap zones early:", error)
 
     if clock(9, 6) <= t < clock(9, 8):  # inside the futures pre-open auction
         result = xsmrwatch.record_preopen()
@@ -454,6 +477,14 @@ def _tick():
         result = connorswatch.record()
         if result.get("recorded"):
             print("Short-term mean reversion paper: recorded", result)
+    if OPEN_AT <= t < clock(15, 30):  # next-open books: yesterday's after-close orders, at the open
+        result = connorswatch.execute_orders()
+        if result.get("filled"):
+            print("Short-term mean reversion paper: filled at the open", result)
+    if connorswatch.DECIDE_AT <= t < clock(23, 0):  # next-open books: decided once the day's closes are stored
+        result = connorswatch.decide()
+        if result.get("decided"):
+            print("Short-term mean reversion paper: decided after the close", result)
     if t >= EXIT_AT:
         closed = finalize()
         if closed:

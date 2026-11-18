@@ -1,12 +1,13 @@
 import { StatusButtons } from "./modelStatus";
 import { useCallback, useEffect, useState } from "react";
+import FixedRules from "./V2FixedRules";
 import V2BacktestParams, { useBacktestParams } from "./V2BacktestParams";
 import V2PaperConnors from "./V2PaperConnors";
 import { PaperOverview } from "./V2Dashboard";
 import V2PaperGap from "./V2PaperGap";
 import V2PaperXsmr from "./V2PaperXsmr";
 import V2PaperOops from "./V2PaperOops";
-import { SideNav, StyleTag, useSideNav } from "./V2SideNav";
+import { SideNav, StyleTag, InstrumentContext, useSideNav } from "./V2SideNav";
 
 // v2 Paper trading: a side nav of the models the production scheduler paper-trades, each page sized
 // by its own capital / max open / show (universe: the F&O stocks).
@@ -114,7 +115,9 @@ function Book({ m, onSelect }) {
   const { open, toggle, select } = useSideNav("yt-v2-paper-nav", onSelect);
   const [params, setParams] = useBacktestParams(`paper-${m.id}`, paperDefaults(m));
   const step = m.step || 1;
-  const maxOpen = params.maxOpen && step > 1 ? Math.min(10, Math.ceil(params.maxOpen / step) * step) : params.maxOpen;
+  // No "as per model" sizing: a saved 0 (from before) reads as the default
+  const savedOpen = params.maxOpen || paperDefaults(m).maxOpen;
+  const maxOpen = step > 1 ? Math.min(10, Math.ceil(savedOpen / step) * step) : savedOpen;
   const liveSettings = useLiveSettings(m.live, m.liveQuery || "");
   const ls = m.live && liveSettings.settings;
   const live = ls
@@ -139,6 +142,7 @@ function Book({ m, onSelect }) {
         <div className="mt-1 flex flex-wrap items-center gap-3">
           <h1 className="text-xl font-semibold tracking-tight">{m.label}</h1>
           <StyleTag style={m.style} />
+          <FixedRules id={m.id} paper label={m.label} />
           <span className="ml-auto">
             <StatusButtons id={m.id} />
           </span>
@@ -151,6 +155,7 @@ function Book({ m, onSelect }) {
             </p>
           )}
         </div>
+        <InstrumentContext.Provider value={{ id: m.id }}>
         {m.id === "buy-on-gap" && <V2PaperGap params={modelParams} />}
         {m.id === "xs-mean-reversion" && <V2PaperXsmr params={modelParams} />}
         {m.id === "oops" && (
@@ -171,9 +176,16 @@ function Book({ m, onSelect }) {
             version={liveSettings.version}
             exit={ls?.exit}
             onExit={(exit) => liveSettings.save("exit", { exit })}
+            price={ls?.price}
+            onPrice={(price) => liveSettings.save("price", { price })}
+            tradeAt={ls?.trade_at}
+            onTradeAt={(trade_at) => liveSettings.save("trade_at", { trade_at })}
+            disaster={ls?.disaster}
+            onDisaster={(d) => liveSettings.save("disaster", { disaster: d })}
             saving={liveSettings.saving}
           />
         )}
+        </InstrumentContext.Provider>
       </section>
     </div>
   );

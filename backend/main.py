@@ -1147,7 +1147,7 @@ def _v2connors_args(dataset, setup, hold, max_open, stop, timing, take, slippage
             or stop not in v2connors.STOPS or timing not in v2connors.TIMINGS or take not in v2connors.TAKES \
             or side not in v2connors.SIDES:
         raise HTTPException(status_code=400, detail="unknown setting")
-    if dataset in ("fnopit", "cash500") and timing != "close":
+    if dataset in ("fnopit", "cash500") and timing == "1515":
         raise HTTPException(status_code=400, detail="Survivorship-free data is daily only: use Close prices (there are no 15:15 prices for removed stocks)")
     return dict(dataset=dataset, setup=setup, hold=hold, max_open=max_open, stop=stop, timing=timing, take=take,
                 slippage=slippage / 100, side=side, instrument=instrument)
@@ -1304,11 +1304,12 @@ def v2_data_symbols(source: str = Query("backtest"), refresh: bool = Query(False
 @app.get("/api/v2/data/candles")
 def v2_data_candles(symbol: str = Query(..., min_length=1, max_length=40), interval: str = Query("day"),
                     source: str = Query("backtest"), exchange: str = Query("NSE"), days: int = Query(365, ge=0, le=20000)):
-    if interval not in ("day", "15m") or source not in ("backtest", "live", "kite") or exchange not in ("NSE", "MCX"):
+    if interval not in ("day", "15m") or source not in ("backtest", "live", "kite") or exchange not in ("NSE", "MCX", "NFO") \
+            or (exchange == "NFO" and source != "kite"):
         raise HTTPException(status_code=400, detail="unknown interval, source or exchange")
     try:
-        if source == "kite":  # the stock straight from Kite, today's candles included (paper pages)
-            return {"status": "success", "candles": v2data.kite_candles(symbol, interval, days)}
+        if source == "kite":  # the stock (or a futures contract) straight from Kite, today's candles included (paper pages)
+            return {"status": "success", "candles": v2data.kite_candles(symbol, interval, days, exchange)}
         return {"status": "success", "candles": v2data.candles(symbol, interval, source, exchange, days)}
     except Exception as error:
         print("v2 data candles failed:", error)
@@ -1322,6 +1323,16 @@ def v2_paper_check(gap_max_open: int = Query(5, ge=0, le=v2gap.MAX_OPEN), xsmr_m
         return {"status": "success", **v2check.compare(gap_max_open, xsmr_max_open)}
     except Exception as error:
         print("Paper check failed:", error)
+        return {"status": "error", "message": str(error)}
+
+
+@app.get("/api/v2/paper/open-positions")
+def v2_paper_open_positions(gap_max_open: int = Query(5, ge=0, le=v2gap.MAX_OPEN), xsmr_max_open: int = Query(10, ge=0, le=v2xsmr.MAX_OPEN)):
+    """Every paper book's open positions with their price path since bought (the paper landing page's charts)."""
+    try:
+        return {"status": "success", **v2dashboard.open_positions(gap_max_open, xsmr_max_open)}
+    except Exception as error:
+        print("Paper open positions failed:", error)
         return {"status": "error", "message": str(error)}
 
 
@@ -1421,11 +1432,14 @@ def _connors_book(book):
 
 @app.get("/api/connors/paper/pnl")
 def connors_paper_pnl(slippage: float = Query(0.02, ge=0, le=1), book: str = Query("rsi2")):
-    """A short-term mean reversion book's open positions marked every 15 minutes since the earliest buy (stock prices, one lot each)."""
+    """A short-term mean reversion book's open positions marked every 15 minutes since the earliest buy, one lot
+    each, each on the prices it was bought under (spot: the share; futures: its contract)."""
     _connors_book(book)
     try:
         data = connorswatch.paper(slippage / 100, book)
-        rows = [{**t, "qty": t.get("stock_qty")} for t in data["open"]]
+        rows = [{**t, "qty": t.get("fut_qty"), "buy": t.get("fut_buy"), "ltp": t.get("fut_ltp")}
+                if t["priced"] == "futures" and t.get("fut") and t.get("fut_buy")
+                else {**t, "fut": None, "qty": t.get("stock_qty")} for t in data["open"]]
         return {"status": "success", "size": 1, **v2pnl.held_curve(rows, xsmr.cost_per_side(slippage / 100))}
     except Exception as error:
         print("Connors paper pnl failed:", error)
@@ -1449,7 +1463,51 @@ def connors_paper_settings(book: str = Query("rsi2")):
     _connors_book(book)
     return {"status": "success", "universe": connorswatch.universe(book), "universes": list(connorswatch.UNIVERSES),
             "max_open": connorswatch.max_open(book), "max_open_limit": connorswatch.MAX_OPEN_LIMIT,
-            "exit": connorswatch.exit_mode(book), "exits": list(connorswatch.EXITS), "setup": connorswatch.BOOKS[book]["setup"]}
+            "exit": connorswatch.exit_mode(book), "exits": list(connorswatch.EXITS), "setup": connorswatch.BOOKS[book]["setup"],
+            "price": connorswatch.price(book), "prices": list(connorswatch.PRICES),
+            "trade_at": connorswatch.trade_at(book), "disaster": connorswatch.disaster(book)}
+
+
+class ConnorsTradeAtRequest(BaseModel):
+    trade_at: str
+
+
+@app.post("/api/connors/paper/trade_at")
+def connors_paper_trade_at(req: ConnorsTradeAtRequest, book: str = Query("rsi2")):
+    """A book's Trade at: close (the 15:15 run) or nextopen (decided after the close, filled at the next open)."""
+    _connors_book(book)
+    try:
+        return {"status": "success", "trade_at": connorswatch.set_trade_at(req.trade_at, book)}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+class ConnorsDisasterRequest(BaseModel):
+    disaster: str
+
+
+@app.post("/api/connors/paper/disaster")
+def connors_paper_disaster(req: ConnorsDisasterRequest, book: str = Query("rsi2")):
+    """A book's 10% disaster stop for new buys: on or off."""
+    _connors_book(book)
+    try:
+        return {"status": "success", "disaster": connorswatch.set_disaster(req.disaster, book)}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+class ConnorsPriceRequest(BaseModel):
+    price: str
+
+
+@app.post("/api/connors/paper/price")
+def connors_paper_price(req: ConnorsPriceRequest, book: str = Query("rsi2")):
+    """A book's prices for new buys at the 15:15 run: spot (the share) or futures (each trade keeps its own)."""
+    _connors_book(book)
+    try:
+        return {"status": "success", "price": connorswatch.set_price(req.price, book)}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 class ConnorsExitRequest(BaseModel):

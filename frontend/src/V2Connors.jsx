@@ -1,3 +1,4 @@
+import DisasterStop from "./V2Disaster";
 import { useCallback, useMemo, useState } from "react";
 import { useSetting } from "./settings";
 import { Field, formatRs, Segmented } from "./V2Controls";
@@ -14,25 +15,15 @@ const SETUPS = [
 ];
 const HOLDS = [
   ["5d", "5 days (book)"],
-  ["2d", "2 days"],
   ["0d", "Exit on strength"],
 ];
 const INSTRUMENTS = [
-  ["cash", "Cash (delivery)"],
+  ["cash", "Spot"],
   ["futures", "Futures"],
 ];
 const TIMINGS = [
-  ["close", "Close (2004 on)"],
-  ["1515", "15:15 (2015 on)"],
-];
-const STOPS = [
-  ["none", "None (book)"],
-  ["1sd", "1σ"],
-  ["2sd", "2σ"],
-  ["3pc", "3%"],
-  ["5pc", "5%"],
-  ["7pc", "7%"],
-  ["10pc", "10%"],
+  ["close", "At close"],
+  ["nextopen", "Next open"],
 ];
 const TAKES = [
   ["all", "All signals"],
@@ -40,15 +31,17 @@ const TAKES = [
   ["top3", "Lowest 3 RSI"],
 ];
 
-export default function V2Connors({ params }) {
+export default function V2Connors({ params, onParams }) {
   const [savedSetup, setSetup] = useSetting("bt.connors.setup", "rsi2");
   // only the two book setups (more would be curve fitting); an older saved choice falls back to RSI(2)
   const setup = SETUPS.some(([k]) => k === savedSetup) ? savedSetup : "rsi2";
-  const [hold, setHold] = useSetting("bt.connors.hold", "5d");
+  const [savedHold, setHold] = useSetting("bt.connors.hold", "5d");
+  const hold = savedHold === "0d" ? "0d" : "5d"; // 2 days is no longer offered: a saved one reads as 5 days
   const [savedTiming, setTiming] = useSetting("bt.connors.timing", "close");
-  const pit = params.universe === "fnopit" || params.universe === "cash500";
-  const timing = pit ? "close" : savedTiming; // survivorship-free data (F&O or top 500) is daily: closes only
-  const [stop, setStop] = useSetting("bt.connors.stop", "none");
+  const timing = savedTiming === "nextopen" ? "nextopen" : "close"; // 15:15 is no longer offered: a saved one reads as the close
+  // No stop in the book; only the 10% disaster stop (as on the other pages): 10% under the buy, the day's low reaching it
+  const [disaster, setDisaster] = useSetting("bt.connors.disaster", "on");
+  const stop = disaster === "on" ? "10pc" : "none";
   const [take, setTake] = useSetting("bt.connors.take", "all");
   const side = "long"; // long only
   const [instrument, setInstrument] = useSetting("bt.connors.instrument", "cash");
@@ -56,18 +49,19 @@ export default function V2Connors({ params }) {
   const [month, setMonth] = useState(null);
 
   const book = !params.maxOpen;
-  const query = `dataset=${params.universe}&setup=${setup}&hold=${hold}&timing=${timing}&stop=${stop}&take=${book ? take : "all"}&slippage=${slippage}&max_open=${params.maxOpen}&side=${side}&instrument=${instrument}`;
+  const futOk = params.universe === "fno"; // futures prices: today's F&O stocks only (not survivorship-free, not the wider lists)
+  const query = `dataset=${params.universe}&setup=${setup}&hold=${hold}&timing=${timing}&stop=${stop}&take=${book ? take : "all"}&slippage=${slippage}&max_open=${params.maxOpen}&side=${side}&instrument=${futOk ? instrument : "cash"}`;
   const { data, error, loading } = useBacktest(`/api/v2/backtest/connors?${query}`);
   const value = useMemo(() => makeValue(params.show, params.capital), [params.show, params.capital]);
   const chartFormat = useCallback((v) => value(v, 1), [value]);
   const closeMonth = useCallback(() => setMonth(null), []);
   const s = data?.summary;
   const capital = params.capital;
-  const at = timing === "close" ? "the close" : "15:15";
+  const at = timing === "close" ? "the close" : timing === "nextopen" ? "the next open" : "15:15";
 
   const columns = [
     ...AT_COLUMNS,
-    { h: "Reason", cell: (t) => t.reason, style: (t) => ({ color: t.reason.startsWith("stop") ? "var(--negative)" : "var(--muted)" }) },
+    { h: "Reason", cell: (t) => (t.reason?.startsWith("stop") ? `disaster ${t.reason}` : t.reason), style: (t) => ({ color: t.reason.startsWith("stop") ? "var(--negative)" : "var(--muted)" }) },
     { h: "Days", cell: (t) => t.days, style: () => ({ color: "var(--muted)" }), },
     { h: "Stock", cell: (t) => <span className="font-medium">{t.symbol}</span> },
     ...(side !== "long"
@@ -92,8 +86,17 @@ export default function V2Connors({ params }) {
   return (
     <div className="mt-4 flex flex-col gap-4">
       <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
-        <Field label="Instrument" hint="Cash: delivery (STT 0.1% each side, stamp duty, DP charge), no rolls. Futures: futures charges, and a roll for a hold across a month end">
-          <Segmented label="Instrument" options={INSTRUMENTS} value={instrument} onChange={setInstrument} />
+        <Field label="Instrument" hint="Spot: the share's prices, bought and sold for delivery (STT 0.1% each side, stamp duty, DP charge), no rolls, from 2004. Futures: the signal and the fills on the near-month future's own prices (stored futures daily candles, adjusted at each expiry; 2011 on), futures charges, and a roll for a hold across a month end. Only today's F&O stocks have stored futures prices, so choosing Futures switches to today's F&O list (survivorship bias on); switching survivorship bias off goes back to Spot.">
+          <Segmented
+            label="Instrument"
+            options={INSTRUMENTS}
+            value={futOk ? instrument : "cash"}
+            onChange={(v) => {
+              setInstrument(v);
+              // futures prices exist only for today's F&O stocks: switch to that list (survivorship bias on)
+              if (v === "futures" && !futOk) onParams?.({ universe: "fno", survivor: "today" });
+            }}
+          />
         </Field>
         <Field label="Setup" hint="In a stock above its 200-day average. RSI(2): Connors & Sen's book; cumulative RSI(2): Connors & Alvarez (Short Term Trading Strategies That Work), today's + yesterday's 2-day RSI.">
           <Segmented label="Setup" options={SETUPS} value={setup} onChange={setSetup} />
@@ -101,18 +104,16 @@ export default function V2Connors({ params }) {
         <Field label="Hold" hint="Sold this many trading days after the buy (5 = the book's week), or on strength: at the first close the 2-day RSI is above 65 (5 days at most)">
           <Segmented label="Hold" options={HOLDS} value={hold} onChange={setHold} />
         </Field>
-        <Field label="Prices" hint="Close: official closes for the signal, buy and sale (daily candles, 2004 on). 15:15: today's 15:15 price, what you can trade (15m candles, 2015 on); its first load takes ~45 s.">
-          <Segmented label="Prices" options={TIMINGS.map(([v, t]) => [v, t, pit && v !== "close", pit && v !== "close" ? "Survivorship-free data is daily: no 15:15 prices for removed stocks" : undefined])} value={timing} onChange={setTiming} />
+        <Field label="Trade at" hint="At close: the signal, buy and sale at the official close (daily candles, 2004 on). Next open: the signal (and the exit on strength) from the official close, every buy and sale done at the next day's open (2004 on).">
+          <Segmented label="Trade at" options={TIMINGS} value={timing} onChange={setTiming} />
         </Field>
-        <Field label="Stop" hint="Not in the book. 1σ / 2σ of the stock's last 90 daily returns below the buy price, or a fixed % below it.">
-          <Segmented label="Stop" options={STOPS} value={stop} onChange={setStop} />
-        </Field>
+        <DisasterStop value={disaster} onChange={setDisaster} hits={disaster === "on" ? data?.summary?.disaster_hits : null} />
         {book && (
           <Field label="Take" hint="As per model: each day's picks share a fifth of capital. All signals, or only the day's lowest RSIs.">
             <Segmented label="Take" options={TAKES} value={take} onChange={setTake} />
           </Field>
         )}
-        <Field label="Slippage" hint={`Per side, on top of the ${instrument === "cash" ? "delivery" : "futures"} charges`}>
+        <Field label="Slippage" hint={`Per side, on top of the ${instrument === "cash" || !futOk ? "delivery" : "futures"} charges`}>
           <Segmented label="Slippage" options={SLIPPAGE} value={slippage} onChange={setSlippage} />
         </Field>
         {loading && (
@@ -129,7 +130,7 @@ export default function V2Connors({ params }) {
           <p className="-mt-1 text-xs" style={{ color: "var(--muted)" }}>
             {s.from} → {s.to} · {value(s.net_year_pct)} net a year · Sharpe {s.sharpe ?? "—"} · {s.green_years}/{s.years} green years ·
             held {s.avg_held_days} days · average RSI {s.avg_rsi}
-            {stop !== "none" ? ` · ${s.stopped_pct}% stopped` : ""}
+            {stop !== "none" ? ` · disaster stop on ${s.disaster_hits ?? 0} trades (${s.stopped_pct}%)` : ""}
           </p>
           <Panel title="Net by month" right="marked daily · trades by sale day · click a month for its trades">
             <MonthGrid years={data.years} months={data.months} value={value} onOpen={setMonth} />

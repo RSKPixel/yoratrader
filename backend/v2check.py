@@ -100,10 +100,12 @@ def compare(gap_max_open=5, xsmr_max_open=10):
                                    ("cum", "cum", "Cumulative RSI(2)", "/v2/paper/cumulative-rsi")):
         try:
             c = connorswatch.paper(book=book)
-            paper = [(t["buy_day"], t["symbol"], t.get("fut_net_pct", t.get("net_pct"))) for t in c["closed"]]
+            pr = connorswatch.price(book)  # the backtest on the book's prices now; each paper trade on its own
+            paper = [(t["buy_day"], t["symbol"], t.get("book_net_pct")) for t in c["closed"]]
             setup = "cumrsi2" if book == "cum" else "rsi2"
             hold = "0d" if connorswatch.exit_mode(book) == "strength" else "5d"
-            t, days, _ = v2connors._sized("fno", setup, hold, c["max_open"], "none", "close", "all", S, "long", "futures")
+            t, days, _ = v2connors._sized("fno", setup, hold, c["max_open"], "10pc" if c.get("disaster") == "on" else "none",
+                                          c.get("trade_at") or "close", "all", S, "long", "futures" if pr == "futures" else "cash")
             bt = pd.DataFrame({"entry": pd.to_datetime(t["entry_day"]), "symbol": t["symbol"], "net": t["net"]})
             days = pd.DatetimeIndex(days)
             until = days[-6].date().isoformat() if len(days) > 6 else None  # bought at least 5 trading days before the last: sold in the backtest too

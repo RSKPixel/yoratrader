@@ -1,3 +1,4 @@
+import { InstrumentSlot } from "./V2SideNav";
 import { useCallback, useMemo, useState } from "react";
 import { useSetting } from "./settings";
 import { Field, formatRs, Segmented } from "./V2Controls";
@@ -52,6 +53,7 @@ export default function V2Oops({ params }) {
   return (
     <div className="mt-4 flex flex-col gap-4">
       <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
+        <InstrumentSlot />
         <Field label="Exit" hint="15:15: sold the same day at 15:15. Next day's open: held overnight and sold at the next trading day's opening price, as in the book (Williams: 'we buy today and are out on the opening tomorrow')">
           <Segmented label="Exit" options={EXITS} value={exit} onChange={setExit} />
         </Field>

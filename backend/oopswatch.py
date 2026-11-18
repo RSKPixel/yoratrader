@@ -127,6 +127,9 @@ def _ensure_tables(cursor):
             day DATE NOT NULL, symbol TEXT NOT NULL, fut TEXT NOT NULL, prev_low DOUBLE PRECISION NOT NULL,
             PRIMARY KEY (day, symbol)
         );
+        -- the contract's previous high and close too: Buy/Sell on gap and cross-sectional read them (futsig)
+        ALTER TABLE oops_paper_prev ADD COLUMN IF NOT EXISTS prev_high DOUBLE PRECISION;
+        ALTER TABLE oops_paper_prev ADD COLUMN IF NOT EXISTS prev_close DOUBLE PRECISION;
         """
     )
 
@@ -156,14 +159,14 @@ def prepare(today=None):
                                             datetime.combine(today - timedelta(days=1), clock(15, 30)), "day")
                 prev = [b for b in bars if b["date"].date() < today and b["low"] > 0]
                 if prev:
-                    rows.append((today, stock, fut, float(prev[-1]["low"])))
+                    rows.append((today, stock, fut, float(prev[-1]["low"]), float(prev[-1]["high"]), float(prev[-1]["close"])))
             except Exception as error:
                 if "access_token" in str(error) or "api_key" in str(error):
                     raise
                 errors += 1
             time.sleep(0.35)
         with connect() as conn, conn.cursor() as cursor:
-            cursor.executemany("INSERT INTO oops_paper_prev (day, symbol, fut, prev_low) VALUES (%s, %s, %s, %s) "
+            cursor.executemany("INSERT INTO oops_paper_prev (day, symbol, fut, prev_low, prev_high, prev_close) VALUES (%s, %s, %s, %s, %s, %s) "
                                "ON CONFLICT (day, symbol) DO NOTHING", rows)
             conn.commit()
         return {"prepared": len(rows), "errors": errors}

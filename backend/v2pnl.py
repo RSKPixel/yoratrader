@@ -19,14 +19,19 @@ TODAY_TTL = 60
 _cache, _lock = {}, threading.Lock()
 
 
-def _bars(kite, symbol, day):
-    key = (symbol, day)
+def _bars(kite, symbol, day, exchange="NSE"):
+    """A day's 15-minute candles of an NSE stock or (exchange NFO) a futures contract, cached."""
+    key = (exchange, symbol, day)
     today = gapwatch._now().date().isoformat()
     with _lock:
         hit = _cache.get(key)
         if hit and (day != today or time.time() - hit[0] < TODAY_TTL):
             return hit[1]
-    token = gapwatch._token(kite, symbol)
+    if exchange == "NFO":
+        import v2dashboard
+        token = v2dashboard._instrument_token(kite, f"NFO:{symbol}")
+    else:
+        token = gapwatch._token(kite, symbol)
     if not token:
         return []
     d = datetime.fromisoformat(day)
@@ -48,7 +53,7 @@ def curve(day, picks, cps, size=1):
     for p in picks:
         if not p.get("qty") or not p.get("entry"):
             continue
-        bars = _bars(kite, p["symbol"], day)
+        bars = _bars(kite, p["fut"], day, "NFO") if p.get("fut") else _bars(kite, p["symbol"], day)  # Oops: the future it trades
         if not bars:
             continue
         sized += 1
@@ -122,7 +127,7 @@ def held_curve(positions, cps):
         for day in days:
             if day < p["buy_day"]:
                 continue
-            for b in _bars(kite, p["symbol"], day):
+            for b in (_bars(kite, p["fut"], day, "NFO") if p.get("fut") else _bars(kite, p["symbol"], day)):
                 t = b["t"] + timedelta(minutes=15)  # the candle's close
                 if t <= bought:
                     continue

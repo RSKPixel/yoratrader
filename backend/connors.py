@@ -73,14 +73,15 @@ def _stop_label(k):
 # Prices: "" = the live 15:15 version (15m candles, from 2015); "-close" = official closes for the
 # signal, the buy and the sale (daily candles, from 2004). The close is a 30-minute average on NSE,
 # so it can't be traded exactly; it's the long-history check, and the two can be compared from 2015.
-TIMINGS = {"": "15:15", "-close": "close"}
+TIMINGS = {"": "15:15", "-close": "close", "-nextopen": "nextopen"}
+TIMING_LABELS = {"": "", "-close": " · at the close", "-nextopen": " · signal at the close, traded at the next open"}
 # Side: "" = long (the book); "-short" = the mirror image: below the 200-day average, short-term
 # overbought (2-day RSI above 90, a new 10-day high, 3 up days), sold short and bought back `hold`
 # days later (a stop above the entry); "-both" = either, ranked together by how extreme they are.
 SIDES = {"": "long", "-short": "short", "-both": "both"}
 VARIANTS = {f"{s}-{h}d{f'-max{m}' if m else ''}{st}{tm}{sd}": {
                 "label": f"{SETUPS[s]} · {HOLDS[h]}{f' · max {m} open' if m else ''}{_stop_label(k)}"
-                         f"{' · at the close' if tm else ''}{f' · {SIDES[sd]}' if sd else ''}",
+                         f"{TIMING_LABELS[tm]}{f' · {SIDES[sd]}' if sd else ''}",
                 "setup": s, "hold": h, "max_open": m, "stop": k, "timing": TIMINGS[tm], "side": SIDES[sd]}
             for s in SETUPS for h in HOLDS for m in (None, *MAX_OPEN) for st, k in STOPS.items() for tm in TIMINGS
             for sd in SIDES}
@@ -104,10 +105,12 @@ def parse_variant(variant):
     return base, take
 
 
-def _data(dataset, start=None, end=None, timing="15:15", closes=None):
+def _data(dataset, start=None, end=None, timing="15:15", closes=None, intraday=None, ohl=None):
     """Prices and setups. 15:15: computed live at 15:15 (closes to yesterday + today's 15:15 price),
     traded at 15:15. close: computed from and traded at the official closes (or `closes`, for the
-    live signal: yesterday's closes plus today's prices)."""
+    live signal: yesterday's closes plus today's prices). intraday / ohl: other prices in place of the
+    share's (the futures version: the 15:15 pivots px1515 / low1515 / high1515 / sigma, and the daily
+    open / low / high pivots)."""
     c = xsmom._closes(dataset) if closes is None else closes
     c = c[c.index.dayofweek < 5]  # weekend special sessions (Muhurat: an evening hour) aren't trading days here
     if start is not None:
@@ -118,7 +121,7 @@ def _data(dataset, start=None, end=None, timing="15:15", closes=None):
         p = None
         px = c[c.index >= pd.Timestamp(start)] if start is not None else c
     else:
-        p = xsmr._prices(dataset, start, end)
+        p = intraday if intraday is not None else xsmr._prices(dataset, start, end)
         px = p["px1515"]
         # Sparse special sessions (Muhurat trading: an hour in the evening, no 15:15 price) aren't days.
         count = px.notna().sum(axis=1)
@@ -167,7 +170,9 @@ def _data(dataset, start=None, end=None, timing="15:15", closes=None):
     pxf = px.ffill(limit=3)
     ret = pxf / pxf.shift(1) - 1
     ret = ret.where(ret.abs() <= MAX_MOVE, 0.0).fillna(0.0)
-    if src:
+    if ohl is not None:
+        f = None
+    elif src:
         f = src.frame()
         f = f[(f["day"] >= idx[0]) & (f["day"] <= idx[-1])]
     else:
@@ -176,9 +181,10 @@ def _data(dataset, start=None, end=None, timing="15:15", closes=None):
                             "(SELECT symbol FROM bt_symbols WHERE dataset = %s) AND day >= %s AND day <= %s",
                             conn, params=[dataset, idx[0].date(), idx[-1].date()])
         f["day"] = pd.to_datetime(f["day"])
-    day_open = f.pivot(index="day", columns="symbol", values="open").reindex(index=idx, columns=cols)
-    day_low = f.pivot(index="day", columns="symbol", values="low").reindex(index=idx, columns=cols)
-    day_high = f.pivot(index="day", columns="symbol", values="high").reindex(index=idx, columns=cols)
+    piv = (lambda c_: ohl[c_]) if ohl is not None else (lambda c_: f.pivot(index="day", columns="symbol", values=c_))
+    day_open = piv("open").reindex(index=idx, columns=cols)
+    day_low = piv("low").reindex(index=idx, columns=cols)
+    day_high = piv("high").reindex(index=idx, columns=cols)
     day_open = day_open.where((day_open >= day_low * 0.995) & (day_open <= day_high * 1.005))  # bad early prints
     if timing == "close":  # the stop on the sell day uses the whole day's low / high; σ from the daily closes
         low_exit, high_exit = day_low, day_high
@@ -193,16 +199,29 @@ def _data(dataset, start=None, end=None, timing="15:15", closes=None):
             "low1515": low_exit, "high1515": high_exit, "sigma": sigma}
 
 
-def live_signals(prices, today, dataset="fno"):
+def live_signals_fut(moves, today, dataset="fno"):
+    """live_signals on the futures: the roll-adjusted futures closes to yesterday, and today's close = the
+    last one moved by `moves` ({symbol: the traded contract's price now / its own previous close})."""
+    ts = pd.Timestamp(today)
+    c = fut_closes(dataset)
+    c = c[c.index < ts].iloc[-450:].copy()
+    c.loc[ts] = c.iloc[-1] * pd.Series(moves, dtype=float).reindex(c.columns)
+    return live_signals(None, today, dataset, closes=c)
+
+
+def live_signals(prices, today, dataset="fno", closes=None):
     """Today's setup, live: the backtest's own signal code on official closes to yesterday plus
     `prices` ({symbol: price now}) as today's close. Returns how many stocks qualified for the trend
     filter; every stock above its 200-day average with its 2-day RSI, the cumulative (today's +
     yesterday's) and whether each setup signals (RSI below 10; cumulative below 35); and every priced
     stock's 2-day RSI now (rsi_all: the exit on strength of a held stock)."""
     ts = pd.Timestamp(today)
-    c = xsmom._closes(dataset)
-    c = c[c.index < ts].iloc[-450:].copy()
-    c.loc[ts] = pd.Series(prices, dtype=float).reindex(c.columns)
+    if closes is None:
+        c = xsmom._closes(dataset)
+        c = c[c.index < ts].iloc[-450:].copy()
+        c.loc[ts] = pd.Series(prices, dtype=float).reindex(c.columns)
+    else:
+        c = closes
     d = _data(dataset, timing="close", closes=c)
     if d["px"].index[-1] != ts:
         return {"rankable": 0, "stocks": [], "rsi_all": {}}
@@ -358,21 +377,91 @@ def _cached(key, build):
     return value
 
 
+def _next_open(d):
+    """The close's signals traded at the next day's open: every decision (buy, sale, exit on strength) made
+    at a day's close is done at the following day's open. Each day's prices become the next day's, so day i
+    trades at the open of i+1 and a held position is marked open to open; a stop checks the next day's
+    low / high, and a sale at the open has no move before it (low / high at the sale = that open)."""
+    d = dict(d)
+    nxt = lambda x: x.shift(-1)
+    o = nxt(d["open"])
+    d.update(px=o.ffill(limit=3), open=o, low=nxt(d["low"]), high=nxt(d["high"]), low1515=o, high1515=o,
+             eligible=d["eligible"] & o.notna(), eligible_short=d["eligible_short"] & o.notna())
+    if "roll_factor" in d:
+        d["roll_factor"] = nxt(d["roll_factor"]).ffill()
+    return d
+
+
 def _dataset(dataset, timing):
+    if timing == "nextopen":
+        return _cached(("data", dataset, timing), lambda: _next_open(_dataset(dataset, "close")))
     return _cached(("data", dataset, timing), lambda: _data(dataset, timing=timing))
 
 
-def _run(variant, dataset):
-    """(daily frame with costs left to the caller, closed and open trades, data) for one book."""
+def _fut_frames(dataset):
+    """The stored continuous futures daily candles on the share's calendar ({open, high, low, close}) and
+    the roll factor: the jump from the old contract to the new one on each day after an expiry (that day's
+    move taken as the share's), compounded. Prices / factor = the roll-adjusted series."""
+    def build():
+        import futsig
+        share = xsmom._closes(dataset)
+        idx, cols = share.index, share.columns
+        f = {k: v.reindex(index=idx, columns=cols) for k, v in futsig._eod(list(cols)).items()}
+        roll = futsig.roll_days(idx).to_numpy()[:, None]
+        jump = (f["close"] / f["close"].shift(1)) / (share / share.shift(1))
+        jump = jump.where(np.repeat(roll, len(cols), axis=1) & jump.notna() & ((jump - 1).abs() <= futsig.MAX_BASIS), 1.0)
+        return f, jump.cumprod()
+    return _cached(("fut-frames", dataset), build)
+
+
+def fut_closes(dataset="fno"):
+    """The roll-adjusted futures closes (day x stock): the futures version's signal history."""
+    f, factor = _fut_frames(dataset)
+    return (f["close"] / factor).dropna(how="all")
+
+
+def _fut_dataset(dataset, timing):
+    """Everything at the near-month FUTURE's prices: the setups (RSI(2), the 200-day average, ...) and the
+    fills, from the stored continuous futures daily candles (eod; 2010 on, so trades from 2011), and at
+    15:15 the share's 15:15 price at the future's late-day level (futsig). The continuous series jumps from
+    the old contract to the new one at each expiry; that jump is taken out (the day's move is the share's),
+    so neither the signal nor a trade held through an expiry sees the switch; the roll is paid in costs.
+    "roll_factor" turns the adjusted prices back into the contract's own (the trade lists show those)."""
+    if timing == "nextopen":
+        return _cached(("data-fut", dataset, timing), lambda: _next_open(_fut_dataset(dataset, "close")))
+    def build():
+        import futsig
+        f, factor = _fut_frames(dataset)
+        idx, cols = factor.index, factor.columns
+        adj = lambda x: x / factor
+        ohl = {"open": adj(f["open"]), "low": adj(f["low"]), "high": adj(f["high"])}
+        intraday = None
+        if timing != "close":
+            fp = futsig.prices(dataset)
+            intraday = {k: adj(fp[k].reindex(index=idx, columns=cols)) for k in ("px1515", "low1515", "high1515")}
+            intraday["sigma"] = fp["sigma"].reindex(index=idx, columns=cols)
+        d = _data(dataset, timing=timing, closes=adj(f["close"]).dropna(how="all"), intraday=intraday, ohl=ohl)
+        d["roll_factor"] = factor.reindex(index=d["px"].index, columns=d["px"].columns)
+        return d
+    return _cached(("data-fut", dataset, timing), build)
+
+
+FUTURES_DATASETS = ("fno",)  # only today's F&O stocks have stored futures candles
+
+
+def _run(variant, dataset, prices="spot"):
+    """(daily frame with costs left to the caller, closed and open trades, data) for one book.
+    prices "futures": traded at the near-month future's prices (_fut_dataset; F&O stocks only)."""
     meta = VARIANTS[parse_variant(variant)[0]]
-    d = _dataset(dataset, meta["timing"])
+    fut = prices == "futures" and dataset in FUTURES_DATASETS
+    d = _fut_dataset(dataset, meta["timing"]) if fut else _dataset(dataset, meta["timing"])
 
     def build():
         rows, _, trades = _simulate(d, variant)
         f = pd.DataFrame(rows, columns=["day", "gross_ret", "turnover", "long_ret", "short_ret", "stocks"])
         f = f[f["turnover"].cumsum() > 0].reset_index(drop=True)
         return f, trades
-    f, trades = _cached(("book", dataset, variant), build)
+    f, trades = _cached(("book", dataset, variant, "futures" if fut else "spot"), build)
     return f.copy(), trades, d
 
 

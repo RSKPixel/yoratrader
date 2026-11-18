@@ -149,7 +149,7 @@ def _paper(gap_max_open=5, xsmr_max_open=10):
         today = next((d for d in g["days"] if d["day"] == g["today"]), None)
         out["gap"] = {"today_positions": len(today["picks"]) if today else 0, "today_net_rs": today["net_rs"] if today else None,
                       "today_margin_pct": today["net_value_pct"] if today else None, "today_margin_rs": today["margin_rs"] if today else None,
-                      "today_status": today["status"] if today else None, "total_net_rs": g["summary"]["net_rs"],
+                      "today_status": today["status"] if today else None, "total_net_rs": g["summary"]["net_rs"], "open_net_rs": _open_days_rs(g["days"]),
                       "capital_rs": g["summary"]["capital_rs"], "days": g["summary"]["days"], "max_open": gap_max_open,
                       "watchlist": len(g["watchlist"]), "session": g["session"]}
     except Exception as error:
@@ -159,7 +159,7 @@ def _paper(gap_max_open=5, xsmr_max_open=10):
         today = next((d for d in x["days"] if d["day"] == x["today"]), None)
         out["xsmr"] = {"today_positions": len(today["picks"]) if today else 0, "today_net_rs": today["net_rs"] if today else None,
                        "today_margin_pct": today["net_value_pct"] if today else None, "today_margin_rs": today["margin_rs"] if today else None,
-                       "today_status": today["status"] if today else None, "total_net_rs": x["summary"]["net_rs"],
+                       "today_status": today["status"] if today else None, "total_net_rs": x["summary"]["net_rs"], "open_net_rs": _open_days_rs(x["days"]),
                        "capital_rs": x["summary"]["capital_rs"], "days": x["summary"]["days"], "max_open": xsmr_max_open, "pairs": pairs}
     except Exception as error:
         out["xsmr"] = {"error": str(error)}
@@ -168,7 +168,7 @@ def _paper(gap_max_open=5, xsmr_max_open=10):
         today = next((d for d in o["days"] if d["day"] == o["today"]), None)
         out["oops"] = {"watched": len(o["watchlist"]), "today_positions": len(today["picks"]) if today else 0,
                        "today_status": today["status"] if today else None, "today_net_rs": today["net_rs"] if today else None,
-                       "today_value_pct": today["net_value_pct"] if today else None, "total_net_rs": o["summary"]["net_rs"],
+                       "today_value_pct": today["net_value_pct"] if today else None, "total_net_rs": o["summary"]["net_rs"], "open_net_rs": _open_days_rs(o["days"]),
                        "capital_rs": o["summary"]["capital_rs"], "days": o["summary"]["days"], "max_open": o["max_open"]}
     except Exception as error:
         out["oops"] = {"error": str(error)}
@@ -176,13 +176,50 @@ def _paper(gap_max_open=5, xsmr_max_open=10):
         try:
             c = connorswatch.paper(book=book)
             out[key] = {"open": len(c["open"]), "max_open": c["max_open"], "closed": c["summary"]["trades"],
-                        "net_rs": c["lots"]["stock"]["net_rs"], "fut_net_rs": c["lots"]["fut"]["net_rs"],
+                        "net_rs": c["lots"]["stock"]["net_rs"], "fut_net_rs": c["lots"]["book"]["net_rs"], "price": c.get("price"),
                         "open_net_rs": round(sum(t.get("stock_net_rs") or 0 for t in c["open"]), 2) if c["open"] else None,
+                        "open_fut_net_rs": round(sum(t.get("book_net_rs") or 0 for t in c["open"]), 2) if c["open"] else None,
                         "capital_rs": c["lots"]["stock"]["capital_rs"] or (c["max_open"] * (c["lots"]["avg_lot_margin_rs"] or 0)),
-                        "open_symbols": [t["symbol"] for t in c["open"]]}
+                        "open_symbols": [t["symbol"] for t in c["open"]],
+                        **_positional_today(c, gapwatch._now().date().isoformat())}
         except Exception as error:
             out[key] = {"error": str(error)}
     return out
+
+
+def _open_days_rs(days):
+    """An intraday book's days not closed yet (today's live trades; Oops buys waiting for the next open), marked now."""
+    open_ = [d["net_rs"] for d in days if d.get("status") != "closed" and d.get("net_rs") is not None]
+    return round(sum(open_), 2) if open_ else None
+
+
+def _positional_today(c, today):
+    """A held-for-days book's net today, one lot a position, each trade on its own prices (spot: the share;
+    futures: its contract): a trade bought today counts its whole net; one bought before counts its move from
+    yesterday's close (Kite's previous close) to now, or to its sale today less the sale's cost."""
+    held = [t for t in c["open"] if t["buy_day"] != today]
+    sold = [t for t in c["closed"] if t.get("sell_day") == today and t["buy_day"] != today]
+    new = [t for t in c["open"] + c["closed"] if t["buy_day"] == today and (t in c["open"] or t.get("sell_day") == today)]
+    total = sum(t.get("book_net_rs") or 0 for t in new)
+    fut = lambda t: t.get("priced") == "futures" and t.get("fut")
+    key = lambda t: f"NFO:{t['fut']}" if fut(t) else f"NSE:{t['symbol']}"
+    keys = sorted({key(t) for t in held + sold})
+    if keys:
+        if not kite_auth.status().get("connected"):
+            return {"today_net_rs": None}
+        try:
+            q = kite_auth.trading_client().quote(keys)
+        except Exception as error:
+            print("Dashboard: previous closes failed:", error)
+            return {"today_net_rs": None}
+        for t in held + sold:
+            k = "fut" if fut(t) else "stock"
+            prev = ((q.get(key(t)) or {}).get("ohlc") or {}).get("close")
+            end = (t.get("fut_sell") if t in sold else t.get("fut_ltp")) if fut(t) else (t.get("sell") if t in sold else t.get("ltp"))
+            if not prev or end is None or not t.get(f"{k}_qty"):
+                return {"today_net_rs": None}
+            total += (end - prev) * t[f"{k}_qty"] - ((t.get(f"{k}_cost_rs") or 0) / 2 if t in sold else 0)
+    return {"today_net_rs": round(total, 2) if held or sold or new else None}
 
 
 def paper_curve(gap_max_open=5, xsmr_max_open=10):
@@ -208,10 +245,10 @@ def paper_curve(gap_max_open=5, xsmr_max_open=10):
             c = connorswatch.paper(book=book)
             per = {}
             for t in c["closed"]:
-                if t.get("fut_net_rs") is not None:
+                if t.get("book_net_rs") is not None:
                     d = t["exit_at"][:10]
-                    per[d] = per.get(d, 0.0) + t["fut_net_rs"]
-            live = sum(t.get("fut_net_rs") or 0 for t in c["open"])
+                    per[d] = per.get(d, 0.0) + t["book_net_rs"]
+            live = sum(t.get("book_net_rs") or 0 for t in c["open"])
             if c["open"]:
                 per[today] = per.get(today, 0.0) + live  # the open positions, marked now
             daily[label] = per
@@ -322,3 +359,99 @@ def models():
                         _models["building"] = False
             threading.Thread(target=go, daemon=True, name="dashboard-models").start()
         return {"models": _models["value"], "building": _models["building"], "year": datetime.now().year}
+
+
+_nfo = {"at": None, "map": {}}
+_bars = {}  # (instrument key, since) -> (time fetched, [[unix seconds IST, close]])
+
+
+def _instrument_token(kite, key):
+    """NSE:SYMBOL or NFO:CONTRACT -> Kite's instrument token (NFO map cached for 6 hours)."""
+    exchange, symbol = key.split(":", 1)
+    if exchange == "NSE":
+        return gapwatch._token(kite, symbol)
+    if _nfo["at"] is None or time.time() - _nfo["at"] > 6 * 3600:
+        _nfo["map"] = {r["tradingsymbol"]: r["instrument_token"] for r in kite.instruments("NFO")}
+        _nfo["at"] = time.time()
+    return _nfo["map"].get(symbol)
+
+
+def _closes(kite, key, since, fetched):
+    """Closes of key's candles from the day `since` to now: 5-minute bars for a position bought today
+    or yesterday, 15-minute for one held longer. Cached a minute; Kite allows ~3 history calls a second."""
+    hit = _bars.get((key, since))
+    if hit and time.time() - hit[0] < 60:
+        return hit[1]
+    token = _instrument_token(kite, key)
+    if not token:
+        return []
+    if fetched[0]:
+        time.sleep(0.35)
+    fetched[0] += 1
+    now = gapwatch._now().replace(tzinfo=None)
+    start = datetime.combine(datetime.fromisoformat(since).date(), clock(9, 15))
+    interval = "5minute" if (now - start).days < 2 else "15minute"
+    bars = kite.historical_data(token, from_date=start, to_date=now, interval=interval)
+    out = [[int(b["date"].timestamp()) + 19800, float(b["close"])] for b in bars]
+    _bars[(key, since)] = (time.time(), out)
+    return out
+
+
+def open_positions(gap_max_open=5, xsmr_max_open=10):
+    """Every paper book's open positions with their price path since they were bought (the paper landing
+    page's charts): a position held by more than one book is shown once, with each book named. Prices
+    are what the book trades: the stock for gap and cross-sectional, the future for Oops, SR and CR."""
+    pairs = min(5, xsmr_max_open // 2) if xsmr_max_open else 5
+    found, errors = [], {}
+
+    def intraday(label, href, build, fut=False):
+        try:
+            for d in build()["days"]:
+                if d.get("status") == "closed":
+                    continue
+                for p in d["picks"]:
+                    if p.get("closed"):
+                        continue
+                    key = f"NFO:{p['fut']}" if fut and p.get("fut") else f"NSE:{p['symbol']}"
+                    found.append({"book": label, "href": href, "symbol": p["symbol"], "key": key, "side": p.get("side", "long"),
+                                  "since": d["day"], "entry_at": p.get("entry_at"), "entry": p.get("entry"), "stop": p.get("stop"),
+                                  "last": p.get("exit"), "net_rs": p.get("net_rs"), "net_pct": p.get("net_value_pct")})
+        except Exception as error:
+            errors[label] = str(error)
+
+    intraday("Buy/Sell on gap", "/v2/paper/buy-on-gap", lambda: v2paper.gap("long", "none", gap_max_open), fut=True)
+    intraday("Cross-sectional mean reversion", "/v2/paper/xs-mean-reversion", lambda: v2paper.xsmr_(pairs, "none", xsmr_max_open), fut=True)
+    intraday("Oops gap reversal", "/v2/paper/oops", oopswatch.paper, fut=True)
+    for label, href, book in (("Short-term mean reversion", "/v2/paper/short-term-reversion", "rsi2"),
+                              ("Cumulative RSI(2)", "/v2/paper/cumulative-rsi", "cum")):
+        try:
+            for t in connorswatch.paper(book=book)["open"]:
+                fut = t.get("priced") == "futures" and bool(t.get("fut"))
+                key = f"NFO:{t['fut']}" if fut else f"NSE:{t['symbol']}"
+                found.append({"book": label, "href": href, "symbol": t["symbol"], "key": key, "side": "long", "since": t["buy_day"],
+                              "entry_at": t.get("entry_at"), "entry": t.get("fut_buy") if fut else t.get("buy"), "stop": None,
+                              "last": t.get("fut_ltp") if fut else t.get("ltp"),
+                              "net_rs": t.get("fut_net_rs") if fut else t.get("stock_net_rs"),
+                              "net_pct": t.get("fut_net_value_pct") if fut else t.get("stock_net_value_pct"),
+                              "day_of_hold": t.get("day_of_hold")})
+        except Exception as error:
+            errors[label] = str(error)
+    merged = {}
+    for p in found:
+        k = (p["key"], p["since"], p["entry"])
+        if k in merged:
+            merged[k]["books"].append({"label": p["book"], "href": p["href"]})
+        else:
+            merged[k] = {**{x: v for x, v in p.items() if x not in ("book", "href")}, "books": [{"label": p["book"], "href": p["href"]}]}
+    rows = sorted(merged.values(), key=lambda p: (p["since"], p["symbol"]))
+    chart_error = None
+    if rows and kite_auth.status().get("connected"):
+        kite, fetched = kite_auth.trading_client(), [0]
+        for p in rows:
+            try:
+                p["closes"] = _closes(kite, p["key"], p["since"], fetched)
+            except Exception as error:
+                p["closes"], chart_error = [], str(error)
+    elif rows:
+        chart_error = "Kite not connected: no price paths"
+    return {"positions": rows, "errors": errors, "chart_error": chart_error}

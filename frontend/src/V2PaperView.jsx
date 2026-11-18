@@ -21,7 +21,7 @@ export function usePaperChart({ days = 1 } = {}) {
         }}
         className="grid h-6 w-6 place-items-center rounded border transition-colors hover:bg-[var(--surface-2)]"
         style={{ borderColor: "var(--border)", color: "var(--muted)" }}
-        title={`${t.symbol}: 15-minute chart`}
+        title={t.fut ? `${t.fut}: the future's 15-minute chart` : `${t.symbol}: 15-minute chart`}
         aria-label={`${t.symbol} chart`}
       >
         <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
@@ -30,16 +30,20 @@ export function usePaperChart({ days = 1 } = {}) {
       </button>
     ),
   };
+  // A position traded on the future (Oops, SR, CR) charts its contract, with the future's prices marked
+  const fut = row?.fut;
+  const entry = fut ? row.fut_buy ?? row.entry ?? row.buy : row?.entry ?? row?.buy;
+  const exit = fut ? row.fut_sell ?? row.fut_ltp ?? (row.fut_buy == null ? row.exit : null) : row?.exit ?? row?.sell;
   const dialog = row ? (
     <V2CandleChart
-      row={{ symbol: row.symbol, exchange: "NSE" }}
+      row={fut ? { symbol: fut, exchange: "NFO" } : { symbol: row.symbol, exchange: "NSE" }}
       source="kite"
       initialInterval="15m"
       initialDays={days}
       lines={[
-        { price: row.entry ?? row.buy, label: row.side === "short" ? "Sell" : "Buy", color: "var(--accent)" },
+        { price: entry, label: row.side === "short" ? "Sell" : "Buy", color: "var(--accent)" },
         row.stop != null ? { price: row.stop, label: "Stop", color: "var(--negative)" } : null,
-        (row.exit ?? row.sell) != null ? { price: row.exit ?? row.sell, label: row.closed || row.sell ? "Exit" : "Last", color: "var(--muted)" } : null,
+        exit != null ? { price: exit, label: row.closed || row.sell || row.fut_sell ? "Exit" : "Last", color: "var(--muted)" } : null,
       ]
         .filter(Boolean)
         .map((l) => ({ ...l, color: cssVar(l.color) }))}

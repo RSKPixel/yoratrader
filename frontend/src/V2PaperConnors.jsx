@@ -1,3 +1,4 @@
+import DisasterStop from "./V2Disaster";
 import { useMemo, useState } from "react";
 import { useSetting } from "./settings";
 import V2CandleChart from "./V2CandleChart";
@@ -13,6 +14,10 @@ import { LotCards, lotColumns, lotMoney, netBoth, Panel, usePaperChart, Position
 // the 15:15 run reads each day). One F&O lot a position; the capital required is the most margin held
 // on any day. Shown at futures prices (stock prices are recorded at the same moment). Nothing places orders.
 
+const PRICES = [
+  ["spot", "Spot"],
+  ["futures", "Futures"],
+];
 const EXITS = [
   ["hold", "5 days"],
   ["strength", "Exit on strength"],
@@ -111,22 +116,24 @@ function Candidates({ live, book }) {
   );
 }
 
-export default function V2PaperConnors({ params, version = 0, book = "rsi2", exit, onExit, saving }) {
+export default function V2PaperConnors({ params, version = 0, book = "rsi2", exit, onExit, price, onPrice, tradeAt, onTradeAt, disaster, onDisaster, saving }) {
   const [slippage, setSlippage] = useSetting(book === "rsi2" ? "paper.connors.slippage" : `paper.connors.${book}.slippage`, 0.02);
   const live = useLiveRefresh();
   const { data, error, loading } = useBacktest(`/api/connors/paper?slippage=${slippage}&v=${version}&book=${book}`, { refreshMs: live });
   const money = useMemo(() => lotMoney(params.show), [params.show]);
-  const fut = true; // futures prices only (the stock's price is recorded too, but not shown)
-  const key = fut ? "fut" : "stock";
+  // each trade on the prices it was bought under (its "priced": spot or futures); the book's totals likewise
+  const isFut = (t) => t.priced === "futures";
+  const key = "book";
   const maxOpen = data?.max_open ?? 3;
   const strength = (exit || data?.exit) === "strength";
   const cum = data?.setup === "cumrsi2";
   // each trade's one-lot fields for the chosen prices (stock_* or fut_*), under the shared names
   const pick = (t) => ({ ...t, qty: t[`${key}_qty`], margin_rs: t[`${key}_margin_rs`], contract_rs: t[`${key}_contract_rs`], pnl_rs: t[`${key}_pnl_rs`], cost_rs: t[`${key}_cost_rs`], net_rs: t[`${key}_net_rs`], net_margin_pct: t[`${key}_net_margin_pct`], net_value_pct: t[`${key}_net_value_pct`] });
+  const priceTag = (t) => <span className="ml-1.5 text-[0.625rem] font-medium uppercase tracking-[0.06em]" style={{ color: isFut(t) ? "var(--warning)" : "var(--faint)" }}>{isFut(t) ? "fut" : "spot"}</span>;
   const lot = lotColumns(money);
   const chart = usePaperChart({ days: 5 });
   const open = (data?.open || []).map(pick);
-  const closed = (data?.closed || []).map(pick).map((t) => ({ ...t, net: fut ? t.fut_net_pct : t.net_pct }));
+  const closed = (data?.closed || []).map(pick).map((t) => ({ ...t, net: isFut(t) ? t.fut_net_pct : t.net_pct }));
   const L = data?.lots?.[key] || {};
   const estimate = data?.lots?.avg_lot_margin_rs ? maxOpen * data.lots.avg_lot_margin_rs : null;
   const summary = {
@@ -145,12 +152,12 @@ export default function V2PaperConnors({ params, version = 0, book = "rsi2", exi
   };
 
   const openCols = [
-    { h: "Stock", cell: (t) => <span className="font-medium">{t.symbol}</span> },
+    { h: "Stock", cell: (t) => <span className="font-medium">{t.symbol}{priceTag(t)}</span> },
     AT_COLUMNS[0],
     { h: cum ? "Cum RSI" : "RSI", cell: (t) => t.rsi, style: () => ({ color: "var(--muted)" }), title: () => (cum ? "The cumulative 2-day RSI it was bought at" : "The 2-day RSI it was bought at") },
-    { h: fut ? "Future" : "Buy", cell: (t) => (fut ? `${t.fut ?? "—"} @ ${t.fut_buy ?? "—"}` : t.buy) },
+    { h: "Buy", cell: (t) => (isFut(t) ? `${t.fut ?? "—"} @ ${t.fut_buy ?? "—"}` : t.buy) },
     lot.qty,
-    { h: "Last", cell: (t) => (fut ? t.fut_ltp : t.ltp) ?? "—" },
+    { h: "Last", cell: (t) => (isFut(t) ? t.fut_ltp : t.ltp) ?? "—" },
     {
       h: "Day",
       cell: (t) => `${t.day_of_hold} / ${data.hold}`,
@@ -162,14 +169,14 @@ export default function V2PaperConnors({ params, version = 0, book = "rsi2", exi
     { ...lot.result, h: "Net now" },
   ];
   const closedCols = [
-    { h: "Stock", cell: (t) => <span className="font-medium">{t.symbol}</span> },
+    { h: "Stock", cell: (t) => <span className="font-medium">{t.symbol}{priceTag(t)}</span> },
     ...AT_COLUMNS,
     { h: "Reason", cell: (t) => t.reason ?? "time", style: (t) => ({ color: t.reason === "strength" ? "var(--positive)" : "var(--muted)" }) },
     { h: cum ? "Cum RSI" : "RSI", cell: (t) => t.rsi, style: () => ({ color: "var(--muted)" }) },
-    { h: "Buy", cell: (t) => (fut ? t.fut_buy ?? "—" : t.buy) },
+    { h: "Buy", cell: (t) => (isFut(t) ? t.fut_buy ?? "—" : t.buy) },
     lot.qty,
-    { h: "Sell", cell: (t) => (fut ? t.fut_sell ?? "—" : t.sell) },
-    { h: "Gross", cell: (t) => { const g = fut ? t.fut_gross_pct : t.gross_pct; return g == null ? "—" : `${g.toFixed(2)}%`; }, style: (t) => ({ color: tone(fut ? t.fut_gross_pct : t.gross_pct) }) },
+    { h: "Sell", cell: (t) => (isFut(t) ? t.fut_sell ?? "—" : t.sell) },
+    { h: "Gross", cell: (t) => { const g = isFut(t) ? t.fut_gross_pct : t.gross_pct; return g == null ? "—" : `${g.toFixed(2)}%`; }, style: (t) => ({ color: tone(isFut(t) ? t.fut_gross_pct : t.gross_pct) }) },
     { h: "Net", cell: (t) => (t.net == null ? "—" : `${t.net.toFixed(2)}%`), style: (t) => ({ color: tone(t.net) }) },
     lot.value,
     lot.margin,
@@ -190,20 +197,22 @@ export default function V2PaperConnors({ params, version = 0, book = "rsi2", exi
     <div className="mt-4 flex flex-col gap-4">
       {chart.dialog}
       <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
-        <Field label="Instrument" hint="Fixed: one lot of the stock's future, the nearest expiring at least 10 days after the buy (so a hold never crosses expiry: no roll)">
-          <span className="inline-block rounded-md border px-3 py-1.5 text-sm font-medium" style={{ borderColor: "var(--border)", background: "var(--surface)" }}>
-            Futures
-          </span>
+        <Field label="Instrument" hint="Read by the 15:15 run, for new buys (each trade keeps the prices it was bought under). Spot: the signal from the share's closes and price now, the trade judged on the share (one lot's worth). Futures: the signal from the future's own closes (adjusted at each expiry) and its price now, the trade judged on the future (one lot of the nearest future expiring at least 10 days after the buy, so no roll).">
+          <Segmented label="Instrument" options={PRICES.map(([v, t]) => [v, t, saving])} value={price || data?.price || "spot"} onChange={onPrice} />
         </Field>
         <Field label="Setup" hint="Fixed for this book: in a stock above its 200-day average">
           <span className="inline-block rounded-md border px-3 py-1.5 text-sm font-medium" style={{ borderColor: "var(--border)", background: "var(--surface)" }}>
             {book === "cum" ? "Cumulative RSI(2) < 35" : "RSI(2) < 10"}
           </span>
         </Field>
+        <Field label="Trade at" hint="Read by the runs, for new decisions. At close: the 15:15 run decides on the price then and trades at it (the closest live stand-in for the close). Next open: decided after the close on the official closes (from 16:15), and every buy and sale is done at the next session's open (09:15).">
+          <Segmented label="Trade at" options={[["close", "At close", saving], ["nextopen", "Next open", saving]]} value={tradeAt || data?.trade_at || "close"} onChange={onTradeAt} />
+        </Field>
+        <DisasterStop value={disaster || data?.disaster || "off"} onChange={onDisaster} hits={null} />
         <Field label="Exit" hint="Read by the 15:15 run, from the next run (open positions too): sold on the 5th trading day, or on strength (the first 15:15 the 2-day RSI is above 65, the 5th day at the latest)">
           <Segmented label="Exit" options={EXITS.map(([v, t]) => [v, t, saving])} value={exit || data?.exit || (book === "cum" ? "strength" : "hold")} onChange={onExit} />
         </Field>
-        <Field label="Slippage" hint="Per side, on top of NSE futures charges">
+        <Field label="Slippage" hint="Per side, on top of NSE charges">
           <Segmented label="Slippage" options={SLIPPAGE} value={slippage} onChange={setSlippage} />
         </Field>
         {loading && <span className="pb-1.5 text-xs" style={{ color: "var(--faint)" }}>Loading…</span>}
@@ -212,7 +221,8 @@ export default function V2PaperConnors({ params, version = 0, book = "rsi2", exi
       {data && (
         <>
           <StatusLine>
-            Recorded at 15:15 each trading day:{" "}
+            {(data.trade_at || "close") === "nextopen" ? "Decided after the close on the official closes, done at the next open: " : "Recorded at 15:15 each trading day: "}
+            {data.disaster === "on" ? "a position whose day's low reaches 10% under its buy is sold there; " : ""}
             {strength ? `sell positions whose 2-day RSI is above ${data.exit_rsi} (or on their ${data.hold}th trading day)` : `sell positions on their ${data.hold}th trading day`}
             {cum ? ", then buy the lowest cumulative RSI(2) signals below 35 " : ", then buy the most oversold signals (2-day RSI below 10) "}
             into the free slots (at most {maxOpen} open, {UNIVERSES[data.universe] || data.universe}, from the next run) · one lot each · backtest {data.backtest_variant} · costs {data.summary.cost_per_side_bps} bps a side ·
@@ -232,8 +242,24 @@ export default function V2PaperConnors({ params, version = 0, book = "rsi2", exi
                 <V2PnlChart url={`/api/connors/paper/pnl?slippage=${slippage}&book=${book}&n=${open.map((t) => t.symbol).join(",")}`} refreshMs={live} />
               </div>
             )}
-            <PositionsTable rows={open.map((t) => ({ ...t, entry: t.buy, exit: t.ltp }))} columns={[chart.column, ...openCols]} minWidth={760} empty="No open positions." />
+            <PositionsTable rows={open.map((t) => ({ ...t, fut: isFut(t) ? t.fut : null, entry: t.buy, exit: t.ltp }))} columns={[chart.column, ...openCols]} minWidth={760} empty="No open positions." />
           </Panel>
+          {data.orders?.length > 0 && (
+            <Panel title="Orders for the next open" right="decided after the close · filled at the next session's opening price">
+              <PositionsTable
+                rows={data.orders}
+                columns={[
+                  { h: "Stock", cell: (o) => <span className="font-medium">{o.symbol}</span> },
+                  { h: "Do", cell: (o) => (o.action === "buy" ? "Buy" : "Sell"), style: (o) => ({ color: o.action === "buy" ? "var(--positive)" : "var(--negative)" }) },
+                  { h: "Why", cell: (o) => (o.action === "buy" ? `${cum ? "Cum RSI" : "RSI"} ${o.rsi}` : o.reason), style: () => ({ color: "var(--muted)" }) },
+                  { h: "Prices", cell: (o) => (o.action === "buy" ? o.priced : "its own"), style: () => ({ color: "var(--muted)" }) },
+                  { h: "Decided", cell: (o) => o.decided, style: () => ({ color: "var(--muted)" }) },
+                ]}
+                minWidth={520}
+                empty=""
+              />
+            </Panel>
+          )}
           <Candidates live={live} book={book} />
           <Panel title="Closed trades" right="after charges and slippage on both sides">
             <PositionsTable rows={closed} columns={closedCols} minWidth={900} empty="No closed trades yet." />

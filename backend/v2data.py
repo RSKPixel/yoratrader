@@ -188,18 +188,23 @@ def symbols(source="backtest", refresh=False):
                        "last": max((r["daily"]["last"] for r in rows if r["daily"]["last"]), default=None)}}
 
 
-def kite_candles(symbol, interval="15m", days=5):
-    """The NSE stock's candles straight from Kite, today's included (the paper pages' charts: stored
-    15m data is only downloaded after the close). 15m: up to 60 days; daily: up to 2000."""
+def kite_candles(symbol, interval="15m", days=5, exchange="NSE"):
+    """The NSE stock's (or, exchange NFO, a futures contract's) candles straight from Kite, today's included
+    (the paper pages' charts: stored 15m data is only downloaded after the close). 15m: up to 60 days;
+    daily: up to 2000. Kite has no history for an expired contract."""
     from datetime import datetime, timedelta
 
     import gapwatch
     import kite_auth
 
     kite = kite_auth.trading_client()
-    token = gapwatch._token(kite, symbol)
+    if exchange == "NFO":
+        import v2dashboard
+        token = v2dashboard._instrument_token(kite, f"NFO:{symbol}")
+    else:
+        token = gapwatch._token(kite, symbol)
     if not token:
-        raise ValueError(f"No NSE instrument for {symbol}")
+        raise ValueError(f"No {exchange} instrument for {symbol}" + (" (an expired contract has no chart)" if exchange == "NFO" else ""))
     now = gapwatch._now().replace(tzinfo=None)
     span = min(days or 5, 60) if interval == "15m" else min(days or 365, 2000)
     bars = kite.historical_data(token, from_date=now - timedelta(days=span), to_date=now,

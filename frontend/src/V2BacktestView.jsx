@@ -76,7 +76,13 @@ export function SummaryCards({ s, value }) {
           hint={`Compounded: profits left in, so each year works on what's there. Worst drop compounded ${s.max_dd_compounded_pct}% (the other cards: a fixed capital, ${value(s.net_year_pct)} a year)`}
         />
       )}
-      <Card label="Net / trade" value={value(s.avg_net_pct, 3)} color={tone(s.avg_net_pct)} hint={`Each trade on its own position: ${s.avg_trade_net_pct}%`} />
+      <Card label="Net a year" value={value(s.net_year_pct)} color={tone(s.net_year_pct)} hint="The average year's net, as % of capital (not compounded)" />
+      <Card
+        label="Sharpe"
+        value={s.sharpe ?? "—"}
+        color={s.sharpe == null ? undefined : s.sharpe >= 1 ? "var(--positive)" : s.sharpe > 0 ? "var(--warning)" : "var(--negative)"}
+        hint="Return per unit of daily ups and downs, a year (mean ÷ standard deviation of the daily net, × √248). Above 1 is good; below 0.5 is weak."
+      />
       <Card label="Profit factor" value={s.profit_factor ?? "—"} color={s.profit_factor >= 1 ? "var(--positive)" : "var(--negative)"} hint="Net winning trades ÷ net losing trades" />
       <Card label="Max drawdown" value={value(s.max_dd_pct)} color="var(--negative)" hint="Largest fall in cumulative net, at a fixed capital" />
       {s.ruin_half_pct != null && (

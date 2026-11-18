@@ -1,3 +1,4 @@
+import { InstrumentSlot } from "./V2SideNav";
 import { useMemo } from "react";
 import { useSetting } from "./settings";
 import { Field, formatRs, Segmented } from "./V2Controls";
@@ -67,6 +68,7 @@ export default function V2PaperOops({ params, stop, onStop, exit, onExit, saving
     <div className="mt-4 flex flex-col gap-4">
       {chart.dialog}
       <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
+        <InstrumentSlot />
         {exit && (
           <Field label="Exit" hint="For the next buys (saved on the server; each position keeps the exit it was bought under). 15:15: sold the same day. Next day's open: held overnight and sold at the next trading day's open, as in the book; a future that expires that day is still sold at 15:15.">
             <Segmented

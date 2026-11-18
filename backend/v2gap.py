@@ -77,13 +77,80 @@ def _trades(dataset, side, stop, model="gap"):
     return value
 
 
+def on_futures(dataset, model="gap"):
+    """Buy/Sell on gap on the F&O stocks trades the near-month future: signal, fill and exit at the future's level (futsig)."""
+    return model == "gap" and dataset == "fno"
+
+
+def _fut_trades(side, stop):
+    """Chan's buy-on-gap on the futures (futsig prices): a long when the future opens below its previous low
+    by more than 1σ (its own 90-day σ) and above its 20-day average; a short, the mirror image (side "both").
+    In at the open, out at 15:15 (the future's late-day level), or at the 1σ stop if the day's range to
+    15:15 reached it. Each day's qualifying stocks ranked by gap size (the top 10 kept, as the book)."""
+    key = ("fut", side, stop)
+    with _lock:
+        hit = _cache.get(key)
+        if hit and time.time() - hit[0] < CACHE_SECONDS:
+            return hit[1]
+    import futsig
+    p = futsig.prices("fno")
+    o, sd, ma = p["open915"], p["sigma"], p["ma20"]
+    ok = o.notna() & p["px1515"].notna() & sd.notna() & (sd > 0) & ma.notna()
+    down = 1 - o / p["prev_low"]   # > 0: opened below the previous low
+    up = o / p["prev_high"] - 1    # > 0: opened above the previous high
+    frames = []
+    for s_, gap, filt in (("long", down, o > ma), ("short", up, o < ma)):
+        if s_ == "short" and side == "long":
+            continue
+        q = ok & filt & (gap > backtest_threshold() * sd)
+        g = gap.where(q).stack().dropna()  # this pandas keeps NaN when stacking
+        if g.empty:
+            continue
+        f = g.rename("gap").reset_index()
+        f.columns = ["day", "symbol", "gap"]
+        f["side"] = s_
+        frames.append(f)
+    t = pd.concat(frames, ignore_index=True)
+    ix = pd.MultiIndex.from_arrays([t["day"], t["symbol"]])
+    look = lambda name: p[name].stack().reindex(ix).to_numpy(float)
+    t["entry"], t["exit"], sig = look("open915"), look("px1515"), look("sigma")
+    t["prev_low"], t["prev_high"] = look("prev_low"), look("prev_high")
+    lo, hi = look("low1515"), look("high1515")
+    long = (t["side"] == "long").to_numpy()
+    t["stop"] = np.where(long, t["entry"] * (1 - sig), t["entry"] * (1 + sig))
+    t["exit_reason"] = "time"
+    if stop == "1sd":
+        stopped = np.where(long, lo <= t["stop"], hi >= t["stop"])
+        t.loc[stopped, "exit"] = t.loc[stopped, "stop"]
+        t.loc[stopped, "exit_reason"] = "stop"
+    t["ret"] = np.where(long, 1, -1) * (t["exit"] / t["entry"] - 1)
+    t = t[t["ret"].abs() <= xsmr.MAX_MOVE]
+    t = t.sort_values(["day", "gap"], ascending=[True, False]).reset_index(drop=True)
+    t["rank"] = t.groupby("day").cumcount() + 1
+    t = t[t["rank"] <= MAX_OPEN].reset_index(drop=True)
+    days = o.index[o.notna().any(axis=1)]
+    value = (t, pd.DatetimeIndex(days))
+    with _lock:
+        _cache[key] = (time.time(), value)
+    return value
+
+
+def backtest_threshold():
+    import backtest
+    return backtest.GAP_THRESHOLDS[0]
+
+
 def _sized(dataset, side, stop, max_open, slippage, model="gap", disaster="off"):
-    t, days = _trades(dataset, side, stop, model)
+    t, days = _fut_trades(side, stop) if on_futures(dataset, model) else _trades(dataset, side, stop, model)
     cap = max_open or (MAX_OPEN if model == "gap" else None)  # gapmom's book takes every qualifier
     t = (t[t["rank"] <= cap] if cap else t).copy()
     if disaster == "on" and len(t):  # the 10% disaster stop (disaster.py): out at the level if the day reached it
         import disaster as ds
-        hit, level = ds.frame_hits(t)
+        if on_futures(dataset, model):
+            import futsig
+            hit, level = futsig.frame_hits(t, ds.PCT)
+        else:
+            hit, level = ds.frame_hits(t)
         t.loc[hit, "exit"] = level[hit]
         t.loc[hit, "exit_reason"] = "disaster stop"
         t["ret"] = np.where(t["side"] == "long", 1, -1) * (t["exit"] / t["entry"] - 1)
@@ -99,6 +166,7 @@ def _sized(dataset, side, stop, max_open, slippage, model="gap", disaster="off")
 def results(dataset="fno", side="long", stop="none", max_open=5, slippage=0.0002, model="gap", disaster="off"):
     t, days = _sized(dataset, side, stop, max_open, slippage, model, disaster)
     extra = {"avg_positions": round(float(t.groupby("day").size().mean()), 1)} if len(t) else {}
+    extra["priced_on"] = "futures" if on_futures(dataset, model) else "share"
     if disaster == "on":
         import disaster as ds
         extra.update(disaster_pct=ds.PCT, disaster_hits=int((t["exit_reason"] == "disaster stop").sum()))

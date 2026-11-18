@@ -6,7 +6,6 @@ import V2TradeLanding from "./V2TradeLanding";
 import V2TradeMix from "./V2TradeMix";
 import V2Settings from "./V2Settings";
 import V2Data from "./V2Data";
-import { KiteButton } from "./V2Kite";
 import V2Dashboard from "./V2Dashboard";
 import { systemTheme, useSetting } from "./settings";
 import V2Live from "./V2Live";
@@ -144,14 +143,17 @@ export default function AppV2() {
             <span className="hidden text-sm sm:inline" style={{ color: "var(--muted)" }}>
               {displayName(user)}
             </span>
-            <KiteButton />
             <button
               type="button"
               onClick={logout}
-              className="rounded-md border px-3 py-1.5 text-sm transition-colors hover:bg-[var(--surface-2)]"
-              style={{ borderColor: "var(--border)", color: "var(--text)" }}
+              className="grid h-8 w-8 place-items-center rounded-md border transition-colors hover:bg-[var(--surface-2)]"
+              style={{ borderColor: "var(--border)", color: "var(--muted)" }}
+              aria-label="Log out"
+              title="Log out"
             >
-              Log out
+              <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3M10 17l5-5-5-5M15 12H4" />
+              </svg>
             </button>
             <button
               type="button"

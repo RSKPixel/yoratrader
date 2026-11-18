@@ -1,3 +1,4 @@
+import { InstrumentSlot } from "./V2SideNav";
 import { useEffect, useMemo, useState } from "react";
 import { useSetting } from "./settings";
 import { Field, formatRs, Segmented } from "./V2Controls";
@@ -187,6 +188,7 @@ export default function V2PaperXsmr({ params }) {
     <div className="mt-4 flex flex-col gap-4">
       {chart.dialog}
       <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
+        <InstrumentSlot />
         <Field label="Pairs" hint="k long + k short of the recorded 5 + 5 (the furthest from the day's average move first); one lot each.">
           <Segmented label="Pairs" options={pairOptions} value={params.maxOpen ? k : null} onChange={setPairs} />
         </Field>

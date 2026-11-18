@@ -122,8 +122,9 @@ function BookStepper({ value, onChange }) {
   );
 }
 
-function MaxOpenStepper({ value, onChange, step: by = 1, noBook = false }) {
-  const book = value === 0;
+// No "as per model" sizing: always a fixed number of positions (a saved 0 from before reads as the default).
+function MaxOpenStepper({ value, onChange, step: by = 1 }) {
+  const book = !value;
   const start = by > 1 ? 6 : 5;
   const step = (d) =>
     onChange(Math.min(MAX_OPEN, Math.max(by, (book ? start : value) + d * by)));
@@ -157,22 +158,6 @@ function MaxOpenStepper({ value, onChange, step: by = 1, noBook = false }) {
           +
         </button>
       </div>
-      {!noBook && (
-        <button
-          type="button"
-          onClick={() => onChange(book ? start : 0)}
-          aria-pressed={book}
-          className="rounded-md border px-2 py-1 text-xs transition-colors hover:bg-[var(--surface-2)]"
-          style={
-            book
-              ? { borderColor: "var(--accent)", color: "var(--accent)" }
-              : { borderColor: "var(--border)", color: "var(--muted)" }
-          }
-          title="Each model's own sizing instead of a fixed number of positions"
-        >
-          As per model
-        </button>
-      )}
     </div>
   );
 }
@@ -226,7 +211,6 @@ export default function V2BacktestParams({
   pit = null,
   fixedOpen = null,
   books = null,
-  noBook = false,
 }) {
   // books: a page that sizes several books ([{ label, value, onChange, hint }]): a stepper each instead of Max open
   // fixedOpen: a page whose sizing is fixed by its own rules (text shown instead of the Max open stepper)
@@ -358,8 +342,8 @@ export default function V2BacktestParams({
               : live
                 ? "How many positions the scheduler may hold, saved on the server: it applies from the next run. Open positions keep the size they were bought at (1 / the max open then); lowering it only stops new buys until enough are sold."
                 : step > 1
-                  ? "Long-short: as many shorts as longs, so this moves in 2s; Pairs picks how many of them are used. Capital ÷ N each. As per model: the model's own sizing."
-                  : "At most this many positions at once, capital ÷ N each. As per model: each model's own sizing."
+                  ? "Long-short: as many shorts as longs, so this moves in 2s; Pairs picks how many of them are used. Capital ÷ N each."
+                  : "At most this many positions at once, capital ÷ N each."
           }
         >
           {fixedOpen ? (
@@ -376,7 +360,6 @@ export default function V2BacktestParams({
               value={params.maxOpen}
               onChange={(maxOpen) => onChange({ maxOpen })}
               step={step}
-              noBook={noBook}
             />
           )}
         </Field>
@@ -404,7 +387,7 @@ export default function V2BacktestParams({
         style={{ color: "var(--muted)" }}
       >
         {lots ? (
-          <>1 lot each · {maxOpen ? `${maxOpen} max` : "as per model"}</>
+          <>1 lot each · {maxOpen} max</>
         ) : fixedOpen || books ? (
           "Each book: its share of capital ÷ its max open"
         ) : per ? (

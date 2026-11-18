@@ -1,5 +1,6 @@
 import { StatusButtons } from "./modelStatus";
-import { SideNav, StyleTag, useSideNav } from "./V2SideNav";
+import { SideNav, StyleTag, InstrumentContext, useSideNav } from "./V2SideNav";
+import FixedRules from "./V2FixedRules";
 import V2BacktestParams, { useBacktestParams } from "./V2BacktestParams";
 import V2BuyOnGap from "./V2BuyOnGap";
 import V2Kbdt from "./V2Kbdt";
@@ -30,7 +31,7 @@ export const BACKTEST_GROUPS = [
     models: [
       { id: "buy-on-gap", universes: ["fno", "stocks", "indices"], short: "BG", label: "Buy/Sell on gap", style: "Intraday" },
       { id: "gap-momentum", universes: ["indices", "fno"], short: "GM", label: "Opening gap momentum", style: "Intraday" },
-      { id: "xs-mean-reversion", step: 2, universes: ["fno", "stocks"], short: "XR", label: "Cross-sectional mean reversion", style: "Intraday", noBook: true },
+      { id: "xs-mean-reversion", step: 2, universes: ["fno", "stocks"], short: "XR", label: "Cross-sectional mean reversion", style: "Intraday" },
       { id: "pairs", step: 2, universes: ["fno"], short: "PT", label: "Pairs trading", style: "Positional" },
       { id: "xs-momentum", step: 2, universes: ["fno", "stocks"], short: "XM", label: "Cross-sectional momentum", style: "Positional", pit: true },
     ],
@@ -109,8 +110,8 @@ function Model({ m, onSelect }) {
   const universe = m.universes.includes(params.universe) ? params.universe : m.universes[0];
   // Long-short models need as many shorts as longs: Max open moves in 2s (an odd choice rounds up).
   const step = m.step || 1;
-  // noBook: the model has no "As per model" sizing on its page (cross-sectional: always k + k, never Chan's every-stock book)
-  const savedOpen = m.noBook && !params.maxOpen ? 6 : params.maxOpen;
+  // No "as per model" sizing on any page: a saved 0 (from before) reads as the model's default
+  const savedOpen = params.maxOpen || m.defaultOpen || (m.step > 1 ? 6 : 5);
   const maxOpen = savedOpen && step > 1 ? Math.min(10, Math.ceil(savedOpen / step) * step) : savedOpen;
   // Survivorship-free (each month's F&O list): the "fnopit" dataset, for daily-close models on F&O stocks
   const pit = !!m.pit && universe === "fno" && params.survivor === "pit";
@@ -125,6 +126,7 @@ function Model({ m, onSelect }) {
         <div className="mt-1 flex flex-wrap items-center gap-3">
           <h1 className="text-xl font-semibold tracking-tight">{m.label}</h1>
           <StyleTag style={m.style} />
+          <FixedRules id={m.id} label={m.label} />
           <span className="ml-auto">
             <StatusButtons id={m.id} />
           </span>
@@ -133,7 +135,6 @@ function Model({ m, onSelect }) {
           <V2BacktestParams params={{ ...modelParams, universe }} onChange={setParams} universes={m.universes} step={step}
             pit={{ ok: !!m.pit, value: pit ? "pit" : "today" }}
             fixedOpen={m.fixedOpen}
-            noBook={!!m.noBook}
             books={
               m.books
                 ? [
@@ -144,6 +145,7 @@ function Model({ m, onSelect }) {
             }
           />
         </div>
+        <InstrumentContext.Provider value={{ id: m.id, universe: pit ? "fnopit" : universe }}>
         {m.id === "buy-on-gap" && <V2BuyOnGap params={modelParams} />}
         {m.id === "oops" && <V2Oops params={modelParams} />}
         {m.id === "turn-of-month" && <V2Tom params={modelParams} />}
@@ -155,7 +157,8 @@ function Model({ m, onSelect }) {
         {m.id === "pairs" && <V2Pairs params={modelParams} />}
         {m.id === "xs-momentum" && <V2Xsmom params={modelParams} />}
         {m.id === "quant-momentum" && <V2Qmom params={modelParams} />}
-        {m.id === "short-term-reversion" && <V2Connors params={modelParams} />}
+        {m.id === "short-term-reversion" && <V2Connors params={modelParams} onParams={setParams} />}
+        </InstrumentContext.Provider>
       </section>
     </div>
   );

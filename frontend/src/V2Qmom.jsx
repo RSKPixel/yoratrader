@@ -1,3 +1,4 @@
+import { InstrumentSlot } from "./V2SideNav";
 import { useCallback, useMemo, useState } from "react";
 import { useSetting } from "./settings";
 import { Field, formatRs, Segmented } from "./V2Controls";
@@ -60,6 +61,7 @@ export default function V2Qmom({ params }) {
   return (
     <div className="mt-4 flex flex-col gap-4">
       <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
+        <InstrumentSlot />
         <Field label="Version" hint="Book: top 10% by 12-to-1-month return, the smoother half by FIP, quarterly. Momentum only: no FIP filter. Monthly: rebalanced every month. All stocks: the equal-weight benchmark (no max open).">
           <Segmented label="Version" options={VERSIONS} value={version} onChange={setVersion} />
         </Field>

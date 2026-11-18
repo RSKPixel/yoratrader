@@ -1,3 +1,4 @@
+import { InstrumentSlot } from "./V2SideNav";
 import { useCallback, useMemo, useState } from "react";
 import { useSetting } from "./settings";
 import { Field, formatRs, Segmented } from "./V2Controls";
@@ -68,6 +69,7 @@ export default function V2Xsmr({ params }) {
   return (
     <div className="mt-4 flex flex-col gap-4">
       <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
+        <InstrumentSlot />
         <Field
           label="Pairs"
           hint="Long-short: k long + k short, each capital ÷ Max open (unused slots stay in cash). Only the ones that fit in Max open are enabled."

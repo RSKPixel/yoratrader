@@ -198,7 +198,8 @@ def _prices(dataset, start=None, end=None):
     frame = frame.merge(sd, on=["symbol", "day"], how="left")
     frame["day"] = pd.to_datetime(frame["day"])
     return {col: frame.pivot(index="day", columns="symbol", values=col).sort_index()
-            for col in ("open915", "open916", "open930", "open945", "px1515", "day_close", "low1515", "high1515", "sigma")}
+            for col in ("open915", "open916", "open930", "open945", "px1515", "day_close", "low1515", "high1515", "sigma",
+                        "day_low", "day_high")}
 
 
 def _weights(signal, top=None):
@@ -231,7 +232,8 @@ def _book(p, variant, top=False):
         sig = px / px.shift(1) - 1
         entry, exit_ = px, px.shift(-1)
     else:
-        sig = p["open915"] / p["day_close"].shift(1) - 1
+        prev = p["prev_close"] if "prev_close" in p else p["day_close"].shift(1)  # futsig: the future's own previous close
+        sig = p["open915"] / prev - 1
         entry, exit_ = p[ENTRY_COLS[variant]], p["px1515"]
     pos = exit_ / entry - 1
     ok = sig.notna() & pos.notna() & (sig.abs() <= MAX_MOVE) & (pos.abs() <= MAX_MOVE)
