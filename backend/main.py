@@ -1337,6 +1337,44 @@ def v2_paper_open_positions(gap_max_open: int = Query(5, ge=0, le=v2gap.MAX_OPEN
         return {"status": "error", "message": str(error)}
 
 
+class AngelCredentialsRequest(BaseModel):
+    api_key: str = ""
+    client_code: str = ""
+    pin: str = ""
+    totp_secret: str = ""
+
+
+@app.get("/api/angel/credentials")
+def angel_credentials():
+    """Angel One SmartAPI credentials (masked) and whether a login is active."""
+    import angel_auth
+    return {"status": "success", **angel_auth.credentials()}
+
+
+@app.post("/api/angel/credentials")
+def angel_save_credentials(req: AngelCredentialsRequest):
+    """Store the Angel One fields given (an empty field keeps what's stored)."""
+    import angel_auth
+    try:
+        return {"status": "success", **angel_auth.save_credentials(req.api_key, req.client_code, req.pin, req.totp_secret)}
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Not saved: {exc}")
+
+
+class AngelLoginRequest(BaseModel):
+    otp: str = ""
+
+
+@app.post("/api/angel/test")
+def angel_test(req: AngelLoginRequest):
+    """Log in to Angel One with the stored credentials (read-only: nothing places orders)."""
+    import angel_auth
+    try:
+        return {"status": "success", **angel_auth.login(req.otp)}
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+
 @app.get("/api/backups")
 def backups():
     """The nightly database backup's last run (scripts/nightly_backup.sh, the server's crontab at 22:00): result,

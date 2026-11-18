@@ -3,12 +3,13 @@ import { useAuth } from "./AuthGate";
 import { inputStyle, Segmented } from "./V2Controls";
 import { KitePanel, useKiteStatus } from "./V2Kite";
 
-// v2 Settings: a dialog with four tabs. General (theme), Kite (connection, daily token, credentials),
+// v2 Settings: a dialog with five tabs (Angel One: SmartAPI credentials). General (theme), Kite (connection, daily token, credentials),
 // Profile (user name, password; the user ID is fixed and can't be changed), Backups (the nightly database backup).
 
 const TABS = [
   ["general", "General"],
   ["kite", "Kite"],
+  ["angel", "Angel One"],
   ["profile", "Profile"],
   ["backups", "Backups"],
 ];
@@ -43,6 +44,94 @@ async function post(url, payload) {
 }
 
 const size = (b) => (b == null ? "—" : b >= 1e9 ? `${(b / 1e9).toFixed(2)} GB` : `${Math.round(b / 1e6)} MB`);
+
+// Angel One SmartAPI: credentials stored on the server (app_settings, like Kite's), masked once saved; a
+// login test. Read-only use (historical data); nothing places orders.
+function AngelOne() {
+  const [c, setC] = useState(null);
+  const [form, setForm] = useState({ api_key: "", client_code: "", pin: "", totp_secret: "" });
+  const [otp, setOtp] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState(null);
+  const load = () => fetch("/api/angel/credentials").then((r) => r.json()).then(setC).catch(() => setC(null));
+  useEffect(() => {
+    load();
+  }, []);
+  const save = async (e) => {
+    e.preventDefault();
+    setBusy(true);
+    setMsg(null);
+    const r = await fetch("/api/angel/credentials", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(form) });
+    const b = await r.json().catch(() => ({}));
+    setBusy(false);
+    if (r.ok) {
+      setC(b);
+      setForm({ api_key: "", client_code: "", pin: "", totp_secret: "" });
+      setMsg({ ok: true, text: "Saved." });
+    } else setMsg({ ok: false, text: b.detail || "Not saved" });
+  };
+  const test = async () => {
+    setBusy(true);
+    setMsg(null);
+    const r = await fetch("/api/angel/test", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ otp }) });
+    const b = await r.json().catch(() => ({}));
+    setBusy(false);
+    setOtp("");
+    if (b.status === "success") {
+      setC(b);
+      setMsg({ ok: true, text: `Logged in${b.name ? ` as ${b.name}` : ""}.` });
+    } else setMsg({ ok: false, text: b.message || "Login failed" });
+  };
+  const field = (key, label, hint, stored, type = "password") => (
+    <label className="flex flex-col gap-1 text-sm">
+      <span className="font-medium">{label}</span>
+      <input
+        type={type}
+        value={form[key]}
+        onChange={(e) => setForm({ ...form, [key]: e.target.value })}
+        placeholder={stored ? `stored ${typeof stored === "string" ? stored : "✓"} · type to replace` : "not set"}
+        autoComplete="off"
+        className="rounded-md border px-2.5 py-1.5 text-sm outline-none"
+        style={inputStyle}
+      />
+      <span className="text-xs" style={{ color: "var(--faint)" }}>{hint}</span>
+    </label>
+  );
+  return (
+    <div className="flex flex-col gap-4">
+      <p className="text-sm" style={{ color: "var(--muted)" }}>
+        Angel One SmartAPI, for historical data tests. Saved on the server, never shown in full again. Nothing here places orders.
+      </p>
+      <div className="flex items-center gap-2 text-sm font-medium" style={{ color: c?.logged_in ? "var(--positive)" : "var(--muted)" }}>
+        <span className="h-2 w-2 rounded-full" style={{ background: c?.logged_in ? "var(--positive)" : "var(--faint)" }} aria-hidden="true" />
+        {c?.logged_in ? `Logged in${c.name ? ` as ${c.name}` : ""} (${c.logged_in_at})` : "Not logged in"}
+      </div>
+      <form onSubmit={save} className="flex flex-col gap-3 rounded-lg border p-3" style={{ borderColor: "var(--border)" }}>
+        {field("api_key", "API key", "From the SmartAPI developer portal: your app's API key", c?.api_key)}
+        {field("client_code", "Client code", "Your Angel One client ID", c?.client_code, "text")}
+        {field("pin", "PIN", "Your 4-digit Angel One login PIN", c?.has_pin)}
+        {field("totp_secret", "TOTP secret (optional)", "The authenticator secret shown when you enabled TOTP (letters and digits), not today's 6-digit code. Without it, enter the code for each login below.", c?.has_totp_secret)}
+        <div>
+          <button type="submit" disabled={busy || !Object.values(form).some((v) => v.trim())} className={button} style={primary}>
+            Save
+          </button>
+        </div>
+      </form>
+      <div className="flex flex-wrap items-end gap-2">
+        {!c?.has_totp_secret && (
+          <label className="flex flex-col gap-1 text-sm">
+            <span className="font-medium">6-digit code</span>
+            <input value={otp} onChange={(e) => setOtp(e.target.value)} inputMode="numeric" maxLength={6} className="w-28 rounded-md border px-2.5 py-1.5 text-sm outline-none" style={inputStyle} />
+          </label>
+        )}
+        <button type="button" onClick={test} disabled={busy || !c?.client_code} className={button} style={{ borderColor: "var(--border)" }}>
+          Test connection
+        </button>
+      </div>
+      {msg && <p className="text-sm" style={{ color: msg.ok ? "var(--positive)" : "var(--negative)" }}>{msg.text}</p>}
+    </div>
+  );
+}
 
 // The nightly database backup (scripts/nightly_backup.sh, the server's crontab): its last run and the dumps kept
 function Backups() {
@@ -269,6 +358,7 @@ export default function V2Settings({ theme, onTheme, onClose, initialTab = "gene
         <div className="min-h-0 flex-1 overflow-auto p-4" role="tabpanel">
           {tab === "general" && <General theme={theme} onTheme={onTheme} />}
           {tab === "kite" && <KiteTab />}
+          {tab === "angel" && <AngelOne />}
           {tab === "profile" && <Profile />}
           {tab === "backups" && <Backups />}
         </div>
