@@ -89,14 +89,7 @@ export function SummaryCards({ s, value }) {
         <Card
           label="Risk of ruin"
           value={
-            s.ruin_half_pct === 0 ? "0% ✓" : (
-              <>
-                {s.ruin_half_pct}%
-                <span className="ml-1.5 text-xs font-normal" style={{ color: "var(--muted)" }}>
-                  {s.ruin_safe_size ? `0% at ${Math.round(100 * s.ruin_safe_size)}% size` : "not 0 even at 10%"}
-                </span>
-              </>
-            )
+            s.ruin_half_pct === 0 ? "0% ✓" : `${s.ruin_half_pct}%`
           }
           color={s.ruin_half_pct === 0 ? "var(--positive)" : "var(--negative)"}
           hint={`Penfold: trade only a model whose risk of ruin is 0. ${s.ruin_half_pct === 0 ? "This one passes at full size." : s.ruin_safe_size ? `This one fails at full size; with ${Math.round(100 * s.ruin_safe_size)}% of the capital in it (the rest in cash) the risk is 0.` : "This one fails even at 10% of the capital."} Ruin = the capital falls below half the start within ${s.ruin_years} years, from 5,000 ten-year futures made of this backtest's own months drawn at random (whole capital in the model, profits left in). A 30% fall from a peak: ${s.ruin_dd30_pct}% · a 50% fall: ${s.ruin_dd50_pct}% · worst 5% end at ×${s.ruin_p5_end} of the start. Shuffling months breaks up long crashes, so the real risk is likely a little higher; a backtest that's too good (e.g. fills a real order would miss) shows too little.`}

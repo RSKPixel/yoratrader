@@ -390,16 +390,9 @@ export function Models() {
                   <td
                     className="px-3 py-2"
                     style={{ color: m.ruin_pct == null ? "var(--muted)" : m.ruin_pct === 0 ? "var(--positive)" : "var(--negative)" }}
-                    title="Penfold: must be 0. The chance of falling below half the capital within 10 years (from the backtest's own months, resampled), at full size; otherwise the size that brings it to 0"
+                    title="Penfold: must be 0. The chance of falling below half the capital within 10 years (from the backtest's own months, resampled), at full size"
                   >
-                    {m.ruin_pct == null ? "—" : m.ruin_pct === 0 ? "0% ✓" : (
-                      <>
-                        {m.ruin_pct}%
-                        <span className="ml-1 text-xs" style={{ color: "var(--muted)" }}>
-                          {m.ruin_safe_size ? `0 at ${Math.round(100 * m.ruin_safe_size)}% size` : "not 0 at 10%"}
-                        </span>
-                      </>
-                    )}
+                    {m.ruin_pct == null ? "—" : m.ruin_pct === 0 ? "0% ✓" : `${m.ruin_pct}%`}
                   </td>
                   <td className="px-3 py-2" style={{ color: "var(--negative)" }}>
                     {pct(m.max_dd_pct, 1)}
