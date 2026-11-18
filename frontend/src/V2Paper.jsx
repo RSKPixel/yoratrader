@@ -1,6 +1,7 @@
 import { StatusButtons } from "./modelStatus";
 import { useCallback, useEffect, useState } from "react";
 import FixedRules from "./V2FixedRules";
+import V2PaperTom from "./V2PaperTom";
 import V2BacktestParams, { useBacktestParams } from "./V2BacktestParams";
 import V2PaperConnors from "./V2PaperConnors";
 import { PaperOverview } from "./V2Dashboard";
@@ -40,7 +41,10 @@ export const PAPER_GROUPS = [
   {
     title: "Larry Williams",
     source: "Long-Term Secrets to Short-Term Trading (Wiley, 2011)",
-    models: [{ id: "oops", short: "OP", label: "Oops gap reversal", style: "Intraday", live: "/api/v2/paper/oops" }],
+    models: [
+      { id: "oops", short: "OP", label: "Oops gap reversal", style: "Intraday", live: "/api/v2/paper/oops" },
+      { id: "turn-of-month", short: "TM", label: "Turn of the month", style: "Positional", noParams: true },
+    ],
   },
 ];
 
@@ -148,16 +152,17 @@ function Book({ m, onSelect }) {
           </span>
         </div>
         <div className="mt-4">
-          {(!m.live || ls) && <V2BacktestParams params={modelParams} onChange={setParams} universes={["fno"]} step={step} live={live} lots />}
+          {!m.noParams && (!m.live || ls) && <V2BacktestParams params={modelParams} onChange={setParams} universes={["fno"]} step={step} live={live} lots />}
           {liveSettings.error && (
             <p className="mt-2 text-sm" style={{ color: "var(--negative)" }}>
               {liveSettings.error}
             </p>
           )}
         </div>
-        <InstrumentContext.Provider value={{ id: m.id }}>
+        <InstrumentContext.Provider value={{ id: m.id, paper: true }}>
         {m.id === "buy-on-gap" && <V2PaperGap params={modelParams} />}
         {m.id === "xs-mean-reversion" && <V2PaperXsmr params={modelParams} />}
+        {m.id === "turn-of-month" && <V2PaperTom />}
         {m.id === "oops" && (
           <V2PaperOops
             params={modelParams}

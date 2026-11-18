@@ -2,7 +2,7 @@ import { useCallback, useMemo, useState } from "react";
 import { useSetting } from "./settings";
 import { Field, Segmented } from "./V2Controls";
 import V2EquityChart from "./V2EquityChart";
-import { makeValue, MonthGrid, MonthTradesModal, Panel, SummaryCards, tone, AT_COLUMNS } from "./V2BacktestView";
+import { Card, makeValue, MonthGrid, MonthTradesModal, Panel, SummaryCards, tone, AT_COLUMNS } from "./V2BacktestView";
 import { SLIPPAGE, useBacktest } from "./V2BuyOnGap";
 
 // Turn of the month (v2tom.py): long the index future around each month end, from the close a few days
@@ -66,6 +66,18 @@ export default function V2Tom({ params }) {
       {s && (
         <>
           <SummaryCards s={s} value={value} />
+          {s.in_market_pct > 0 && (
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+              <Card label="Capital in use" value={`${s.in_market_pct}% of days`} hint={`In the market about ${s.avg_days} trading days a month; the capital is free (for other books) the rest of the time`} />
+              <Card
+                label="Net a year while invested"
+                value={value((100 * s.net_year_pct) / s.in_market_pct)}
+                color={tone(s.net_year_pct)}
+                hint={`Net a year ÷ the share of days in the market (${value(s.net_year_pct)} ÷ ${s.in_market_pct}%): the return on the capital for the days it's actually used. CAGR and Net a year count the idle days too.`}
+              />
+              <Card label="Net a year (whole year)" value={value(s.net_year_pct)} color={tone(s.net_year_pct)} hint="As if the capital sat idle between trades" />
+            </div>
+          )}
           <p className="-mt-1 text-xs" style={{ color: "var(--muted)" }}>
             {s.from} → {s.to} · {value(s.net_year_pct)} net a year · Sharpe {s.sharpe ?? "—"} · {s.green_years}/{s.years} green years · in the market{" "}
             {s.in_market_pct}% of days, {s.avg_days} days a trade · holding the index all the time: {value(s.buy_hold_year_pct)} a year · one position, 1x

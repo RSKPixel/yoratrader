@@ -477,6 +477,12 @@ def _tick():
         result = connorswatch.record()
         if result.get("recorded"):
             print("Short-term mean reversion paper: recorded", result)
+    import tomwatch  # turn of the month paper trading (the Nifty future), 15:15 on its buy and sell days
+
+    if tomwatch.RECORD_AT <= t < tomwatch.RECORD_UNTIL:
+        result = tomwatch.record()
+        if result.get("bought") or result.get("sold"):
+            print("Turn of the month paper:", result)
     if connorswatch.PREOPEN_FILL_FROM <= t < clock(15, 30):  # sales queued at the close: the pre-open auction (open) price
         result = connorswatch.execute_orders()
         if result.get("filled"):

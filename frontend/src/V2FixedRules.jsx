@@ -101,6 +101,10 @@ export default function FixedRules({ id, paper = false, label = "" }) {
   }, [open]);
   let rules = RULES[id];
   if (!rules) return null;
+  if (paper && id === "turn-of-month") // the paper book: Nifty, the last 4 days, at 15:15
+    rules = [["Index", "Nifty (one lot of the nearest future expiring after the sale: no roll)"],
+             ["Buy", "15:15 on the month's 5th-last trading day"], ["Sell", "15:15 on the next month's 3rd trading day"],
+             ["Side", "long only"]];
   if (paper && (id === "short-term-reversion" || id === "cumulative-rsi")) // these paper books buy at the 15:15 run
     rules = rules.map(([k, v]) => (k === "Entry" ? [k, "at the close: 15:15 (the paper run)"] : [k, v]));
   return (

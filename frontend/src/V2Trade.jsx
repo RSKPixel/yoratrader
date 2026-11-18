@@ -353,9 +353,23 @@ export default function V2Trade() {
           <h1 className="text-xl font-semibold tracking-tight">Turn of the month</h1>
           <Info>
             Buy a Nifty call 2–3.5% in the money (next month's expiry) at the close of the month's 5th-last trading day; sell it at the close of the next
-            month's 3rd trading day. Orders are placed only when you click and confirm.
+            month's 3rd trading day. Orders are placed only when you click and confirm. The call stands in for the Nifty future the
+            model is backtested and paper-traded on (Paper trading → Turn of the month).
           </Info>
           <StyleTag style="Positional" />
+          <a
+            href="/v2/paper/turn-of-month"
+            onClick={(e) => {
+              e.preventDefault();
+              window.history.pushState(null, "", "/v2/paper/turn-of-month");
+              window.dispatchEvent(new PopStateEvent("popstate"));
+            }}
+            className="rounded-md border px-2.5 py-1 text-xs font-medium transition-colors hover:bg-[var(--surface-2)]"
+            style={{ borderColor: "var(--border)", color: "var(--muted)" }}
+            title="The same cycle on paper, in the Nifty future: compare the call's result with it"
+          >
+            Paper book (future)
+          </a>
           <span className="ml-auto">
             <StatusButtons id="turn-of-month" />
           </span>

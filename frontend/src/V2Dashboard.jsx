@@ -176,6 +176,7 @@ function openNow(p) {
     oops: live(op),
     "short-term-reversion": (c.open || 0) > 0,
     "cumulative-rsi": (cc.open || 0) > 0,
+    "turn-of-month": ((p.tom_paper || {}).open || 0) > 0,
   };
 }
 
@@ -297,6 +298,21 @@ function Paper({ p, today, openOnly = false }) {
           ["Open now", rs(cc.open_fut_net_rs), tone(cc.open_fut_net_rs)],
           ["Realized net", rs(cc.fut_net_rs), tone(cc.fut_net_rs)],
           ["Capital required", cc.capital_rs ? formatRs(cc.capital_rs) : "—"],
+        ]}
+      />
+      )}
+      {shown("turn-of-month") && (
+      <PaperCard
+        title="Turn of the month"
+        href="/v2/paper/turn-of-month"
+        style="Positional"
+        error={(p.tom_paper || {}).error}
+        lines={[
+          ["Now", (p.tom_paper || {}).open ? `holding ${p.tom_paper.fut}` : (p.tom_paper || {}).state === "waiting" ? `${p.tom_paper.days_to_buy} trading days to the buy` : (p.tom_paper || {}).state ?? "—"],
+          ["Buy · sell (15:15)", `${day((p.tom_paper || {}).buy)} · ${day((p.tom_paper || {}).sell)}`],
+          ["Today's net", rs((p.tom_paper || {}).today_net_rs), tone((p.tom_paper || {}).today_net_rs)],
+          ["Open now", rs((p.tom_paper || {}).open_net_rs), tone((p.tom_paper || {}).open_net_rs)],
+          ["Realized net", rs((p.tom_paper || {}).total_net_rs), tone((p.tom_paper || {}).total_net_rs)],
         ]}
       />
       )}
@@ -474,20 +490,20 @@ function useDashboard() {
 // Across every paper book (archived ones left out): books and positions open now, today's and total net
 function paperTotals(p, statuses) {
   const on = (id) => statusOf(statuses, id) !== "archived";
-  const g = p.gap || {}, x = p.xsmr || {}, c = p.connors || {}, cc = p.connors_cum || {}, op = p.oops || {};
+  const g = p.gap || {}, x = p.xsmr || {}, c = p.connors || {}, cc = p.connors_cum || {}, op = p.oops || {}, tp = p.tom_paper || {};
   const open = openNow(p);
   const ids = Object.keys(open).filter(on);
   const live = (b) => (b.today_status === "open" ? b.today_positions || 0 : 0);
   const positions =
     (on("buy-on-gap") ? live(g) : 0) + (on("xs-mean-reversion") ? live(x) : 0) + (on("oops") ? live(op) : 0) +
-    (on("short-term-reversion") ? c.open || 0 : 0) + (on("cumulative-rsi") ? cc.open || 0 : 0);
+    (on("short-term-reversion") ? c.open || 0 : 0) + (on("cumulative-rsi") ? cc.open || 0 : 0) + (on("turn-of-month") ? tp.open || 0 : 0);
   const sum = (pairs) => pairs.filter(([id, v]) => on(id) && v != null).reduce((a, [, v]) => a + v, 0);
   const today = sum([["buy-on-gap", g.today_net_rs], ["xs-mean-reversion", x.today_net_rs], ["oops", op.today_net_rs],
-    ["short-term-reversion", c.today_net_rs], ["cumulative-rsi", cc.today_net_rs]]);
+    ["short-term-reversion", c.today_net_rs], ["cumulative-rsi", cc.today_net_rs], ["turn-of-month", tp.today_net_rs]]);
   const total = sum([["buy-on-gap", g.total_net_rs], ["xs-mean-reversion", x.total_net_rs], ["oops", op.total_net_rs],
-    ["short-term-reversion", c.fut_net_rs], ["cumulative-rsi", cc.fut_net_rs]]);
+    ["short-term-reversion", c.fut_net_rs], ["cumulative-rsi", cc.fut_net_rs], ["turn-of-month", tp.total_net_rs]]);
   const openRs = sum([["buy-on-gap", g.open_net_rs], ["xs-mean-reversion", x.open_net_rs], ["oops", op.open_net_rs],
-    ["short-term-reversion", c.open_fut_net_rs], ["cumulative-rsi", cc.open_fut_net_rs]]);
+    ["short-term-reversion", c.open_fut_net_rs], ["cumulative-rsi", cc.open_fut_net_rs], ["turn-of-month", tp.open_net_rs]]);
   return { openBooks: ids.filter((id) => open[id]).length, books: ids.length, positions, today, total, openRs };
 }
 
@@ -865,6 +881,7 @@ function PhonePaper({ p }) {
     ["oops", { title: "Oops gap reversal", sub: intraday(op, "bought", `${op.watched ?? 0} watched, no buys yet`), value: op.today_net_rs, valueLabel: "today", total: op.total_net_rs, error: op.error }],
     ["short-term-reversion", { title: "Short-term mean reversion", sub: held(c), value: c.today_net_rs, valueLabel: "today", total: c.fut_net_rs, error: c.error }],
     ["cumulative-rsi", { title: "Cumulative RSI(2)", sub: held(cc), value: cc.today_net_rs, valueLabel: "today", total: cc.fut_net_rs, error: cc.error }],
+    ["turn-of-month", { title: "Turn of the month", sub: (p.tom_paper || {}).open ? `holding ${p.tom_paper.fut}` : `buy ${p.tom_paper?.buy ?? "—"} · sell ${p.tom_paper?.sell ?? "—"}`, value: p.tom_paper?.today_net_rs, valueLabel: "today", total: p.tom_paper?.total_net_rs, error: p.tom_paper?.error }],
   ].filter(([id]) => shown(id));
   return (
     <div className="flex flex-col gap-4">

@@ -172,6 +172,17 @@ def _paper(gap_max_open=5, xsmr_max_open=10):
                        "capital_rs": o["summary"]["capital_rs"], "days": o["summary"]["days"], "max_open": o["max_open"]}
     except Exception as error:
         out["oops"] = {"error": str(error)}
+    try:  # turn of the month on paper: the Nifty future, one lot
+        import tomwatch
+        tp = tomwatch.paper()
+        o = tp["open"][0] if tp["open"] else None
+        out["tom_paper"] = {"open": len(tp["open"]), "fut": o["fut"] if o else None, "buy": tp["plan"]["buy"], "sell": tp["plan"]["sell"],
+                            "state": tp["plan"]["state"], "days_to_buy": tp["plan"]["days_to_buy"],
+                            "open_net_rs": tp["summary"]["open_net_rs"], "total_net_rs": tp["summary"]["net_rs"],
+                            "trades": tp["summary"]["trades"], "capital_rs": tp["summary"]["capital_rs"],
+                            **_tom_today(tp, gapwatch._now().date().isoformat())}
+    except Exception as error:
+        out["tom_paper"] = {"error": str(error)}
     for key, book in (("connors", "rsi2"), ("connors_cum", "cum")):  # the two short-term mean reversion books
         try:
             c = connorswatch.paper(book=book)
@@ -185,6 +196,26 @@ def _paper(gap_max_open=5, xsmr_max_open=10):
         except Exception as error:
             out[key] = {"error": str(error)}
     return out
+
+
+def _tom_today(tp, today):
+    """The turn-of-the-month paper position's net today: its whole net if bought today, else its move from the
+    contract's previous close (Kite) to now, or to today's sale."""
+    o = tp["open"][0] if tp["open"] else None
+    sold = [t for t in tp["closed"] if t["sell_day"] == today]
+    t = o or (sold[0] if sold else None)
+    if not t:
+        return {"today_net_rs": None}
+    if t["buy_day"] == today:
+        return {"today_net_rs": t["net_rs"]}
+    try:
+        prev = kite_auth.trading_client().quote([f"NFO:{t['fut']}"])[f"NFO:{t['fut']}"]["ohlc"]["close"]
+    except Exception:
+        return {"today_net_rs": None}
+    end = t["sell"] if t["closed"] else t.get("ltp")
+    if end is None:
+        return {"today_net_rs": None}
+    return {"today_net_rs": round((end - prev) * t["lot"] - ((t["cost_rs"] or 0) / 2 if t["closed"] else 0), 2)}
 
 
 def _open_days_rs(days):
@@ -254,6 +285,17 @@ def paper_curve(gap_max_open=5, xsmr_max_open=10):
             daily[label] = per
         except Exception as error:
             errors[label] = str(error)
+    try:
+        import tomwatch
+        tp, per = tomwatch.paper(), {}
+        for t in tp["closed"]:
+            per[t["sell_day"]] = per.get(t["sell_day"], 0.0) + t["net_rs"]
+        if tp["open"] and tp["open"][0]["net_rs"] is not None:
+            per[today] = per.get(today, 0.0) + tp["open"][0]["net_rs"]
+        if per:
+            daily["Turn of the month"] = per
+    except Exception as error:
+        errors["Turn of the month"] = str(error)
     days = sorted({d for v in daily.values() for d in v})
     if not days:
         return {"days": [], "series": {}, "total": [], "errors": errors}
@@ -436,6 +478,14 @@ def open_positions(gap_max_open=5, xsmr_max_open=10):
                               "day_of_hold": t.get("day_of_hold")})
         except Exception as error:
             errors[label] = str(error)
+    try:
+        import tomwatch
+        for t in tomwatch.paper()["open"]:
+            found.append({"book": "Turn of the month", "href": "/v2/paper/turn-of-month", "symbol": "NIFTY", "key": f"NFO:{t['fut']}",
+                          "side": "long", "since": t["buy_day"], "entry_at": t["entry_at"], "entry": t["buy"], "stop": None,
+                          "last": t.get("ltp"), "net_rs": t["net_rs"], "net_pct": t["net_pct"]})
+    except Exception as error:
+        errors["Turn of the month"] = str(error)
     merged = {}
     for p in found:
         k = (p["key"], p["since"], p["entry"])

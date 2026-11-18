@@ -1337,6 +1337,17 @@ def v2_paper_open_positions(gap_max_open: int = Query(5, ge=0, le=v2gap.MAX_OPEN
         return {"status": "error", "message": str(error)}
 
 
+@app.get("/api/v2/paper/tom")
+def v2_paper_tom(slippage: float = Query(0.02, ge=0, le=1)):
+    """Turn of the month paper trading: the Nifty future, one lot, bought and sold at 15:15 on the calendar's days."""
+    import tomwatch
+    try:
+        return {"status": "success", **tomwatch.paper(slippage / 100)}
+    except Exception as error:
+        print("Turn of the month paper failed:", error)
+        return {"status": "error", "message": str(error)}
+
+
 @app.get("/api/v2/paper/curve")
 def v2_paper_curve(gap_max_open: int = Query(5, ge=0, le=v2gap.MAX_OPEN), xsmr_max_open: int = Query(10, ge=0, le=v2xsmr.MAX_OPEN)):
     """Every paper book's cumulative net (rupees, one lot a position) by day, for the paper landing page."""

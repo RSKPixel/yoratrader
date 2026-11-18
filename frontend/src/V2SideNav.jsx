@@ -58,11 +58,11 @@ export function instrumentOf(id, universe = "fno", paper = false, connors = "cas
 // The Instrument control on every backtest and paper page (the first control in the model's own settings row): Spot / Futures, with the one a model can't use
 // greyed out. The short-term mean reversion pages have their own (both work there), so none here.
 const FUTURES_ONLY = { oops: true, "xs-mean-reversion": "fno", "buy-on-gap": "fno" };
-export function InstrumentField({ id, universe = "fno" }) {
-  if (id === "short-term-reversion" || id === "cumulative-rsi" || id === "turn-of-month") return null; // their own Spot / Futures choice
-  const f = FUTURES_ONLY[id];
+export function InstrumentField({ id, universe = "fno", paper = false }) {
+  if (id === "short-term-reversion" || id === "cumulative-rsi" || (id === "turn-of-month" && !paper)) return null; // their own Spot / Futures choice
+  const f = paper && id === "turn-of-month" ? true : FUTURES_ONLY[id]; // the paper book trades the Nifty future
   const fut = f === true || (f && f === universe);
-  const i = instrumentOf(id, universe);
+  const i = paper && id === "turn-of-month" ? { text: "Futures", title: "One lot of the Nifty future (the live page trades an in-the-money call in its place)" } : instrumentOf(id, universe);
   const spotNote = "This model trades the near-month future: its signal, fill and exit are the future's prices";
   const futNote = f
     ? "Futures prices exist only for today's F&O stocks: this universe uses the share's (or index's) prices"
