@@ -50,6 +50,9 @@ export default function V2Oops({ params }) {
     <div className="mt-4 flex flex-col gap-4">
       <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
         <InstrumentSlot />
+        <Field label="Exit at" hint="Fixed, as in the book (Williams: 'we buy today and are out on the opening tomorrow'): sold at the next trading day's open; a future that expires that day is sold at 15:15">
+          <Segmented label="Exit at" options={[["nextopen", "Next open"]]} value="nextopen" onChange={() => {}} />
+        </Field>
         <DisasterStop value={disaster} onChange={setDisaster} hits={disaster === "on" ? data?.summary?.disaster_hits : null} />
         <Field label="Slippage" hint="Per side, on top of NSE futures charges">
           <Segmented label="Slippage" options={SLIPPAGE} value={slippage} onChange={setSlippage} />
