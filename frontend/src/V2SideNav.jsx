@@ -40,7 +40,7 @@ export function instrumentOf(id, universe = "fno", paper = false, connors = "cas
     case "kbdt":
       return universe === "indices" ? index : share;
     case "turn-of-month":
-      return { text: "Index", title: "Signal on the index's closes; traded as the index future / call option" };
+      return { ...fut, title: "The near-month index future's own prices (stored futures daily candles, Nifty from Oct 2010, Bank Nifty from Mar 2011), adjusted at each expiry" };
     case "short-term-reversion":
     case "cumulative-rsi":
       if (paper)

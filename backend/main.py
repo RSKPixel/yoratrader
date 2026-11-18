@@ -733,7 +733,7 @@ def v2_backtest_oops(stop: str = Query("none"), trend: str = Query("any"), max_o
         return {"status": "error", "message": str(error)}
 
 
-def _v2tom_args(index, window, slippage, instrument="spot"):
+def _v2tom_args(index, window, slippage, instrument="futures"):
     if index not in v2tom.INDICES or window not in v2tom.WINDOWS or instrument not in v2tom.INSTRUMENTS:
         raise HTTPException(status_code=400, detail="unknown index, window or instrument")
     return dict(index=index, window=window, slippage=slippage / 100, instrument=instrument)
@@ -902,7 +902,7 @@ def v2_backtest_ltlv_month(month: str = Query(..., pattern=r"^\d{4}-\d{2}$"), ma
 
 @app.get("/api/v2/backtest/tom")
 def v2_backtest_tom(index: str = Query("nifty"), window: str = Query("4"), slippage: float = Query(0.02, ge=0, le=1),
-                    instrument: str = Query("spot")):
+                    instrument: str = Query("futures")):
     args = _v2tom_args(index, window, slippage, instrument)
     try:
         return {"status": "success", **v2tom.results(**args)}
@@ -913,7 +913,7 @@ def v2_backtest_tom(index: str = Query("nifty"), window: str = Query("4"), slipp
 
 @app.get("/api/v2/backtest/tom/month")
 def v2_backtest_tom_month(month: str = Query(..., pattern=r"^\d{4}-\d{2}$"), index: str = Query("nifty"), window: str = Query("4"),
-                          slippage: float = Query(0.02, ge=0, le=1), instrument: str = Query("spot")):
+                          slippage: float = Query(0.02, ge=0, le=1), instrument: str = Query("futures")):
     args = _v2tom_args(index, window, slippage, instrument)
     try:
         return {"status": "success", "trades": v2tom.month_trades(month, **args)}

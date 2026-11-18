@@ -21,7 +21,7 @@ export default function V2Tom({ params }) {
   const [index, setIndex] = useSetting("bt.tom.index", "nifty");
   const [win, setWin] = useSetting("bt.tom.window", "4");
   const [slippage, setSlippage] = useSetting("bt.tom.slippage", 0.02);
-  const [instrument, setInstrument] = useSetting("bt.tom.instrument", "spot");
+  const [instrument, setInstrument] = useSetting("bt.tom.instrument", "futures");
   const [month, setMonth] = useState(null);
 
   const query = `index=${index}&window=${win}&slippage=${slippage}&instrument=${instrument}`;
@@ -46,7 +46,7 @@ export default function V2Tom({ params }) {
   return (
     <div className="mt-4 flex flex-col gap-4">
       <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
-        <Field label="Instrument" hint="Spot: the index's own closes (2003 on). Futures: the near-month index future's closes (stored futures daily candles: Nifty from Oct 2010, Bank Nifty from Mar 2011), adjusted at each expiry so the move to the next contract isn't counted. Both pay futures charges and a roll.">
+        <Field label="Instrument" hint="Futures: the near-month index future's own closes (stored futures daily candles: Nifty from Oct 2010, Bank Nifty from Mar 2011), adjusted at each expiry so the move to the next contract isn't counted. Spot (index): the index's closes over the same years, to compare (the index itself can't be bought). Both pay futures charges and a roll.">
           <Segmented label="Instrument" options={[["spot", "Spot (index)"], ["futures", "Futures"]]} value={instrument} onChange={setInstrument} />
         </Field>
         <Field label="Index" hint="Traded as the near-month future">

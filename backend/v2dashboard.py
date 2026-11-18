@@ -314,7 +314,7 @@ MODELS = [
      lambda: v2connors.results("fno", "rsi2", "5d", 3, "none", "close", "all", instrument="cash")),
     ("oops", "Oops gap reversal", "Intraday", "F&O · no stop, out at 15:15 · first 3 a day",
      lambda: v2oops.results("none", "any", 3)),
-    ("turn-of-month", "Turn of the month", "Positional", "Nifty 50 · last 4 days to the 3rd",
+    ("turn-of-month", "Turn of the month", "Positional", "Nifty futures · last 4 days to the 3rd",
      lambda: v2tom.results("nifty", "4")),
     ("low-volatility", "Long trend low volatility", "Positional", "F&O stocks, cash · max 10 · 20% trailing stop",
      lambda: v2ltlv.results(10, "20", 0.0002, "cash")),
