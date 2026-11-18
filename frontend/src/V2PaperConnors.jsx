@@ -6,7 +6,7 @@ import V2PnlChart from "./V2PnlChart";
 import { Field, formatRs, Segmented } from "./V2Controls";
 import { tone, AT_COLUMNS } from "./V2BacktestView";
 import { SLIPPAGE_DEFAULT, useBacktest, useLiveRefresh } from "./V2BuyOnGap";
-import { UNIVERSES } from "./V2BacktestParams";
+import { CapitalInput, UNIVERSES } from "./V2BacktestParams";
 import { LotCards, lotColumns, lotMoney, netBoth, Panel, usePaperChart, PositionsTable } from "./V2PaperView";
 
 // Short-term mean reversion paper trading on v2: what the production scheduler records at 15:15 (2-day
@@ -116,7 +116,7 @@ function Candidates({ live, book }) {
   );
 }
 
-export default function V2PaperConnors({ params, version = 0, book = "rsi2", exit, onExit, price, onPrice, tradeAt, onTradeAt, disaster, onDisaster, saving }) {
+export default function V2PaperConnors({ params, version = 0, book = "rsi2", exit, onExit, price, onPrice, tradeAt, onTradeAt, disaster, onDisaster, capital, onCapital, saving }) {
   const slippage = SLIPPAGE_DEFAULT.connors; // fixed per model (no control on paper: paper measures slippage, it doesn't tune it)
   const live = useLiveRefresh();
   const { data, error, loading } = useBacktest(`/api/connors/paper?slippage=${slippage}&v=${version}&book=${book}`, { refreshMs: live });
@@ -137,8 +137,9 @@ export default function V2PaperConnors({ params, version = 0, book = "rsi2", exi
   const L = data?.lots?.[key] || {};
   const estimate = data?.lots?.avg_lot_margin_rs ? maxOpen * data.lots.avg_lot_margin_rs : null;
   const summary = {
-    capital_rs: L.capital_rs || estimate,
-    capital_estimate: !L.capital_rs && !!estimate,
+    // spot: the capital set below (each position capital / max open); futures: the peak margin of the lots held
+    capital_rs: (price || data?.price) === "spot" ? capital || data?.capital : L.capital_rs || estimate,
+    capital_estimate: (price || data?.price) !== "spot" && !L.capital_rs && !!estimate,
     days: (data?.days || []).filter((d) => !d.note?.startsWith("market closed")).length,
     trades: L.trades,
     win_rate: L.win_rate,
@@ -205,6 +206,11 @@ export default function V2PaperConnors({ params, version = 0, book = "rsi2", exi
             {book === "cum" ? "Cumulative RSI(2) < 35" : "RSI(2) < 10"}
           </span>
         </Field>
+        {(price || data?.price || "spot") === "spot" && (
+          <Field label="Capital" hint="Spot: each position is this capital ÷ max open (the max open it was bought under), in whole shares, bought for delivery. Saved on the server; applies to every spot trade's figures. Futures positions are one lot each.">
+            <CapitalInput value={capital || data?.capital || 2500000} onChange={(v) => !saving && onCapital(v)} />
+          </Field>
+        )}
         <Field label="Exit at" hint="Read by the 15:15 run. Entry is always at the close: the 15:15 run buys at the price then. The exit (5 days or on strength, as chosen) is decided at 15:15 and done then (At close) or at the next session's open (At next open).">
           <Segmented label="Exit at" options={[["close", "At close", saving], ["closeopen", "At next open", saving]]} value={(tradeAt || data?.trade_at) === "closeopen" ? "closeopen" : "close"} onChange={onTradeAt} />
         </Field>

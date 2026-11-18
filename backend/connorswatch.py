@@ -45,10 +45,12 @@ UNIVERSES = ("fno",)  # F&O stocks only: the Nifty 50 universe is switched off f
 BOOKS = {
     "rsi2": {"label": "RSI(2) below 10", "setup": "rsi2", "trades": "connors_paper", "days": "connors_paper_days",
              "max_key": "CONNORS_PAPER_MAX_OPEN", "uni_key": "CONNORS_PAPER_UNIVERSE", "exit_key": "CONNORS_PAPER_EXIT", "exit": "hold",
-             "price_key": "CONNORS_PAPER_PRICE", "at_key": "CONNORS_PAPER_TRADE_AT", "dis_key": "CONNORS_PAPER_DISASTER"},
+             "price_key": "CONNORS_PAPER_PRICE", "at_key": "CONNORS_PAPER_TRADE_AT", "dis_key": "CONNORS_PAPER_DISASTER",
+             "cap_key": "CONNORS_PAPER_CAPITAL"},
     "cum": {"label": "Cumulative RSI(2) below 35", "setup": "cumrsi2", "trades": "connors_paper_cum", "days": "connors_paper_cum_days",
             "max_key": "CONNORS_PAPER_CUM_MAX_OPEN", "uni_key": "CONNORS_PAPER_CUM_UNIVERSE", "exit_key": "CONNORS_PAPER_CUM_EXIT", "exit": "strength",
-            "price_key": "CONNORS_PAPER_CUM_PRICE", "at_key": "CONNORS_PAPER_CUM_TRADE_AT", "dis_key": "CONNORS_PAPER_CUM_DISASTER"},
+            "price_key": "CONNORS_PAPER_CUM_PRICE", "at_key": "CONNORS_PAPER_CUM_TRADE_AT", "dis_key": "CONNORS_PAPER_CUM_DISASTER",
+            "cap_key": "CONNORS_PAPER_CUM_CAPITAL"},
 }
 # The setup is fixed per book; the exit is a setting (each book's "exit" above is its default):
 # "hold": sold on the 5th trading day; "strength": at the first 15:15 the 2-day RSI is above 65, the 5th day at the latest.
@@ -162,6 +164,41 @@ def set_disaster(v, book="rsi2"):
         raise ValueError("Disaster stop must be on or off.")
     db.set_settings({_book(book)["dis_key"]: v})
     return v
+
+
+CAPITAL_DEFAULT, CAPITAL_MIN, CAPITAL_MAX = 2_500_000, 50_000, 100_000_000
+
+
+def capital(book="rsi2"):
+    """The capital of a spot book (a setting): each spot position is capital / max open (the max open it was
+    bought under), in whole shares. Futures positions stay one lot each."""
+    k = _book(book)["cap_key"]
+    try:
+        return min(CAPITAL_MAX, max(CAPITAL_MIN, int(float(db.get_settings([k]).get(k, CAPITAL_DEFAULT)))))
+    except (TypeError, ValueError):
+        return CAPITAL_DEFAULT
+
+
+def set_capital(v, book="rsi2"):
+    v = int(float(v))
+    if not CAPITAL_MIN <= v <= CAPITAL_MAX:
+        raise ValueError(f"Capital must be between {CAPITAL_MIN:,} and {CAPITAL_MAX:,}.")
+    db.set_settings({_book(book)["cap_key"]: str(v)})
+    return v
+
+
+def _spot_size(cap, slots, entry, exit_px, cps):
+    """A spot position: capital / slots in whole shares, delivery (cash: the full value is the capital used)."""
+    if not entry or not slots:
+        return {"lot": None, "qty": None, "contract_rs": None, "margin_rs": None, "pnl_rs": None, "cost_rs": None, "net_rs": None}
+    qty = int(cap / slots // entry)
+    value = qty * entry
+    out = {"lot": None, "qty": qty, "contract_rs": round(value), "margin_rs": round(value), "pnl_rs": None,
+           "cost_rs": round(cps * value * 2), "net_rs": None}
+    if exit_px and qty:
+        pnl, cost = qty * (exit_px - entry), cps * qty * (entry + exit_px)
+        out.update(pnl_rs=round(pnl, 2), cost_rs=round(cost, 2), net_rs=round(pnl - cost, 2))
+    return out
 
 
 def backtest_variant(n, book="rsi2"):
@@ -695,7 +732,7 @@ def _book_lots(out_open, out_closed):
             "win_rate": round(100 * sum(t["book_net_rs"] > 0 for t in closed) / len(closed), 1) if closed else None}
 
 
-def _lot_sizing(out_open, out_closed, cost, today):
+def _lot_sizing(out_open, out_closed, cost, today, cap=None, cash_cost=None):
     """One F&O lot a position (today's lots and margin rates), at the stock and at the futures prices:
     each trade gets stock_* and fut_* rupee fields; the result, for each price set, the capital
     required (the peak margin of the positions held on any day) and the closed trades' totals."""
@@ -705,7 +742,10 @@ def _lot_sizing(out_open, out_closed, cost, today):
     for key, buy, sell, live in (("stock", "buy", "sell", "ltp"), ("fut", "fut_buy", "fut_sell", "fut_ltp")):
         held = []
         for t in out_open + out_closed:
-            z = v2margin.size(rows, t["symbol"], "long", t.get(buy), t.get(sell) or t.get(live), cost)
+            if key == "stock" and cap:  # spot: capital / max open in shares, delivery costs
+                z = _spot_size(cap, t.get("slots"), t.get(buy), t.get(sell) or t.get(live), cash_cost)
+            else:
+                z = v2margin.size(rows, t["symbol"], "long", t.get(buy), t.get(sell) or t.get(live), cost)
             z["net_margin_pct"] = v2margin.margin_pct(z["net_rs"], z["margin_rs"])
             z["net_value_pct"] = v2margin.margin_pct(z["net_rs"], z["contract_rs"])
             t.update({f"{key}_{k}": v for k, v in z.items()})
@@ -771,7 +811,8 @@ def paper(slippage=0.0002, book="rsi2"):
     nets = [t["net_pct"] for t in out_closed]
     fnets = [t["fut_net_pct"] for t in out_closed if "fut_net_pct" in t]
     n = max_open(book)
-    lots = _lot_sizing(out_open, out_closed, cost, today)
+    import v2ltlv
+    lots = _lot_sizing(out_open, out_closed, cost, today, cap=capital(book), cash_cost=v2ltlv.cash_cost_per_side(slippage))
     for t in out_open + out_closed:  # each trade on the prices it was bought under: the book's own figures
         k = "fut" if t["priced"] == "futures" else "stock"
         for f_ in ("net_rs", "cost_rs", "pnl_rs", "margin_rs", "contract_rs", "qty", "net_margin_pct", "net_value_pct"):
@@ -786,6 +827,7 @@ def paper(slippage=0.0002, book="rsi2"):
                "cost_per_side_bps": round(10000 * cost, 2)}
     return {"open": out_open, "closed": out_closed, "summary": summary, "max_open": n, "max_open_limit": MAX_OPEN_LIMIT,
             "hold": MAX_DAYS, "exit": exit_mode(book), "price": price(book), "trade_at": trade_at(book), "disaster": disaster(book),
+            "capital": capital(book),
             "orders": orders, "setup": b["setup"], "exit_rsi": connors.EXIT_RSI, "book": book, "book_label": b["label"],
             "universe": universe(book), "universes": list(UNIVERSES), "lots": lots, "ltp_at": ltp_at,
             "backtest_variant": backtest_variant(n, book),

@@ -191,7 +191,8 @@ def _paper(gap_max_open=5, xsmr_max_open=10):
                         "net_rs": c["lots"]["stock"]["net_rs"], "fut_net_rs": c["lots"]["book"]["net_rs"], "price": c.get("price"),
                         "open_net_rs": round(sum(t.get("stock_net_rs") or 0 for t in c["open"]), 2) if c["open"] else None,
                         "open_fut_net_rs": round(sum(t.get("book_net_rs") or 0 for t in c["open"]), 2) if c["open"] else None,
-                        "capital_rs": c["lots"]["stock"]["capital_rs"] or (c["max_open"] * (c["lots"]["avg_lot_margin_rs"] or 0)),
+                        "capital_rs": c["capital"] if c.get("price") == "spot" else
+                        (c["lots"]["book"]["capital_rs"] or (c["max_open"] * (c["lots"]["avg_lot_margin_rs"] or 0))),
                         "open_symbols": [t["symbol"] for t in c["open"]],
                         **_positional_today(c, gapwatch._now().date().isoformat())}
         except Exception as error:

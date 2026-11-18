@@ -187,6 +187,8 @@ function Book({ m, onSelect }) {
             onTradeAt={(trade_at) => liveSettings.save("trade_at", { trade_at })}
             disaster={ls?.disaster}
             onDisaster={(d) => liveSettings.save("disaster", { disaster: d })}
+            capital={ls?.capital}
+            onCapital={(c) => liveSettings.save("capital", { capital: c })}
             saving={liveSettings.saving}
           />
         )}

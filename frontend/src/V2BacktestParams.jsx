@@ -45,7 +45,7 @@ export function useBacktestParams(model, defaults = {}) {
   return [params, update];
 }
 
-function CapitalInput({ value, onChange }) {
+export function CapitalInput({ value, onChange }) {
   const [text, setText] = useState(String(value));
   useEffect(() => setText(String(value)), [value]);
   const commit = () => {

@@ -1477,7 +1477,21 @@ def connors_paper_settings(book: str = Query("rsi2")):
             "max_open": connorswatch.max_open(book), "max_open_limit": connorswatch.MAX_OPEN_LIMIT,
             "exit": connorswatch.exit_mode(book), "exits": list(connorswatch.EXITS), "setup": connorswatch.BOOKS[book]["setup"],
             "price": connorswatch.price(book), "prices": list(connorswatch.PRICES),
-            "trade_at": connorswatch.trade_at(book), "disaster": connorswatch.disaster(book)}
+            "trade_at": connorswatch.trade_at(book), "disaster": connorswatch.disaster(book), "capital": connorswatch.capital(book)}
+
+
+class ConnorsCapitalRequest(BaseModel):
+    capital: float
+
+
+@app.post("/api/connors/paper/capital")
+def connors_paper_capital(req: ConnorsCapitalRequest, book: str = Query("rsi2")):
+    """A spot book's capital: each spot position is capital / max open, in whole shares."""
+    _connors_book(book)
+    try:
+        return {"status": "success", "capital": connorswatch.set_capital(req.capital, book)}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 class ConnorsTradeAtRequest(BaseModel):
