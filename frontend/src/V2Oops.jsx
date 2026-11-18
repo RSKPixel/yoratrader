@@ -12,14 +12,10 @@ import DisasterStop from "./V2Disaster";
 // Futures prices (as the paper book): the future's own open and previous low; inside the day the share's
 // 1-minute candles shifted to the future's level. Today's F&O stocks, 2015 on. Max open = the day's first N fills.
 
-const EXITS = [
-  ["1515", "15:15 same day"],
-  ["nextopen", "Next day's open (book)"],
-];
 
 export default function V2Oops({ params }) {
   const [disaster, setDisaster] = useSetting("bt.oops.disaster", "on"); // the 10% disaster stop (no other stop, no trend filter)
-  const [exit, setExit] = useSetting("bt.oops.exit", "nextopen"); // the book's: "out on the opening tomorrow"
+  const exit = "nextopen"; // fixed: the book's "out on the opening tomorrow" (the 15:15 exit is no longer offered)
   const [slippage, setSlippage] = useSetting("bt.oops.slippage", 0.02);
   const [month, setMonth] = useState(null);
 
@@ -54,9 +50,6 @@ export default function V2Oops({ params }) {
     <div className="mt-4 flex flex-col gap-4">
       <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
         <InstrumentSlot />
-        <Field label="Exit" hint="15:15: sold the same day at 15:15. Next day's open: held overnight and sold at the next trading day's opening price, as in the book (Williams: 'we buy today and are out on the opening tomorrow')">
-          <Segmented label="Exit" options={EXITS} value={exit} onChange={setExit} />
-        </Field>
         <DisasterStop value={disaster} onChange={setDisaster} hits={disaster === "on" ? data?.summary?.disaster_hits : null} />
         <Field label="Slippage" hint="Per side, on top of NSE futures charges">
           <Segmented label="Slippage" options={SLIPPAGE} value={slippage} onChange={setSlippage} />

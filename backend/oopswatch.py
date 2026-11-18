@@ -49,7 +49,7 @@ def exit_mode():
         v = db.get_settings([EXIT_KEY]).get(EXIT_KEY)
     except Exception:
         v = None
-    return v if v in EXITS else "1515"
+    return v if v in EXITS else "nextopen"  # the book's; the page no longer offers 15:15
 
 
 def set_exit_mode(mode):

@@ -69,19 +69,6 @@ export default function V2PaperOops({ params, stop, onStop, exit, onExit, saving
       {chart.dialog}
       <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
         <InstrumentSlot />
-        {exit && (
-          <Field label="Exit" hint="For the next buys (saved on the server; each position keeps the exit it was bought under). 15:15: sold the same day. Next day's open: held overnight and sold at the next trading day's open, as in the book; a future that expires that day is still sold at 15:15.">
-            <Segmented
-              label="Exit"
-              options={[
-                ["1515", "15:15 same day"],
-                ["nextopen", "Next day's open (book)"],
-              ]}
-              value={exit}
-              onChange={(v) => !saving && onExit(v)}
-            />
-          </Field>
-        )}
         {stop && <DisasterStop value={stop === "off" ? "off" : "on"} onChange={(v) => !saving && onStop(v)} />}
         <Field label="Slippage" hint="Per side, on top of NSE futures charges">
           <Segmented label="Slippage" options={SLIPPAGE} value={slippage} onChange={setSlippage} />

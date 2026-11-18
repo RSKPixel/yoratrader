@@ -40,6 +40,7 @@ const RULES = {
     ["Signal", "open below the previous day's low"],
     ["Entry", "a buy-stop at the previous low: bought when the price climbs back to it"],
     ["Order", "first to touch, first bought"],
+    ["Exit", "the next day's open (a future expiring that day: 15:15)"],
     ["Side / trend", "long only, any trend"],
     ["Data", "futures since 2015"],
   ],
