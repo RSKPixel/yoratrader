@@ -121,6 +121,7 @@ export default function V2PaperOops({ params, stop, onStop, exit, onExit, saving
 function FirstSecond({ f }) {
   if (!f) return null;
   const all = f.first.fills + f.later.fills;
+  if (!all) return null; // nothing to compare until the book has fills
   const pct = all ? Math.round((100 * f.first.fills) / all) : 0;
   return (
     <p className="-mt-1 text-xs" style={{ color: "var(--muted)" }}>
