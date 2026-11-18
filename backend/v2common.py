@@ -59,6 +59,7 @@ def build_results(t, days, slippage, extra=None, daily=None):
         "max_dd_pct": round(float(100 * (eq - eq.cummax()).min()), 3),
         "net_year_pct": round(float(100 * r.mean() * TRADING_DAYS), 2),
         **compounded(r, TRADING_DAYS),
+        **ruin(monthly_compounded(r)),
         "sharpe": round(float(r.mean() / r.std() * np.sqrt(TRADING_DAYS)), 2) if r.std() else None,
         "green_years": int((yearly > 0).sum()), "years": int(len(yearly)),
         "cost_per_side_bps": round(10000 * xsmr.cost_per_side(slippage), 2),
@@ -82,6 +83,42 @@ def compounded(r, per_year):
     years = len(r) / per_year
     return {"cagr_pct": round(float(100 * (eq.iloc[-1] ** (1 / years) - 1)), 2) if years > 0 and eq.iloc[-1] > 0 else None,
             "max_dd_compounded_pct": round(float(100 * (eq / eq.cummax() - 1).min()), 2)}
+
+
+RUIN_PATHS, RUIN_YEARS = 5000, 10
+RUIN_SIZES = (1.0, 0.75, 0.5, 0.33, 0.25, 0.1)  # shares of capital tried for the 0%-ruin size
+
+
+def ruin(monthly):
+    """Risk of ruin from the backtest's own months: RUIN_PATHS ten-year futures, each built from months
+    drawn at random from the backtest (compounded, the whole capital in the model, profits left in).
+    Ruin = the capital falls below half of where it started at any point; also the chance of a 30% / 50%
+    fall from a peak, and the worst-5% ending value. Fixed seed, so a page shows the same number each time.
+    Shuffling months breaks up long crashes, so the real risk is likely a little higher. Penfold (Universal
+    Principles, ch. 4): only trade a model whose risk of ruin is 0; ruin_safe_size is the largest share of
+    capital (of RUIN_SIZES) at which none of the futures ends up below half."""
+    mo = np.asarray(monthly, dtype=float)
+    mo = mo[~np.isnan(mo)]
+    if len(mo) < 24:
+        return {}
+    rng = np.random.default_rng(7)
+    paths = mo[rng.integers(0, len(mo), size=(RUIN_PATHS, RUIN_YEARS * 12))]
+
+    def half(size):  # chance of falling below half the start with `size` of the capital in the model
+        return float(100 * (np.cumprod(1 + np.clip(size * paths, -0.99, None), axis=1).min(axis=1) <= 0.5).mean())
+    eq = np.cumprod(1 + np.clip(paths, -0.99, None), axis=1)
+    dd = (eq / np.maximum.accumulate(eq, axis=1) - 1).min(axis=1)
+    # Penfold: trade only at a size whose risk of ruin is 0; the largest of these sizes that gets there
+    safe = next((f for f in RUIN_SIZES if half(f) == 0), None)
+    return {"ruin_half_pct": round(float(100 * (eq.min(axis=1) <= 0.5).mean()), 2), "ruin_safe_size": safe,
+            "ruin_dd30_pct": round(float(100 * (dd <= -0.3).mean()), 1),
+            "ruin_dd50_pct": round(float(100 * (dd <= -0.5).mean()), 1),
+            "ruin_p5_end": round(float(np.percentile(eq[:, -1], 5)), 2), "ruin_years": RUIN_YEARS}
+
+
+def monthly_compounded(r):
+    """Daily net returns (DatetimeIndex) -> each month's compounded return."""
+    return (1 + r).groupby(r.index.to_period("M")).prod() - 1
 
 
 def _periods(t, daily, kind):

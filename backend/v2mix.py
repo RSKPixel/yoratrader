@@ -163,6 +163,7 @@ def results(gold_pct=30, rsi_pct=50, instrument="cash", slippage=0.0002, dataset
          "max_dd_pct": round(float(100 * (eq - eq.cummax()).min()), 3), "net_year_pct": round(float(100 * net.mean() * 12), 2),
          "sharpe": round(float(net.mean() / net.std() * np.sqrt(12)), 2) if net.std() else None,
          **__import__("v2common").compounded(net, 12),
+         **__import__("v2common").ruin(net),
          "green_years": int((yearly > 0).sum()), "years": int(len(yearly)),
          "cost_per_side_bps": round(10000 * cps, 2), "gold_cost_pct": round(float(100 * gold_cost.sum()), 3),
          "gold_pct": gold_pct, "rsi_pct": rsi_pct, "instrument": instrument,

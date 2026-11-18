@@ -58,7 +58,7 @@ export function Panel({ title, right, children }) {
 
 export function SummaryCards({ s, value }) {
   return (
-    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-10">
+    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6 xl:grid-cols-12">
       <Card
         label={s.trades_label || "Trades"}
         value={s.trades.toLocaleString("en-IN")}
@@ -79,6 +79,23 @@ export function SummaryCards({ s, value }) {
       <Card label="Net / trade" value={value(s.avg_net_pct, 3)} color={tone(s.avg_net_pct)} hint={`Each trade on its own position: ${s.avg_trade_net_pct}%`} />
       <Card label="Profit factor" value={s.profit_factor ?? "—"} color={s.profit_factor >= 1 ? "var(--positive)" : "var(--negative)"} hint="Net winning trades ÷ net losing trades" />
       <Card label="Max drawdown" value={value(s.max_dd_pct)} color="var(--negative)" hint="Largest fall in cumulative net, at a fixed capital" />
+      {s.ruin_half_pct != null && (
+        <Card
+          label="Risk of ruin"
+          value={
+            s.ruin_half_pct === 0 ? "0% ✓" : (
+              <>
+                {s.ruin_half_pct}%
+                <span className="ml-1.5 text-xs font-normal" style={{ color: "var(--muted)" }}>
+                  {s.ruin_safe_size ? `0% at ${Math.round(100 * s.ruin_safe_size)}% size` : "not 0 even at 10%"}
+                </span>
+              </>
+            )
+          }
+          color={s.ruin_half_pct === 0 ? "var(--positive)" : "var(--negative)"}
+          hint={`Penfold: trade only a model whose risk of ruin is 0. ${s.ruin_half_pct === 0 ? "This one passes at full size." : s.ruin_safe_size ? `This one fails at full size; with ${Math.round(100 * s.ruin_safe_size)}% of the capital in it (the rest in cash) the risk is 0.` : "This one fails even at 10% of the capital."} Ruin = the capital falls below half the start within ${s.ruin_years} years, from 5,000 ten-year futures made of this backtest's own months drawn at random (whole capital in the model, profits left in). A 30% fall from a peak: ${s.ruin_dd30_pct}% · a 50% fall: ${s.ruin_dd50_pct}% · worst 5% end at ×${s.ruin_p5_end} of the start. Shuffling months breaks up long crashes, so the real risk is likely a little higher; a backtest that's too good (e.g. fills a real order would miss) shows too little.`}
+        />
+      )}
       {s.green_years != null && s.years != null && (
         <Card
           label="Green years"
