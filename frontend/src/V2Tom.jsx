@@ -1,4 +1,3 @@
-import { InstrumentSlot } from "./V2SideNav";
 import { useCallback, useMemo, useState } from "react";
 import { useSetting } from "./settings";
 import { Field, Segmented } from "./V2Controls";
@@ -22,9 +21,10 @@ export default function V2Tom({ params }) {
   const [index, setIndex] = useSetting("bt.tom.index", "nifty");
   const [win, setWin] = useSetting("bt.tom.window", "4");
   const [slippage, setSlippage] = useSetting("bt.tom.slippage", 0.02);
+  const [instrument, setInstrument] = useSetting("bt.tom.instrument", "spot");
   const [month, setMonth] = useState(null);
 
-  const query = `index=${index}&window=${win}&slippage=${slippage}`;
+  const query = `index=${index}&window=${win}&slippage=${slippage}&instrument=${instrument}`;
   const { data, error, loading } = useBacktest(`/api/v2/backtest/tom?${query}`);
   const value = useMemo(() => makeValue(params.show, params.capital), [params.show, params.capital]);
   const chartFormat = useCallback((v) => value(v, 1), [value]);
@@ -46,8 +46,10 @@ export default function V2Tom({ params }) {
   return (
     <div className="mt-4 flex flex-col gap-4">
       <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
-        <InstrumentSlot />
-        <Field label="Index" hint="Traded as the near-month future; tested on the index closes">
+        <Field label="Instrument" hint="Spot: the index's own closes (2003 on). Futures: the near-month index future's closes (stored futures daily candles: Nifty from Oct 2010, Bank Nifty from Mar 2011), adjusted at each expiry so the move to the next contract isn't counted. Both pay futures charges and a roll.">
+          <Segmented label="Instrument" options={[["spot", "Spot (index)"], ["futures", "Futures"]]} value={instrument} onChange={setInstrument} />
+        </Field>
+        <Field label="Index" hint="Traded as the near-month future">
           <Segmented label="Index" options={INDICES} value={index} onChange={setIndex} />
         </Field>
         <Field label="Window" hint="Bought at the close before the month's last 4 days (or its last day), sold at the close of the next month's 3rd trading day">

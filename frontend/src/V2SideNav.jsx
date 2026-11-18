@@ -59,7 +59,7 @@ export function instrumentOf(id, universe = "fno", paper = false, connors = "cas
 // greyed out. The short-term mean reversion pages have their own (both work there), so none here.
 const FUTURES_ONLY = { oops: true, "xs-mean-reversion": "fno", "buy-on-gap": "fno" };
 export function InstrumentField({ id, universe = "fno" }) {
-  if (id === "short-term-reversion" || id === "cumulative-rsi") return null;
+  if (id === "short-term-reversion" || id === "cumulative-rsi" || id === "turn-of-month") return null; // their own Spot / Futures choice
   const f = FUTURES_ONLY[id];
   const fut = f === true || (f && f === universe);
   const i = instrumentOf(id, universe);

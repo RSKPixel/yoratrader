@@ -28,17 +28,41 @@ CACHE_SECONDS = 6 * 3600
 _cache, _lock = {}, threading.Lock()
 
 
-def _closes(index):
+FUTURES = {"nifty": "NIFTY", "banknifty": "BANKNIFTY"}  # the continuous near-month index future (eod, exchange NSE)
+INSTRUMENTS = ("spot", "futures")
+
+
+def _closes(index, instrument="spot"):
+    """The index's closes (spot), or the near-month future's (futures: stored continuous futures daily candles,
+    Nifty from Oct 2010, Bank Nifty from Mar 2011), adjusted at each expiry: the day the series moves to the next
+    contract earns the index's move, not the jump between contracts (the roll is paid in costs). The futures
+    series carries attrs["factor"]: adjusted price x factor = the contract's own price."""
+    key = (index, instrument)
     with _lock:
-        hit = _cache.get(index)
+        hit = _cache.get(key)
         if hit and time.time() - hit[0] < CACHE_SECONDS:
             return hit[1]
     with connect() as c:
         d = pd.read_sql("SELECT day, close FROM bt_daily WHERE symbol = %s AND day >= %s AND close > 0 ORDER BY day", c,
                         params=[INDICES[index], START], parse_dates=["day"])
-    s = d.set_index("day")["close"]
+        spot = d.set_index("day")["close"]
+        if instrument == "futures":
+            f = pd.read_sql("SELECT datetime AS day, close FROM eod WHERE exchange = 'NSE' AND symbol = %s AND close > 0 ORDER BY 1",
+                            c, params=[FUTURES[index]], parse_dates=["day"])
+    if instrument == "futures":
+        import futsig
+        fut = f.set_index("day")["close"]
+        fut = fut[fut.index.isin(spot.index)]
+        sp = spot.reindex(fut.index)
+        roll = futsig.roll_days(fut.index)
+        jump = ((fut / fut.shift(1)) / (sp / sp.shift(1))).where(roll & ((fut / fut.shift(1)) / (sp / sp.shift(1)) - 1).abs().le(futsig.MAX_BASIS), 1.0).fillna(1.0)
+        factor = jump.cumprod()
+        s = fut / factor
+        s.attrs["factor"] = factor
+    else:
+        s = spot
     with _lock:
-        _cache[index] = (time.time(), s)
+        _cache[key] = (time.time(), s)
     return s
 
 
@@ -47,9 +71,9 @@ def invalidate():
         _cache.clear()
 
 
-def _book(index, window, slippage):
+def _book(index, window, slippage, instrument="spot"):
     """(trades, daily, days): one row per trade, the book marked to market each day, every trading day."""
-    s = _closes(index)
+    s = _closes(index, instrument)
     r = s.pct_change().fillna(0.0)
     pos = pd.Series(np.arange(len(s)), index=s.index)
     month = s.index.to_period("M")
@@ -74,6 +98,9 @@ def _book(index, window, slippage):
         i = j + 1
     t = pd.DataFrame(trades, columns=["entry_day", "day", "entry", "exit", "days_held"])
     t["ret"] = t["exit"] / t["entry"] - 1
+    if "factor" in s.attrs and len(t):  # show the contracts' own prices (the adjusted ones give the same returns)
+        fac = s.attrs["factor"]
+        t["entry"], t["exit"] = t["entry"] * fac.reindex(t["entry_day"]).to_numpy(), t["exit"] * fac.reindex(t["day"]).to_numpy()
     t["cost"] = (1 + t["exit"] / t["entry"]) * cps + 2 * cps  # buy, sale, one roll
     t["net"] = t["ret"] - t["cost"]
     for col in ("ret", "cost", "net"):
@@ -86,18 +113,19 @@ def _book(index, window, slippage):
     return t, daily, s.index
 
 
-def results(index="nifty", window="4", slippage=0.0002):
+def results(index="nifty", window="4", slippage=0.0002, instrument="spot"):
     import v2common
-    t, daily, days = _book(index, window, slippage)
+    t, daily, days = _book(index, window, slippage, instrument)
     extra = {"in_market_pct": round(float(100 * (daily["book_ret"] != 0).mean()), 1), "avg_days": round(float(t["days_held"].mean()), 1),
-             "buy_hold_year_pct": round(float(100 * _closes(index).pct_change().mean() * v2common.TRADING_DAYS), 2)}
+             "buy_hold_year_pct": round(float(100 * _closes(index, instrument).pct_change().mean() * v2common.TRADING_DAYS), 2),
+             "priced_on": instrument}
     return v2common.build_results(t, days, slippage, extra, daily=daily)
 
 
-def month_trades(month, index="nifty", window="4", slippage=0.0002):
-    t, _, _ = _book(index, window, slippage)
+def month_trades(month, index="nifty", window="4", slippage=0.0002, instrument="spot"):
+    t, _, _ = _book(index, window, slippage, instrument)
     t = t[t["day"].dt.strftime("%Y-%m") == month]
-    name = INDICES[index]
+    name = f"{FUTURES[index]} FUT" if instrument == "futures" else INDICES[index]
     return [{"day": r.day.date().isoformat(), "symbol": name,
              "entry_at": f"{r.entry_day.date().isoformat()} 15:30", "exit_at": f"{r.day.date().isoformat()} 15:30",
              "reason": "3rd day of the month", "entry": round(r.entry, 2), "exit": round(r.exit, 2), "days_held": int(r.days_held),
