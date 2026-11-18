@@ -22,6 +22,13 @@ const STOPS = [
   ["none", "None (book)"],
   ["1sd", "1σ"],
 ];
+// Each model's default slippage, % per side, from how it would really trade: the opening auction costs
+// nothing; an exit at 15:15 or a liquid future a little; a buy-stop (Oops) fills above its level in a fast move.
+export const SLIPPAGE_DEFAULT = {
+  gap: 0.01, gapmom: 0.01, xsmr: 0.01, oops: 0.05, connors: 0.01, tom: 0.01,
+  kbdt: 0.02, pairs: 0.02, xsmom: 0.02, qmom: 0.02, ltlv: 0.02, mix: 0.02,
+};
+
 export const SLIPPAGE = [
   [0, "0%"],
   [0.01, "0.01%"],
@@ -88,7 +95,7 @@ export default function V2BuyOnGap({ params, model = "gap" }) {
   const [savedStop, setStop] = useSetting(`bt.${model}.stop`, "none");
   const stop = model === "gapmom" ? savedStop : "none"; // Buy/Sell on gap: no stop, only the disaster stop
   const [disaster, setDisaster] = useSetting(`bt.${model}.disaster`, "on");
-  const [slippage, setSlippage] = useSetting(`bt.${model}.slippage`, 0.02);
+  const [slippage, setSlippage] = useSetting(`bt.${model}.slippage`, SLIPPAGE_DEFAULT[model]);
   const [month, setMonth] = useState(null);
 
   const query = `dataset=${params.universe}&side=${side}&stop=${stop}&slippage=${slippage}&max_open=${params.maxOpen}${model === "gap" ? `&disaster=${disaster}` : ""}`;

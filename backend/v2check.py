@@ -21,9 +21,9 @@ import v2gap
 import v2oops
 import v2paper
 import v2xsmr
+from slip import SLIPPAGE as SL
 
 MIN_TRADES = 30  # fewer paper trades than this: too early to read anything into the difference
-S = 0.0002
 
 
 def _stats(nets):
@@ -67,9 +67,9 @@ def compare(gap_max_open=5, xsmr_max_open=10):
     rows = []
     # Buy/Sell on gap (long)
     try:
-        g = v2paper.gap("long", "none", gap_max_open, S, "on")
+        g = v2paper.gap("long", "none", gap_max_open, SL["gap"], "on")
         paper = [(d["day"], p["symbol"], p["net_pct"]) for d in g["days"] for p in d["picks"] if p["closed"]]
-        t, days = v2gap._sized("fno", "long", "none", gap_max_open, S, "gap", "on")
+        t, days = v2gap._sized("fno", "long", "none", gap_max_open, SL["gap"], "gap", "on")
         bt = pd.DataFrame({"entry": pd.to_datetime(t["day"]), "symbol": t["symbol"], "net": t["net"]})
         rows.append(_row("gap", "Buy/Sell on gap", "/v2/paper/buy-on-gap", paper, bt, _last(pd.DatetimeIndex(days))))
     except Exception as error:
@@ -77,18 +77,18 @@ def compare(gap_max_open=5, xsmr_max_open=10):
     # Cross-sectional mean reversion
     try:
         pairs = min(5, xsmr_max_open // 2) if xsmr_max_open else 5
-        x = v2paper.xsmr_(pairs, "none", xsmr_max_open, S, "on")
+        x = v2paper.xsmr_(pairs, "none", xsmr_max_open, SL["xsmr"], "on")
         paper = [(d["day"], p["symbol"], p["net_pct"]) for d in x["days"] for p in d["picks"] if p["closed"]]
-        t, days = v2xsmr._sized("fno", "intraday", "0915", "none", xsmr_max_open, pairs, S, "on")
+        t, days = v2xsmr._sized("fno", "intraday", "0915", "none", xsmr_max_open, pairs, SL["xsmr"], "on")
         bt = pd.DataFrame({"entry": pd.to_datetime(t["day"]), "symbol": t["symbol"], "net": t["net"]})
         rows.append(_row("xsmr", "Cross-sectional mean reversion", "/v2/paper/xs-mean-reversion", paper, bt, _last(pd.DatetimeIndex(days))))
     except Exception as error:
         rows.append({"key": "xsmr", "label": "Cross-sectional mean reversion", "error": str(error)})
     # Oops (next-open exit: the backtest's trades are listed once the next day's open is stored)
     try:
-        o = oopswatch.paper()
+        o = oopswatch.paper(SL["oops"])
         paper = [(d["day"], p["symbol"], p["net_pct"]) for d in o["days"] for p in d["picks"] if p["closed"]]
-        t, days = v2oops._sized("none", "any", o.get("max_open") or 3, S, "nextopen", "on")
+        t, days = v2oops._sized("none", "any", o.get("max_open") or 3, SL["oops"], "nextopen", "on")
         bt = pd.DataFrame({"entry": pd.to_datetime(t["day"]), "symbol": t["symbol"], "net": t["net"]})
         days = pd.DatetimeIndex(days)
         until = days[-2].date().isoformat() if len(days) > 1 else None  # the last day's buys sell at the next open
@@ -99,13 +99,13 @@ def compare(gap_max_open=5, xsmr_max_open=10):
     for key, book, label, link in (("rsi2", "rsi2", "Short-term mean reversion (RSI(2))", "/v2/paper/short-term-reversion"),
                                    ("cum", "cum", "Cumulative RSI(2)", "/v2/paper/cumulative-rsi")):
         try:
-            c = connorswatch.paper(book=book)
+            c = connorswatch.paper(SL["connors"], book=book)
             pr = connorswatch.price(book)  # the backtest on the book's prices now; each paper trade on its own
             paper = [(t["buy_day"], t["symbol"], t.get("book_net_pct")) for t in c["closed"]]
             setup = "cumrsi2" if book == "cum" else "rsi2"
             hold = "0d" if connorswatch.exit_mode(book) == "strength" else "5d"
             t, days, _ = v2connors._sized("fno", setup, hold, c["max_open"], "10pc" if c.get("disaster") == "on" else "none",
-                                          c.get("trade_at") or "close", "all", S, "long", "futures" if pr == "futures" else "cash")
+                                          c.get("trade_at") or "close", "all", SL["connors"], "long", "futures" if pr == "futures" else "cash")
             bt = pd.DataFrame({"entry": pd.to_datetime(t["entry_day"]), "symbol": t["symbol"], "net": t["net"]})
             days = pd.DatetimeIndex(days)
             until = days[-6].date().isoformat() if len(days) > 6 else None  # bought at least 5 trading days before the last: sold in the backtest too

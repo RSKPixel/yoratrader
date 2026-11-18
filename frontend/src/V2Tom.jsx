@@ -3,7 +3,7 @@ import { useSetting } from "./settings";
 import { Field, Segmented } from "./V2Controls";
 import V2EquityChart from "./V2EquityChart";
 import { Card, makeValue, MonthGrid, MonthTradesModal, Panel, SummaryCards, tone, AT_COLUMNS } from "./V2BacktestView";
-import { SLIPPAGE, useBacktest } from "./V2BuyOnGap";
+import { SLIPPAGE_DEFAULT, SLIPPAGE, useBacktest } from "./V2BuyOnGap";
 
 // Turn of the month (v2tom.py): long the index future around each month end, from the close a few days
 // before it to the close of the 3rd trading day of the next month; out of the market the rest of the time.
@@ -20,7 +20,7 @@ const WINDOWS = [
 export default function V2Tom({ params }) {
   const [index, setIndex] = useSetting("bt.tom.index", "nifty");
   const [win, setWin] = useSetting("bt.tom.window", "4");
-  const [slippage, setSlippage] = useSetting("bt.tom.slippage", 0.02);
+  const [slippage, setSlippage] = useSetting("bt.tom.slippage", SLIPPAGE_DEFAULT.tom);
   const [instrument, setInstrument] = useSetting("bt.tom.instrument", "futures");
   const [month, setMonth] = useState(null);
 

@@ -4,7 +4,7 @@ import { useSetting } from "./settings";
 import { Field, formatRs, Segmented } from "./V2Controls";
 import V2EquityChart from "./V2EquityChart";
 import { makeValue, MonthGrid, MonthTradesModal, Panel, SummaryCards, tone, AT_COLUMNS } from "./V2BacktestView";
-import { SLIPPAGE, useBacktest } from "./V2BuyOnGap";
+import { SLIPPAGE_DEFAULT, SLIPPAGE, useBacktest } from "./V2BuyOnGap";
 
 // Quantitative momentum (Gray & Vogel) on v2: long only, the smoothest of the top 10% by 12-to-1-month
 // momentum, rebalanced at the end of Feb / May / Aug / Nov. Each row = one stock in one period.
@@ -23,7 +23,7 @@ const HEDGES = [
 export default function V2Qmom({ params }) {
   const [version, setVersion] = useSetting("bt.qmom.version", "book");
   const [hedge, setHedge] = useSetting("bt.qmom.hedge", "none");
-  const [slippage, setSlippage] = useSetting("bt.qmom.slippage", 0.02);
+  const [slippage, setSlippage] = useSetting("bt.qmom.slippage", SLIPPAGE_DEFAULT.qmom);
   const [month, setMonth] = useState(null);
 
   const query = `dataset=${params.universe}&version=${version}&hedge=${hedge}&slippage=${slippage}&max_open=${params.maxOpen}`;

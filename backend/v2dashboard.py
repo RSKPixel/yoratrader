@@ -27,6 +27,7 @@ import v2oops
 import v2tom
 import v2ltlv
 from db import connect
+from slip import SLIPPAGE as SL
 
 INDICES = ["NIFTY 50", "NIFTY BANK", "NIFTY FIN SERVICE", "NIFTY MID SELECT", "NIFTY NEXT 50"]
 MODELS_TTL = 1800
@@ -145,7 +146,7 @@ def _paper(gap_max_open=5, xsmr_max_open=10):
         out["tom"] = {"error": str(error)}
     pairs = min(5, xsmr_max_open // 2) if xsmr_max_open else 5
     try:
-        g = v2paper.gap("long", "none", gap_max_open)
+        g = v2paper.gap("long", "none", gap_max_open, SL["gap"])
         today = next((d for d in g["days"] if d["day"] == g["today"]), None)
         out["gap"] = {"today_positions": len(today["picks"]) if today else 0, "today_net_rs": today["net_rs"] if today else None,
                       "today_margin_pct": today["net_value_pct"] if today else None, "today_margin_rs": today["margin_rs"] if today else None,
@@ -155,7 +156,7 @@ def _paper(gap_max_open=5, xsmr_max_open=10):
     except Exception as error:
         out["gap"] = {"error": str(error)}
     try:
-        x = v2paper.xsmr_(pairs, "none", xsmr_max_open)
+        x = v2paper.xsmr_(pairs, "none", xsmr_max_open, SL["xsmr"])
         today = next((d for d in x["days"] if d["day"] == x["today"]), None)
         out["xsmr"] = {"today_positions": len(today["picks"]) if today else 0, "today_net_rs": today["net_rs"] if today else None,
                        "today_margin_pct": today["net_value_pct"] if today else None, "today_margin_rs": today["margin_rs"] if today else None,
@@ -164,7 +165,7 @@ def _paper(gap_max_open=5, xsmr_max_open=10):
     except Exception as error:
         out["xsmr"] = {"error": str(error)}
     try:
-        o = oopswatch.paper()
+        o = oopswatch.paper(SL["oops"])
         today = next((d for d in o["days"] if d["day"] == o["today"]), None)
         out["oops"] = {"watched": len(o["watchlist"]), "today_positions": len(today["picks"]) if today else 0,
                        "today_status": today["status"] if today else None, "today_net_rs": today["net_rs"] if today else None,
@@ -174,7 +175,7 @@ def _paper(gap_max_open=5, xsmr_max_open=10):
         out["oops"] = {"error": str(error)}
     try:  # turn of the month on paper: the Nifty future, one lot
         import tomwatch
-        tp = tomwatch.paper()
+        tp = tomwatch.paper(SL["tom"])
         o = tp["open"][0] if tp["open"] else None
         out["tom_paper"] = {"open": len(tp["open"]), "fut": o["fut"] if o else None, "buy": tp["plan"]["buy"], "sell": tp["plan"]["sell"],
                             "state": tp["plan"]["state"], "days_to_buy": tp["plan"]["days_to_buy"],
@@ -185,7 +186,7 @@ def _paper(gap_max_open=5, xsmr_max_open=10):
         out["tom_paper"] = {"error": str(error)}
     for key, book in (("connors", "rsi2"), ("connors_cum", "cum")):  # the two short-term mean reversion books
         try:
-            c = connorswatch.paper(book=book)
+            c = connorswatch.paper(SL["connors"], book=book)
             out[key] = {"open": len(c["open"]), "max_open": c["max_open"], "closed": c["summary"]["trades"],
                         "net_rs": c["lots"]["stock"]["net_rs"], "fut_net_rs": c["lots"]["book"]["net_rs"], "price": c.get("price"),
                         "open_net_rs": round(sum(t.get("stock_net_rs") or 0 for t in c["open"]), 2) if c["open"] else None,
@@ -263,9 +264,9 @@ def paper_curve(gap_max_open=5, xsmr_max_open=10):
     def days_net(label, days):
         daily[label] = {d["day"]: d["net_rs"] for d in days if d.get("net_rs") is not None}
 
-    for label, build in (("Buy/Sell on gap", lambda: v2paper.gap("long", "none", gap_max_open)["days"]),
-                         ("Cross-sectional mean reversion", lambda: v2paper.xsmr_(pairs, "none", xsmr_max_open)["days"]),
-                         ("Oops gap reversal", lambda: oopswatch.paper()["days"])):
+    for label, build in (("Buy/Sell on gap", lambda: v2paper.gap("long", "none", gap_max_open, SL["gap"])["days"]),
+                         ("Cross-sectional mean reversion", lambda: v2paper.xsmr_(pairs, "none", xsmr_max_open, SL["xsmr"])["days"]),
+                         ("Oops gap reversal", lambda: oopswatch.paper(SL["oops"])["days"])):
         try:
             days_net(label, build())
         except Exception as error:
@@ -273,7 +274,7 @@ def paper_curve(gap_max_open=5, xsmr_max_open=10):
     today = gapwatch._now().date().isoformat()
     for label, book in (("Short-term mean reversion", "rsi2"), ("Cumulative RSI(2)", "cum")):
         try:
-            c = connorswatch.paper(book=book)
+            c = connorswatch.paper(SL["connors"], book=book)
             per = {}
             for t in c["closed"]:
                 if t.get("book_net_rs") is not None:
@@ -287,7 +288,7 @@ def paper_curve(gap_max_open=5, xsmr_max_open=10):
             errors[label] = str(error)
     try:
         import tomwatch
-        tp, per = tomwatch.paper(), {}
+        tp, per = tomwatch.paper(SL["tom"]), {}
         for t in tp["closed"]:
             per[t["sell_day"]] = per.get(t["sell_day"], 0.0) + t["net_rs"]
         if tp["open"] and tp["open"][0]["net_rs"] is not None:
@@ -461,13 +462,13 @@ def open_positions(gap_max_open=5, xsmr_max_open=10):
         except Exception as error:
             errors[label] = str(error)
 
-    intraday("Buy/Sell on gap", "/v2/paper/buy-on-gap", lambda: v2paper.gap("long", "none", gap_max_open), fut=True)
-    intraday("Cross-sectional mean reversion", "/v2/paper/xs-mean-reversion", lambda: v2paper.xsmr_(pairs, "none", xsmr_max_open), fut=True)
+    intraday("Buy/Sell on gap", "/v2/paper/buy-on-gap", lambda: v2paper.gap("long", "none", gap_max_open, SL["gap"]), fut=True)
+    intraday("Cross-sectional mean reversion", "/v2/paper/xs-mean-reversion", lambda: v2paper.xsmr_(pairs, "none", xsmr_max_open, SL["xsmr"]), fut=True)
     intraday("Oops gap reversal", "/v2/paper/oops", oopswatch.paper, fut=True)
     for label, href, book in (("Short-term mean reversion", "/v2/paper/short-term-reversion", "rsi2"),
                               ("Cumulative RSI(2)", "/v2/paper/cumulative-rsi", "cum")):
         try:
-            for t in connorswatch.paper(book=book)["open"]:
+            for t in connorswatch.paper(SL["connors"], book=book)["open"]:
                 fut = t.get("priced") == "futures" and bool(t.get("fut"))
                 key = f"NFO:{t['fut']}" if fut else f"NSE:{t['symbol']}"
                 found.append({"book": label, "href": href, "symbol": t["symbol"], "key": key, "side": "long", "since": t["buy_day"],
@@ -480,7 +481,7 @@ def open_positions(gap_max_open=5, xsmr_max_open=10):
             errors[label] = str(error)
     try:
         import tomwatch
-        for t in tomwatch.paper()["open"]:
+        for t in tomwatch.paper(SL["tom"])["open"]:
             found.append({"book": "Turn of the month", "href": "/v2/paper/turn-of-month", "symbol": "NIFTY", "key": f"NFO:{t['fut']}",
                           "side": "long", "since": t["buy_day"], "entry_at": t["entry_at"], "entry": t["buy"], "stop": None,
                           "last": t.get("ltp"), "net_rs": t["net_rs"], "net_pct": t["net_pct"]})

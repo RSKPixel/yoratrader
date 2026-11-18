@@ -4,7 +4,7 @@ import { useSetting } from "./settings";
 import { Field, formatRs, Segmented } from "./V2Controls";
 import V2EquityChart from "./V2EquityChart";
 import { makeValue, MonthGrid, MonthTradesModal, Panel, SummaryCards, tone, AT_COLUMNS } from "./V2BacktestView";
-import { SLIPPAGE, useBacktest } from "./V2BuyOnGap";
+import { SLIPPAGE_DEFAULT, SLIPPAGE, useBacktest } from "./V2BuyOnGap";
 
 // Short-term mean reversion (Connors & Sen, How Markets Really Work) on v2: long only, F&O stocks above
 // their 200-day average that are short-term oversold, held 5 (or 2) trading days.
@@ -46,7 +46,7 @@ export default function V2Connors({ params, onParams }) {
   const [take, setTake] = useSetting("bt.connors.take", "all");
   const side = "long"; // long only
   const [instrument, setInstrument] = useSetting("bt.connors.instrument", "cash");
-  const [slippage, setSlippage] = useSetting("bt.connors.slippage", 0.02);
+  const [slippage, setSlippage] = useSetting("bt.connors.slippage", SLIPPAGE_DEFAULT.connors);
   const [month, setMonth] = useState(null);
 
   const book = !params.maxOpen;

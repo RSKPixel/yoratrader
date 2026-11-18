@@ -4,7 +4,7 @@ import { useSetting } from "./settings";
 import { Field, Segmented } from "./V2Controls";
 import V2EquityChart from "./V2EquityChart";
 import { makeValue, MonthGrid, MonthTradesModal, Panel, SummaryCards, tone, AT_COLUMNS } from "./V2BacktestView";
-import { SLIPPAGE, useBacktest } from "./V2BuyOnGap";
+import { SLIPPAGE_DEFAULT, SLIPPAGE, useBacktest } from "./V2BuyOnGap";
 
 // Long Trend Low Volatility (Bensdorp; v2ltlv.py): while the Nifty is above its 200-day average, buy the
 // calmest F&O stocks above their own 200-day average; each held until a 20% trailing stop.
@@ -17,7 +17,7 @@ const TRAILS = [
 
 export default function V2Ltlv({ params }) {
   const [trail, setTrail] = useSetting("bt.ltlv.trail", "20");
-  const [slippage, setSlippage] = useSetting("bt.ltlv.slippage", 0.02);
+  const [slippage, setSlippage] = useSetting("bt.ltlv.slippage", SLIPPAGE_DEFAULT.ltlv);
   const [month, setMonth] = useState(null);
 
   const pit = params.universe === "fnopit" || params.universe === "cash500";

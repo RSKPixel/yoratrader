@@ -3,9 +3,9 @@ import { useMemo, useState } from "react";
 import { useSetting } from "./settings";
 import { Field, formatRs, Segmented } from "./V2Controls";
 import { tone, AT_COLUMNS } from "./V2BacktestView";
-import { SLIPPAGE, useBacktest, useLiveRefresh } from "./V2BuyOnGap";
+import { SLIPPAGE_DEFAULT, SLIPPAGE, useBacktest, useLiveRefresh } from "./V2BuyOnGap";
 import V2PnlChart from "./V2PnlChart";
-import { DayLog, LotCards, lotColumns, lotMoney, netBoth, usePaperChart, Panel, PositionsTable, StatusLine } from "./V2PaperView";
+import { DayLog, LotCards, lotColumns, lotMoney, netBoth, usePaperChart, Panel, PositionsTable } from "./V2PaperView";
 import DisasterStop from "./V2Disaster";
 
 // Buy/Sell on gap paper trading on v2: the picks the production scheduler records at 09:15 (every
@@ -24,7 +24,7 @@ export default function V2PaperGap({ params }) {
   const [side, setSide] = useSetting("paper.gap.side", "long");
   const stop = "none"; // no stop, only the disaster stop
   const [disaster, setDisaster] = useSetting("paper.gap.disaster", "on");
-  const [slippage, setSlippage] = useSetting("paper.gap.slippage", 0.02);
+  const [slippage, setSlippage] = useSetting("paper.gap.slippage", SLIPPAGE_DEFAULT.gap);
   const live = useLiveRefresh();
   const { data, error, loading } = useBacktest(`/api/v2/paper/gap?side=${side}&stop=${stop}&slippage=${slippage}&max_open=${params.maxOpen}&disaster=${disaster}`, { refreshMs: live });
   const money = useMemo(() => lotMoney(params.show), [params.show]);
@@ -79,14 +79,6 @@ export default function V2PaperGap({ params }) {
       {error && <p className="text-sm" style={{ color: "var(--negative)" }}>{error}</p>}
       {data && (
         <>
-          <StatusLine>
-            {data.today_recorded
-              ? `Today (${data.today}) recorded from the 09:15 open${data.ltp_at ? ` · live prices at ${data.ltp_at}` : ""}`
-              : data.market_open
-              ? "Waiting for today's 09:15 open (the production scheduler records it)"
-              : `Next session ${data.session} · picks are recorded from the 09:15 open on trading days`}
-            {data.daily_as_of ? ` · futures daily candles to ${data.daily_as_of}` : ""} · costs {data.cost_per_side_bps} bps a side · nothing places orders
-          </StatusLine>
           <LotCards s={{ ...data.summary, win_rate: data.summary.win_rate_lots, win_days: data.summary.win_days_lots }} money={money} />
           <Panel title={`Today · ${data.today}`} right={today ? `${today.status === "open" ? "open, live" : "closed"} · margin ${formatRs(today.margin_rs)} · net ${netBoth(today.net_rs, today.net_value_pct)}` : undefined}>
             {today && (

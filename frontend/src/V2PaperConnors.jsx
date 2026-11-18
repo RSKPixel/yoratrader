@@ -5,9 +5,9 @@ import V2CandleChart from "./V2CandleChart";
 import V2PnlChart from "./V2PnlChart";
 import { Field, formatRs, Segmented } from "./V2Controls";
 import { tone, AT_COLUMNS } from "./V2BacktestView";
-import { SLIPPAGE, useBacktest, useLiveRefresh } from "./V2BuyOnGap";
+import { SLIPPAGE_DEFAULT, SLIPPAGE, useBacktest, useLiveRefresh } from "./V2BuyOnGap";
 import { UNIVERSES } from "./V2BacktestParams";
-import { LotCards, lotColumns, lotMoney, netBoth, Panel, usePaperChart, PositionsTable, StatusLine } from "./V2PaperView";
+import { LotCards, lotColumns, lotMoney, netBoth, Panel, usePaperChart, PositionsTable } from "./V2PaperView";
 
 // Short-term mean reversion paper trading on v2: what the production scheduler records at 15:15 (2-day
 // RSI below 10, above the 200-day average, hold 5 trading days, at most N open; N is a server setting
@@ -117,7 +117,7 @@ function Candidates({ live, book }) {
 }
 
 export default function V2PaperConnors({ params, version = 0, book = "rsi2", exit, onExit, price, onPrice, tradeAt, onTradeAt, disaster, onDisaster, saving }) {
-  const [slippage, setSlippage] = useSetting(book === "rsi2" ? "paper.connors.slippage" : `paper.connors.${book}.slippage`, 0.02);
+  const [slippage, setSlippage] = useSetting(book === "rsi2" ? "paper.connors.slippage" : `paper.connors.${book}.slippage`, SLIPPAGE_DEFAULT.connors);
   const live = useLiveRefresh();
   const { data, error, loading } = useBacktest(`/api/connors/paper?slippage=${slippage}&v=${version}&book=${book}`, { refreshMs: live });
   const money = useMemo(() => lotMoney(params.show), [params.show]);
@@ -220,14 +220,6 @@ export default function V2PaperConnors({ params, version = 0, book = "rsi2", exi
       {error && <p className="text-sm" style={{ color: "var(--negative)" }}>{error}</p>}
       {data && (
         <>
-          <StatusLine>
-            {data.trade_at === "nextopen" ? "Decided after the close on the official closes, done at the next open: " : data.trade_at === "closeopen" ? "Recorded at 15:15 each trading day (sales done at the next open): " : "Recorded at 15:15 each trading day: "}
-            {data.disaster === "on" ? "a position whose day's low reaches 10% under its buy is sold there; " : ""}
-            {strength ? `sell positions whose 2-day RSI is above ${data.exit_rsi} (or on their ${data.hold}th trading day)` : `sell positions on their ${data.hold}th trading day`}
-            {cum ? ", then buy the lowest cumulative RSI(2) signals below 35 " : ", then buy the most oversold signals (2-day RSI below 10) "}
-            into the free slots (at most {maxOpen} open, {UNIVERSES[data.universe] || data.universe}, from the next run) · one lot each · backtest {data.backtest_variant} · costs {data.summary.cost_per_side_bps} bps a side ·
-            nothing places orders
-          </StatusLine>
           <LotCards
             s={summary}
             money={money}

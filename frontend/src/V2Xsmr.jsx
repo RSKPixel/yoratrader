@@ -4,7 +4,7 @@ import { useSetting } from "./settings";
 import { Field, formatRs, Segmented } from "./V2Controls";
 import V2EquityChart from "./V2EquityChart";
 import { makeValue, MonthGrid, MonthTradesModal, Panel, SummaryCards, tone, AT_COLUMNS } from "./V2BacktestView";
-import { SLIPPAGE, useBacktest } from "./V2BuyOnGap";
+import { SLIPPAGE_DEFAULT, SLIPPAGE, useBacktest } from "./V2BuyOnGap";
 import DisasterStop from "./V2Disaster";
 
 // Cross-sectional mean reversion (Chan, Algorithmic Trading ch. 4) on v2: long the stocks that lagged
@@ -25,7 +25,7 @@ export default function V2Xsmr({ params }) {
   const entry = "0915"; // the 09:15 auction price only (later entries lose most of the edge)
   const stop = "none"; // no stop, only the disaster stop
   const [disaster, setDisaster] = useSetting("bt.xsmr.disaster", "on");
-  const [slippage, setSlippage] = useSetting("bt.xsmr.slippage", 0.02);
+  const [slippage, setSlippage] = useSetting("bt.xsmr.slippage", SLIPPAGE_DEFAULT.xsmr);
   const [month, setMonth] = useState(null);
   const [pairs, setPairs] = useSetting("bt.xsmr.pairs", 3);
 

@@ -1,7 +1,7 @@
 import { Card, Panel, tone } from "./V2BacktestView";
 import { formatRs } from "./V2Controls";
 import { useBacktest, useLiveRefresh } from "./V2BuyOnGap";
-import { PositionsTable, StatusLine } from "./V2PaperView";
+import { PositionsTable } from "./V2PaperView";
 import { InstrumentSlot } from "./V2SideNav";
 
 // Turn of the month paper trading: one lot of the Nifty future, bought at 15:15 on the month's 5th-last trading
@@ -32,11 +32,6 @@ export default function V2PaperTom() {
       <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
         <InstrumentSlot />
       </div>
-      <StatusLine>
-        Recorded at 15:15: one lot of the nearest Nifty future expiring after the sale (no roll), bought on the month's 5th-last
-        trading day and sold on the next month's 3rd · costs {s.cost_per_side_bps} bps a side · nothing places orders (the live page
-        trades an in-the-money call in its place)
-      </StatusLine>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         <Card label="Now" value={p.state === "waiting" ? `${p.days_to_buy} days to the buy` : p.state} />
         <Card label="Buy · sell (15:15)" value={`${day(p.buy)} · ${day(p.sell)}`} />

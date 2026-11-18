@@ -3,9 +3,9 @@ import { useEffect, useMemo, useState } from "react";
 import { useSetting } from "./settings";
 import { Field, formatRs, Segmented } from "./V2Controls";
 import { tone, AT_COLUMNS } from "./V2BacktestView";
-import { SLIPPAGE, useBacktest, useLiveRefresh } from "./V2BuyOnGap";
+import { SLIPPAGE_DEFAULT, SLIPPAGE, useBacktest, useLiveRefresh } from "./V2BuyOnGap";
 import V2PnlChart from "./V2PnlChart";
-import { DayLog, LotCards, lotColumns, lotMoney, netBoth, usePaperChart, Panel, PositionsTable, StatusLine } from "./V2PaperView";
+import { DayLog, LotCards, lotColumns, lotMoney, netBoth, usePaperChart, Panel, PositionsTable } from "./V2PaperView";
 import DisasterStop from "./V2Disaster";
 
 // Cross-sectional mean reversion paper trading on v2: the 5 long + 5 short the production scheduler
@@ -150,7 +150,7 @@ export default function V2PaperXsmr({ params }) {
   const [pairs, setPairs] = useSetting("paper.xsmr.pairs", 5);
   const stop = "none"; // no stop, only the disaster stop
   const [disaster, setDisaster] = useSetting("paper.xsmr.disaster", "on");
-  const [slippage, setSlippage] = useSetting("paper.xsmr.slippage", 0.02);
+  const [slippage, setSlippage] = useSetting("paper.xsmr.slippage", SLIPPAGE_DEFAULT.xsmr);
   const maxPairs = Math.min(5, Math.floor(params.maxOpen / 2));
   const k = params.maxOpen ? Math.max(1, Math.min(pairs, maxPairs || 1)) : 5;
   const pairOptions = [1, 2, 3, 4, 5].map((n) => [
@@ -201,14 +201,6 @@ export default function V2PaperXsmr({ params }) {
       {error && <p className="text-sm" style={{ color: "var(--negative)" }}>{error}</p>}
       {data && (
         <>
-          <StatusLine>
-            {data.today_recorded
-              ? `Today (${data.today}) recorded from the 09:15 open${data.ltp_at ? ` · live prices at ${data.ltp_at}` : ""}`
-              : data.market_open
-              ? "Waiting for today's 09:15 open (the production scheduler records it)"
-              : "Recorded from the 09:15 open on trading days, closed at 15:15"}
-            {bt ? ` · backtest ${bt.all_bps} bps a day net (${bt.year}: ${bt.year_bps})` : ""} · costs {data.cost_per_side_bps} bps a side · nothing places orders
-          </StatusLine>
           <LotCards s={{ ...data.summary, win_rate: data.summary.win_rate_lots, win_days: data.summary.win_days_lots }} money={money} />
           {data.meta && !data.meta.error && (
             <MetaPanel meta={data.meta} today={today} />

@@ -4,7 +4,7 @@ import { useSetting } from "./settings";
 import { Field, formatRs, Segmented } from "./V2Controls";
 import V2EquityChart from "./V2EquityChart";
 import { makeValue, MonthGrid, MonthTradesModal, Panel, SummaryCards, tone, AT_COLUMNS } from "./V2BacktestView";
-import { SLIPPAGE, useBacktest } from "./V2BuyOnGap";
+import { SLIPPAGE_DEFAULT, SLIPPAGE, useBacktest } from "./V2BuyOnGap";
 
 // Key Breakout Dow Theory on v2: the stored backtest trades (both sides: buy the key break up, sell
 // the break down; one position per symbol) sized by the common parameters.
@@ -31,7 +31,7 @@ export default function V2Kbdt({ params }) {
   const [hold, setHold] = useSetting("bt.kbdt.hold", "5d");
   const [stopMode, setStopMode] = useSetting("bt.kbdt.stopMode", "model");
   const [stopPct, setStopPct] = useSetting("bt.kbdt.stopPct", 1);
-  const [slippage, setSlippage] = useSetting("bt.kbdt.slippage", 0.02);
+  const [slippage, setSlippage] = useSetting("bt.kbdt.slippage", SLIPPAGE_DEFAULT.kbdt);
   const [month, setMonth] = useState(null);
 
   const query = `dataset=${params.universe}&hold=${hold}&stop_mode=${stopMode}&stop_pct=${stopPct}&slippage=${slippage}&max_open=${params.maxOpen}`;

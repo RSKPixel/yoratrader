@@ -3,9 +3,9 @@ import { useMemo } from "react";
 import { useSetting } from "./settings";
 import { Field, formatRs, Segmented } from "./V2Controls";
 import { tone, AT_COLUMNS } from "./V2BacktestView";
-import { SLIPPAGE, useBacktest, useLiveRefresh } from "./V2BuyOnGap";
+import { SLIPPAGE_DEFAULT, SLIPPAGE, useBacktest, useLiveRefresh } from "./V2BuyOnGap";
 import V2PnlChart from "./V2PnlChart";
-import { DayLog, LotCards, lotColumns, lotMoney, netBoth, usePaperChart, Panel, PositionsTable, StatusLine } from "./V2PaperView";
+import { DayLog, LotCards, lotColumns, lotMoney, netBoth, usePaperChart, Panel, PositionsTable } from "./V2PaperView";
 import DisasterStop from "./V2Disaster";
 
 // Oops gap reversal paper trading on v2 (oopswatch.py), on the current-month futures (every price is
@@ -15,7 +15,7 @@ import DisasterStop from "./V2Disaster";
 
 
 export default function V2PaperOops({ params, stop, onStop, exit, onExit, saving }) {
-  const [slippage, setSlippage] = useSetting("paper.oops.slippage", 0.02);
+  const [slippage, setSlippage] = useSetting("paper.oops.slippage", SLIPPAGE_DEFAULT.oops);
   const live = useLiveRefresh();
   const { data, error, loading } = useBacktest(`/api/v2/paper/oops?slippage=${slippage}`, { refreshMs: live });
   const money = useMemo(() => lotMoney(params.show), [params.show]);
@@ -81,12 +81,6 @@ export default function V2PaperOops({ params, stop, onStop, exit, onExit, saving
       {error && <p className="text-sm" style={{ color: "var(--negative)" }}>{error}</p>}
       {data && (
         <>
-          <StatusLine>
-            Futures prices · watched tick by tick from 09:15{data.stream?.connected ? " (stream connected)" : ""}, with a minute check as backup: a future that opened below yesterday's low is bought when it trades back up to it (the day's first{" "}
-            {data.max_open}), {data.stop_mode === "off" ? "no stop, " : "10% disaster stop below the buy, "}
-            {data.exit_mode === "nextopen" ? "held overnight and sold at the next day's open (15:15 on an expiry day)" : "out at 15:15"}{data.ltp_at ? ` · live prices at ${data.ltp_at}` : ""} · costs{" "}
-            {data.cost_per_side_bps} bps a side · nothing places orders
-          </StatusLine>
           <FirstSecond f={data.first_second} />
           <LotCards s={{ ...data.summary, win_rate: data.summary.win_rate_lots, win_days: data.summary.win_days_lots }} money={money} />
           <Panel

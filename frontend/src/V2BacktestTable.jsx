@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { tone } from "./V2BacktestView";
+import { SLIPPAGE_DEFAULT } from "./V2BuyOnGap";
 import { savedParams } from "./V2BacktestParams";
 import { useSettings } from "./settings";
 import { STATUS, statusOf, useModelStatuses } from "./modelStatus";
@@ -36,37 +37,37 @@ export function backtestRequest(m, values) {
   switch (m.id) {
     case "kbdt": {
       const hold = v("bt.kbdt.hold", "5d"), sm = v("bt.kbdt.stopMode", "model"), sp = v("bt.kbdt.stopPct", 1);
-      return { p, url: `/api/v2/backtest/kbdt?dataset=${p.universe}&hold=${hold}&stop_mode=${sm}&stop_pct=${sp}&slippage=${v("bt.kbdt.slippage", 0.02)}&max_open=${p.maxOpen}`,
+      return { p, url: `/api/v2/backtest/kbdt?dataset=${p.universe}&hold=${hold}&stop_mode=${sm}&stop_pct=${sp}&slippage=${v("bt.kbdt.slippage", SLIPPAGE_DEFAULT.kbdt)}&max_open=${p.maxOpen}`,
                settings: `${u} · ${hold} hold · ${sm === "model" ? "model stop" : `${sp}% stop`} · max ${p.maxOpen}` };
     }
     case "buy-on-gap": {
       const side = v("bt.gap.side", "long"), dis = v("bt.gap.disaster", "on");
-      return { p, url: `/api/v2/backtest/gap?dataset=${p.universe}&side=${side}&stop=none&slippage=${v("bt.gap.slippage", 0.02)}&max_open=${p.maxOpen}&disaster=${dis}`,
+      return { p, url: `/api/v2/backtest/gap?dataset=${p.universe}&side=${side}&stop=none&slippage=${v("bt.gap.slippage", SLIPPAGE_DEFAULT.gap)}&max_open=${p.maxOpen}&disaster=${dis}`,
                settings: `${u} · ${side === "long" ? "long" : "long & short"} · max ${p.maxOpen} · disaster stop ${dis}` };
     }
     case "gap-momentum": {
       const side = v("bt.gapmom.side", "both"), stop = v("bt.gapmom.stop", "none");
-      return { p, url: `/api/v2/backtest/gapmom?dataset=${p.universe}&side=${side}&stop=${stop}&slippage=${v("bt.gapmom.slippage", 0.02)}&max_open=${p.maxOpen}`,
+      return { p, url: `/api/v2/backtest/gapmom?dataset=${p.universe}&side=${side}&stop=${stop}&slippage=${v("bt.gapmom.slippage", SLIPPAGE_DEFAULT.gapmom)}&max_open=${p.maxOpen}`,
                settings: `${u} · ${side === "long" ? "long" : "both sides"} · ${stop === "none" ? "no stop" : "1σ stop"} · max ${p.maxOpen}` };
     }
     case "xs-mean-reversion": {
       const version = v("bt.xsmr.version", "intraday"), dis = v("bt.xsmr.disaster", "on"), n = k("bt.xsmr.pairs");
-      return { p, url: `/api/v2/backtest/xsmr?dataset=${p.universe}&version=${version}&entry=0915&stop=none&slippage=${v("bt.xsmr.slippage", 0.02)}&max_open=${p.maxOpen}&pairs=${n}&disaster=${dis}`,
+      return { p, url: `/api/v2/backtest/xsmr?dataset=${p.universe}&version=${version}&entry=0915&stop=none&slippage=${v("bt.xsmr.slippage", SLIPPAGE_DEFAULT.xsmr)}&max_open=${p.maxOpen}&pairs=${n}&disaster=${dis}`,
                settings: `${u} · ${version} · ${n} + ${n} · max ${p.maxOpen} · disaster stop ${dis}` };
     }
     case "pairs": {
       const method = v("bt.pairs.method", "bollinger"), fill = v("bt.pairs.fill", "close"), n = k("bt.pairs.pairs");
-      return { p, url: `/api/v2/backtest/pairs?method=${method}&fill=${fill}&slippage=${v("bt.pairs.slippage", 0.02)}&max_open=${p.maxOpen}&pairs=${n}`,
+      return { p, url: `/api/v2/backtest/pairs?method=${method}&fill=${fill}&slippage=${v("bt.pairs.slippage", SLIPPAGE_DEFAULT.pairs)}&max_open=${p.maxOpen}&pairs=${n}`,
                settings: `${u} · ${method} · ${n} pairs · max ${p.maxOpen}` };
     }
     case "xs-momentum": {
       const fill = v("bt.xsmom.fill", "close"), n = k("bt.xsmom.pairs");
-      return { p, url: `/api/v2/backtest/xsmom?dataset=${p.universe}&fill=${fill}&slippage=${v("bt.xsmom.slippage", 0.02)}&max_open=${p.maxOpen}&pairs=${n}`,
+      return { p, url: `/api/v2/backtest/xsmom?dataset=${p.universe}&fill=${fill}&slippage=${v("bt.xsmom.slippage", SLIPPAGE_DEFAULT.xsmom)}&max_open=${p.maxOpen}&pairs=${n}`,
                settings: `${u} · ${n} + ${n} · max ${p.maxOpen}` };
     }
     case "quant-momentum": {
       const version = v("bt.qmom.version", "book"), hedge = v("bt.qmom.hedge", "none");
-      return { p, url: `/api/v2/backtest/qmom?dataset=${p.universe}&version=${version}&hedge=${hedge}&slippage=${v("bt.qmom.slippage", 0.02)}&max_open=${p.maxOpen}`,
+      return { p, url: `/api/v2/backtest/qmom?dataset=${p.universe}&version=${version}&hedge=${hedge}&slippage=${v("bt.qmom.slippage", SLIPPAGE_DEFAULT.qmom)}&max_open=${p.maxOpen}`,
                settings: `${u} · ${version} · ${hedge === "none" ? "no hedge" : "Nifty hedge"} · max ${p.maxOpen}` };
     }
     case "short-term-reversion": {
@@ -76,22 +77,22 @@ export function backtestRequest(m, values) {
       const dis = v("bt.connors.disaster", "on");
       const inst = p.universe === "fno" ? v("bt.connors.instrument", "cash") : "cash";
       return { p, inst: inst === "futures" ? "futures" : "spot",
-               url: `/api/v2/backtest/connors?dataset=${p.universe}&setup=${setup}&hold=${hold}&timing=${timing}&stop=${dis === "on" ? "10pc" : "none"}&take=all&slippage=${v("bt.connors.slippage", 0.02)}&max_open=${p.maxOpen}&side=long&instrument=${inst}`,
+               url: `/api/v2/backtest/connors?dataset=${p.universe}&setup=${setup}&hold=${hold}&timing=${timing}&stop=${dis === "on" ? "10pc" : "none"}&take=all&slippage=${v("bt.connors.slippage", SLIPPAGE_DEFAULT.connors)}&max_open=${p.maxOpen}&side=long&instrument=${inst}`,
                settings: `${u} · ${setup === "cumrsi2" ? "cumulative RSI(2)" : "RSI(2)"} · ${hold === "0d" ? "exit on strength" : "5 days"} · exit ${timing === "closeopen" ? "next open" : "at close"} · max ${p.maxOpen}` };
     }
     case "oops": {
       const dis = v("bt.oops.disaster", "on");
-      return { p, url: `/api/v2/backtest/oops?stop=none&trend=any&slippage=${v("bt.oops.slippage", 0.02)}&max_open=${p.maxOpen}&exit=nextopen&disaster=${dis}`,
+      return { p, url: `/api/v2/backtest/oops?stop=none&trend=any&slippage=${v("bt.oops.slippage", SLIPPAGE_DEFAULT.oops)}&max_open=${p.maxOpen}&exit=nextopen&disaster=${dis}`,
                settings: `F&O · first ${p.maxOpen} a day · exit next open · disaster stop ${dis}` };
     }
     case "turn-of-month": {
       const index = v("bt.tom.index", "nifty"), win = v("bt.tom.window", "4"), inst = v("bt.tom.instrument", "futures");
-      return { p, inst, url: `/api/v2/backtest/tom?index=${index}&window=${win}&slippage=${v("bt.tom.slippage", 0.02)}&instrument=${inst}`,
+      return { p, inst, url: `/api/v2/backtest/tom?index=${index}&window=${win}&slippage=${v("bt.tom.slippage", SLIPPAGE_DEFAULT.tom)}&instrument=${inst}`,
                settings: `${index === "nifty" ? "Nifty" : "Bank Nifty"} · last ${win === "4" ? "4 days" : "day"} to the 3rd` };
     }
     case "low-volatility": {
       const trail = v("bt.ltlv.trail", "20");
-      return { p, url: `/api/v2/backtest/ltlv?max_open=${p.maxOpen}&trail=${trail}&slippage=${v("bt.ltlv.slippage", 0.02)}&instrument=cash&dataset=${p.universe}`,
+      return { p, url: `/api/v2/backtest/ltlv?max_open=${p.maxOpen}&trail=${trail}&slippage=${v("bt.ltlv.slippage", SLIPPAGE_DEFAULT.ltlv)}&instrument=cash&dataset=${p.universe}`,
                settings: `${u} · ${trail}% trailing stop · max ${p.maxOpen}` };
     }
     case "books-gold": {
@@ -201,7 +202,7 @@ export default function BacktestTable({ models }) {
         </tbody>
       </table>
       <p className="px-3 pt-2 text-xs" style={{ color: "var(--faint)" }}>
-        Each model with its own page's settings (change them on the model's page), net of costs, % of capital a year, not compounded. Click a model for its backtest.
+        Each model with its own page's settings (change them on the model's page), net of costs and its slippage, % of capital a year, not compounded. Click a model for its backtest.
       </p>
     </div>
   );

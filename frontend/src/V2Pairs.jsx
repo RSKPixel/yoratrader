@@ -4,7 +4,7 @@ import { useSetting } from "./settings";
 import { Field, formatRs, Segmented } from "./V2Controls";
 import V2EquityChart from "./V2EquityChart";
 import { makeValue, MonthGrid, MonthTradesModal, Panel, SummaryCards, tone, AT_COLUMNS } from "./V2BacktestView";
-import { SLIPPAGE, useBacktest } from "./V2BuyOnGap";
+import { SLIPPAGE_DEFAULT, SLIPPAGE, useBacktest } from "./V2BuyOnGap";
 
 // Pairs trading (Chan, Algorithmic Trading ch. 2-4) on v2: same-industry F&O pairs that passed a
 // cointegration test on the year before, traded this year. Pairs k = at most k pairs open at once
@@ -22,7 +22,7 @@ const FILLS = [
 export default function V2Pairs({ params }) {
   const [method, setMethod] = useSetting("bt.pairs.method", "bollinger");
   const [fill, setFill] = useSetting("bt.pairs.fill", "close");
-  const [slippage, setSlippage] = useSetting("bt.pairs.slippage", 0.02);
+  const [slippage, setSlippage] = useSetting("bt.pairs.slippage", SLIPPAGE_DEFAULT.pairs);
   const [pairs, setPairs] = useSetting("bt.pairs.pairs", 3);
   const [month, setMonth] = useState(null);
 

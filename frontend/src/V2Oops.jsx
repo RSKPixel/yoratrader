@@ -4,7 +4,7 @@ import { useSetting } from "./settings";
 import { Field, formatRs, Segmented } from "./V2Controls";
 import V2EquityChart from "./V2EquityChart";
 import { makeValue, MonthGrid, MonthTradesModal, Panel, SummaryCards, tone, AT_COLUMNS } from "./V2BacktestView";
-import { SLIPPAGE, useBacktest } from "./V2BuyOnGap";
+import { SLIPPAGE_DEFAULT, SLIPPAGE, useBacktest } from "./V2BuyOnGap";
 import DisasterStop from "./V2Disaster";
 
 // Larry Williams' "Oops" gap reversal on v2 (v2oops.py): a stock opens below yesterday's low and is
@@ -16,7 +16,7 @@ import DisasterStop from "./V2Disaster";
 export default function V2Oops({ params }) {
   const [disaster, setDisaster] = useSetting("bt.oops.disaster", "on"); // the 10% disaster stop (no other stop, no trend filter)
   const exit = "nextopen"; // fixed: the book's "out on the opening tomorrow" (the 15:15 exit is no longer offered)
-  const [slippage, setSlippage] = useSetting("bt.oops.slippage", 0.02);
+  const [slippage, setSlippage] = useSetting("bt.oops.slippage", SLIPPAGE_DEFAULT.oops);
   const [month, setMonth] = useState(null);
 
   const query = `stop=none&trend=any&slippage=${slippage}&max_open=${params.maxOpen}&exit=${exit}&disaster=${disaster}`;

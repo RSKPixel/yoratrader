@@ -4,7 +4,7 @@ import { useSetting } from "./settings";
 import { Field, formatRs, Segmented } from "./V2Controls";
 import V2EquityChart from "./V2EquityChart";
 import { makeValue, MonthGrid, MonthTradesModal, Panel, SummaryCards, tone, AT_COLUMNS } from "./V2BacktestView";
-import { SLIPPAGE, useBacktest } from "./V2BuyOnGap";
+import { SLIPPAGE_DEFAULT, SLIPPAGE, useBacktest } from "./V2BuyOnGap";
 
 // Cross-sectional momentum (Chan, Algorithmic Trading ch. 6) on v2: rank by 12-month return, long the
 // strongest, short the weakest, hold 25 trading days. Pairs k: the k + k book re-ranked every 25 days;
@@ -17,7 +17,7 @@ const FILLS = [
 
 export default function V2Xsmom({ params }) {
   const [fill, setFill] = useSetting("bt.xsmom.fill", "close");
-  const [slippage, setSlippage] = useSetting("bt.xsmom.slippage", 0.02);
+  const [slippage, setSlippage] = useSetting("bt.xsmom.slippage", SLIPPAGE_DEFAULT.xsmom);
   const [pairs, setPairs] = useSetting("bt.xsmom.pairs", 3);
   const [month, setMonth] = useState(null);
 
