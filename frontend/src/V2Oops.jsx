@@ -19,7 +19,7 @@ const EXITS = [
 
 export default function V2Oops({ params }) {
   const [disaster, setDisaster] = useSetting("bt.oops.disaster", "on"); // the 10% disaster stop (no other stop, no trend filter)
-  const [exit, setExit] = useSetting("bt.oops.exit", "1515");
+  const [exit, setExit] = useSetting("bt.oops.exit", "nextopen"); // the book's: "out on the opening tomorrow"
   const [slippage, setSlippage] = useSetting("bt.oops.slippage", 0.02);
   const [month, setMonth] = useState(null);
 
