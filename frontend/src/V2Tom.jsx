@@ -78,11 +78,6 @@ export default function V2Tom({ params }) {
               <Card label="Net a year (whole year)" value={value(s.net_year_pct)} color={tone(s.net_year_pct)} hint="As if the capital sat idle between trades" />
             </div>
           )}
-          <p className="-mt-1 text-xs" style={{ color: "var(--muted)" }}>
-            {s.from} → {s.to} · {value(s.net_year_pct)} net a year · Sharpe {s.sharpe ?? "—"} · {s.green_years}/{s.years} green years · in the market{" "}
-            {s.in_market_pct}% of days, {s.avg_days} days a trade · holding the index all the time: {value(s.buy_hold_year_pct)} a year · one position, 1x
-            the capital · costs include a futures roll each trade
-          </p>
           <Panel title="Net by month" right="click a month for its trade">
             <MonthGrid years={data.years} months={data.months} value={value} onOpen={setMonth} />
           </Panel>

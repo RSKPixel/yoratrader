@@ -128,11 +128,6 @@ export default function V2Connors({ params, onParams }) {
       {s && (
         <>
           <SummaryCards s={s} value={value} />
-          <p className="-mt-1 text-xs" style={{ color: "var(--muted)" }}>
-            {s.from} → {s.to} · {value(s.net_year_pct)} net a year · Sharpe {s.sharpe ?? "—"} · {s.green_years}/{s.years} green years ·
-            held {s.avg_held_days} days · average RSI {s.avg_rsi}
-            {stop !== "none" ? ` · disaster stop on ${s.disaster_hits ?? 0} trades (${s.stopped_pct}%)` : ""}
-          </p>
           <Panel title="Net by month" right="marked daily · trades by sale day · click a month for its trades">
             <MonthGrid years={data.years} months={data.months} value={value} onOpen={setMonth} />
           </Panel>

@@ -13,7 +13,7 @@ import V2Oops from "./V2Oops";
 import V2Tom from "./V2Tom";
 import V2Ltlv from "./V2Ltlv";
 import V2Mix from "./V2Mix";
-import { Models } from "./V2Dashboard";
+import BacktestTable from "./V2BacktestTable";
 import { Panel } from "./V2BacktestView";
 
 // v2 Backtesting: a sub nav of every model with a backtest, grouped by where it comes from. Each
@@ -89,7 +89,7 @@ function Landing({ onSelect }) {
         </p>
         <div className="mt-4">
           <Panel title="Strategies" right="click a model for its backtest">
-            <Models />
+            <BacktestTable models={ALL} />
           </Panel>
         </div>
       </section>

@@ -89,9 +89,11 @@ export function InstrumentSlot() {
   return v ? <InstrumentField {...v} /> : null;
 }
 
-export function InstrumentTag({ id, universe, paper, live, price }) {
+export function InstrumentTag({ id, universe, paper, live, price, instrument }) {
   const [connors] = useSetting("bt.connors.instrument", "cash"); // the backtest page's Spot / Futures choice (live: follow it)
-  const i = instrumentOf(id, universe, paper, live ? connors : "cash", price);
+  let i = instrumentOf(id, universe, paper, live ? connors : "cash", price);
+  if (instrument === "futures") i = { text: "Futures", title: "Signal and results on the futures' own prices" };  // a page's own choice
+  if (instrument === "spot") i = { text: id === "turn-of-month" ? "Index" : "Spot", title: "Signal and results on the spot prices" };
   return (
     <span
       className="shrink-0 rounded border px-1.5 py-0.5 text-[0.625rem] font-medium uppercase tracking-[0.08em]"

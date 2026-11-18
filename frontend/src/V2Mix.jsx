@@ -117,16 +117,6 @@ export default function V2Mix({ params }) {
       {s && (
         <>
           <SummaryCards s={s} value={value} />
-          <p className="-mt-1 text-xs" style={{ color: "var(--muted)" }}>
-            {s.from} → {s.to} · {value(s.net_year_pct)} net a year · Sharpe {s.sharpe ?? "—"} · {s.green_years}/{s.years} green years · {mr} {s.split.rsi2}% · low
-            volatility {s.split.lv}% · gold {s.split.gold}% · cash, no rolls · gold costs {value(-s.gold_cost_pct, 3)} ·
-            books and gold moved together {s.corr_books_gold} (monthly) · trades are the books' (gold is held) ·{" "}
-            {pit
-              ? top500
-                ? "Top 500: the 500 stocks with the most traded value at each month-end (survivorship-free) · cash · 0.08% a side more slippage · no buys on circuit-locked days"
-                : "survivorship bias off (each month's actual F&O list)"
-              : "today's F&O stocks (survivorship bias on: set it Off for the honest numbers)"}
-          </p>
           <Panel title="Net by month" right="click a month for its trades and the gold">
             <MonthGrid years={data.years} months={data.months} value={value} onOpen={setMonth} />
           </Panel>

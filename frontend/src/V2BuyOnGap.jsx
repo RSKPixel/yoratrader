@@ -154,10 +154,6 @@ export default function V2BuyOnGap({ params, model = "gap" }) {
       {s && (
         <>
           <SummaryCards s={s} value={value} />
-          <p className="-mt-1 text-xs" style={{ color: "var(--muted)" }}>
-            {s.from} → {s.to} · {value(s.net_year_pct)} net a year · Sharpe {s.sharpe ?? "—"} · {s.green_years}/{s.years} green years ·
-            traded on {s.days_traded} of {s.days} days (intraday: capital sits idle on the rest)
-          </p>
           <Panel title="Net by month" right="click a month for its trades">
             <MonthGrid years={data.years} months={data.months} value={value} onOpen={setMonth} />
           </Panel>

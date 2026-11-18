@@ -100,11 +100,6 @@ export default function V2Xsmr({ params }) {
       {s && (
         <>
           <SummaryCards s={s} value={value} />
-          <p className="-mt-1 text-xs" style={{ color: "var(--muted)" }}>
-            {s.from} → {s.to} · {value(s.net_year_pct)} net a year · Sharpe {s.sharpe ?? "—"} · {s.green_years}/{s.years} green years ·
-            ~{s.avg_positions} positions a day · long {value(s.long_net_pct)}, short {value(s.short_net_pct)}
-            {s.stopped_pct ? ` · ${s.stopped_pct}% stopped` : ""}
-          </p>
           <Panel title="Net by month" right="click a month for its days and positions">
             <MonthGrid years={data.years} months={data.months} value={value} onOpen={setMonth} />
           </Panel>

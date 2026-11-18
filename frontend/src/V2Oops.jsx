@@ -70,11 +70,6 @@ export default function V2Oops({ params }) {
       {s && (
         <>
           <SummaryCards s={s} value={value} />
-          <p className="-mt-1 text-xs" style={{ color: "var(--muted)" }}>
-            {s.from} → {s.to} · {value(s.net_year_pct)} net a year · Sharpe {s.sharpe ?? "—"} · {s.green_years}/{s.years} green years · traded on{" "}
-            {s.days_traded} of {s.days} days, {s.avg_positions} a day on average · half the fills by {s.median_fill_at} ·
-            futures prices (the future's own open and previous low, as in paper trading; moves inside the day from the share's 1-minute candles shifted to the future's level) · a future expiring that day is sold at 15:15
-          </p>
           <Panel title="Net by month" right="click a month for its trades">
             <MonthGrid years={data.years} months={data.months} value={value} onOpen={setMonth} />
           </Panel>

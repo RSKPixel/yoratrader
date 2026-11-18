@@ -99,10 +99,6 @@ export default function V2Pairs({ params }) {
       {s && (
         <>
           <SummaryCards s={s} value={value} />
-          <p className="-mt-1 text-xs" style={{ color: "var(--muted)" }}>
-            {s.from} → {s.to} · {value(s.net_year_pct)} net a year · Sharpe {s.sharpe ?? "—"} (on results at the exit) · {s.green_years}/{s.years} green years ·
-            held {s.avg_held_days} days · ~{s.pairs_per_year} pairs selected a year
-          </p>
           <Panel title="Net by month" right="results count on the exit day · click a month for its trades">
             <MonthGrid years={data.years} months={data.months} value={value} onOpen={setMonth} />
           </Panel>
