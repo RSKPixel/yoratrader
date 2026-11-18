@@ -309,10 +309,10 @@ export function Models() {
   }
   return (
     <div className="overflow-x-auto">
-      <table className="w-full min-w-[820px] text-sm tabular-nums">
+      <table className="w-full min-w-[920px] text-sm tabular-nums">
         <thead className="text-left text-xs" style={{ color: "var(--faint)" }}>
           <tr>
-            {["Model", "Settings", "Net / yr", "Sharpe", "Max drawdown", "Green years", `${data.year} so far`].map((h) => (
+            {["Model", "Settings", "Net / yr", "Sharpe", "Risk of ruin", "Max drawdown", "Green years", `${data.year} so far`].map((h) => (
               <th key={h} className="px-3 py-2 font-medium">
                 {h}
               </th>
@@ -339,7 +339,7 @@ export function Models() {
                 {m.settings}
               </td>
               {m.error ? (
-                <td colSpan={5} className="px-3 py-2 text-xs" style={{ color: "var(--negative)" }}>
+                <td colSpan={6} className="px-3 py-2 text-xs" style={{ color: "var(--negative)" }}>
                   {m.error}
                 </td>
               ) : (
@@ -348,6 +348,20 @@ export function Models() {
                     {pct(m.net_year_pct, 1)}
                   </td>
                   <td className="px-3 py-2">{m.sharpe ?? "—"}</td>
+                  <td
+                    className="px-3 py-2"
+                    style={{ color: m.ruin_pct == null ? "var(--muted)" : m.ruin_pct === 0 ? "var(--positive)" : "var(--negative)" }}
+                    title="Penfold: must be 0. The chance of falling below half the capital within 10 years (from the backtest's own months, resampled), at full size; otherwise the size that brings it to 0"
+                  >
+                    {m.ruin_pct == null ? "—" : m.ruin_pct === 0 ? "0% ✓" : (
+                      <>
+                        {m.ruin_pct}%
+                        <span className="ml-1 text-xs" style={{ color: "var(--muted)" }}>
+                          {m.ruin_safe_size ? `0 at ${Math.round(100 * m.ruin_safe_size)}% size` : "not 0 at 10%"}
+                        </span>
+                      </>
+                    )}
+                  </td>
                   <td className="px-3 py-2" style={{ color: "var(--negative)" }}>
                     {pct(m.max_dd_pct, 1)}
                   </td>

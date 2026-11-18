@@ -297,6 +297,7 @@ def _build_models():
             rows.append({"id": mid, "label": label, "style": style, "settings": settings,
                          "link": f"/v2/backtesting/{'short-term-reversion' if mid == 'cumulative-rsi' else mid}",
                          "net_year_pct": s["net_year_pct"] if s else None, "sharpe": s["sharpe"] if s else None,
+                         "ruin_pct": s.get("ruin_half_pct") if s else None, "ruin_safe_size": s.get("ruin_safe_size") if s else None,
                          "max_dd_pct": s["max_dd_pct"] if s else None, "green": f"{s['green_years']}/{s['years']}" if s else None,
                          "this_year_pct": this_year["net_pct"] if this_year else None, "from": s["from"] if s else None})
         except Exception as error:
