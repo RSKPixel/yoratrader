@@ -8,7 +8,8 @@ import DisasterStop from "./V2Disaster";
 
 // Larry Williams' "Oops" gap reversal on v2 (v2oops.py): a stock opens below yesterday's low and is
 // bought when it trades back up to that low; out at 15:15 or the next day's open, or at the 10% disaster stop.
-// 1-minute candles, today's F&O stocks, 2015 on. Max open = the day's first N fills.
+// Futures prices (as the paper book): the future's own open and previous low; inside the day the share's
+// 1-minute candles shifted to the future's level. Today's F&O stocks, 2015 on. Max open = the day's first N fills.
 
 const EXITS = [
   ["1515", "15:15 same day"],
@@ -74,7 +75,7 @@ export default function V2Oops({ params }) {
           <p className="-mt-1 text-xs" style={{ color: "var(--muted)" }}>
             {s.from} → {s.to} · {value(s.net_year_pct)} net a year · Sharpe {s.sharpe ?? "—"} · {s.green_years}/{s.years} green years · traded on{" "}
             {s.days_traded} of {s.days} days, {s.avg_positions} a day on average · half the fills by {s.median_fill_at} ·
-            today's F&O stocks (1-minute data)
+            futures prices (the future's own open and previous low, as in paper trading; moves inside the day from the share's 1-minute candles shifted to the future's level) · a future expiring that day is sold at 15:15
           </p>
           <Panel title="Net by month" right="click a month for its trades">
             <MonthGrid years={data.years} months={data.months} value={value} onOpen={setMonth} />

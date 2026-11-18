@@ -1,7 +1,15 @@
-"""Larry Williams' "Oops" gap reversal (Long-Term Secrets to Short-Term Trading), long, on 1-minute
-candles (today's F&O stocks, 2015 on), for the v2 backtest page and the paper book's reference.
+"""Larry Williams' "Oops" gap reversal (Long-Term Secrets to Short-Term Trading), long, on the F&O
+stocks' near-month FUTURES (as the paper book trades them), 2015 on, for the v2 backtest page.
 
-- A stock opens below yesterday's low; it's bought in the first minute whose high trades back up to that
+Prices: the signal is the future's own: its open below its own previous day's low, from the stored
+continuous futures daily candles (eod, exchange 'NSE', the near month rolled at expiry), the same
+numbers the paper book uses. Kite has no minute history for expired futures, so the moves inside the
+day come from the share's 1-minute candles shifted to the future's level that day (x future open /
+share open). The day after an expiry the continuous series' previous low is the old contract's, so
+that day the previous low is the share's, shifted the same way. A future that expires that day is
+sold at 15:15 even with the next-open exit (as the paper book does).
+
+- A future opens below yesterday's low; it's bought in the first minute whose high trades back up to that
   low (at the level, or at the minute's open if it opens above it), as a resting buy-stop order would fill.
 - Out at 15:15: the close of the 15:14 minute (NSE's closing auction from 3 Aug 2026 starts at 15:15).
 - Stop (optional, off by default): 0.1% under the lowest price known at the buy. Most buys come in the
@@ -44,6 +52,22 @@ def _hm(minute):
     return f"{m // 60:02d}:{m % 60:02d}"
 
 
+def _expiries(days):
+    """Each month's stock-futures expiry, as trading days: the last Thursday (the last Tuesday from
+    September 2025, SEBI), moved to the trading day before when it's a holiday."""
+    days = pd.DatetimeIndex(days)
+    out = set()
+    for p in sorted(set(days.to_period("M"))):
+        last = p.to_timestamp(how="end").normalize()
+        wd = 1 if last >= pd.Timestamp("2025-09-01") else 3
+        while last.dayofweek != wd:
+            last -= pd.Timedelta(days=1)
+        i = days.searchsorted(last, side="right") - 1
+        if i >= 0 and days[i].to_period("M") == p:
+            out.add(days[i])
+    return out
+
+
 def _build():
     """Every Oops fill from the 1-minute candles: the first minute whose high reaches yesterday's low is
     the buy (at that low, or the minute's open if it opens above it). The stop is 0.1% under the lowest
@@ -52,26 +76,41 @@ def _build():
     worse case is taken). Out at 15:15: the close of the 15:14 minute."""
     with connect() as c:
         syms = pd.read_sql("SELECT symbol FROM bt_symbols WHERE dataset = 'fno' ORDER BY symbol", c)["symbol"].tolist()
+    days = v2common.trading_days("fno", pd.Timestamp(START))
+    expiry = _expiries(days)
+    after_expiry = {days[i + 1] for i in range(len(days) - 1) if days[i] in expiry}
     fills = []
     for sym in syms:
         with connect() as c:
             d = pd.read_sql("SELECT day, low, close FROM bt_daily WHERE symbol = %s AND day >= '2014-01-01' ORDER BY day", c,
                             params=[sym], parse_dates=["day"]).set_index("day")
+            fu = pd.read_sql("SELECT datetime AS day, open, low FROM eod WHERE exchange = 'NSE' AND symbol = %s AND datetime >= '2014-01-01' "
+                             "ORDER BY datetime", c, params=[sym], parse_dates=["day"]).set_index("day")
             cur = c.cursor()
             cur.execute("SELECT day, minute, open, high, low, close FROM bt_1m WHERE symbol = %s AND day >= %s ORDER BY day", [sym, START])
             data = cur.fetchall()
         if len(d) < 250 or not data:
             continue
-        prev_low = d["low"].shift(1)
+        if len(fu) < 2:
+            continue
+        prev_low = d["low"].shift(1)  # the share's (used the day after an expiry)
+        fut_prev_low, fut_open = fu["low"].shift(1), fu["open"]
         up = d["close"].shift(1) > d["close"].shift(1).rolling(200, min_periods=180).mean()
         for day, mi, o, h, l, cl in data:
             ts = pd.Timestamp(day)
             if ts not in prev_low.index or not mi or mi[0] != 0:
                 continue
-            pl = prev_low[ts]
-            if not (pl > 0) or not (o[0] > 0) or o[0] >= pl:  # must open below yesterday's low
+            fo = fut_open.get(ts)
+            if not (fo and fo > 0) or not (o[0] and o[0] > 0):
                 continue
-            mi, o, h, l, cl = map(np.asarray, (mi, o, h, l, cl))
+            k = fo / o[0]  # the share's minutes shifted to the future's level
+            if abs(k - 1) > 0.05:  # a bad print or a mismatched contract
+                continue
+            pl = prev_low[ts] * k if ts in after_expiry else fut_prev_low.get(ts)
+            if not (pl and pl > 0) or fo >= pl:  # the future must open below yesterday's low
+                continue
+            mi = np.asarray(mi)
+            o, h, l, cl = (np.asarray(x, dtype=float) * k for x in (o, h, l, cl))
             before_exit = np.nonzero(mi < EXIT_MIN)[0]
             if not len(before_exit):
                 continue
@@ -94,16 +133,15 @@ def _build():
             else:
                 hit, hit_at = None, None
             fills.append((day, _hm(mi[j]), sym, bool(up.get(ts, False)), float(pl), float(o[0]), float(entry),
-                          float(stop), float(exit_px), float(hit) if hit is not None else None, hit_at, low_after))
+                          float(stop), float(exit_px), float(hit) if hit is not None else None, hit_at, low_after, ts in expiry))
     f = pd.DataFrame(fills, columns=["day", "fill_at", "symbol", "up", "prev_low", "open", "entry", "stop", "exit_time", "exit_stop", "stop_at",
-                                     "low_after"])
-    days = v2common.trading_days("fno", pd.Timestamp(START))
+                                     "low_after", "expiry"])
     return f, days
 
 
 # The fills take ~100 s to build from the 1-minute candles, so they're also kept on disk: a restart or a
 # deploy loads them in a second; the 16:00 top-up (invalidate) deletes the file so the next use rebuilds.
-DISK = os.path.join(tempfile.gettempdir(), "yoratrader-oops-fills-v2.pkl")
+DISK = os.path.join(tempfile.gettempdir(), "yoratrader-oops-fills-v3.pkl")  # v3: futures prices
 
 
 def _load_disk():
@@ -111,7 +149,7 @@ def _load_disk():
         if time.time() - os.path.getmtime(DISK) < CACHE_SECONDS:
             with open(DISK, "rb") as fh:
                 f, days = pickle.load(fh)
-            if "low_after" in f.columns:
+            if "expiry" in f.columns:
                 return f, days
     except Exception:
         pass
@@ -162,13 +200,14 @@ _next = {"at": 0, "data": None}
 
 
 def _next_opens():
-    """Each F&O stock's next trading day's opening price, by (symbol, day): the book's exit."""
+    """Each F&O future's next trading day's opening price, by (symbol, day): the book's exit (the near-month
+    future; a position bought on an expiry day is sold at 15:15 instead, see _sized)."""
     if _next["data"] is not None and time.time() - _next["at"] < CACHE_SECONDS:
         return _next["data"]
     from db import connect
     with connect() as conn:
-        d = pd.read_sql("SELECT symbol, day, open FROM bt_daily WHERE symbol IN (SELECT symbol FROM bt_symbols WHERE dataset = 'fno') "
-                        "AND close > 0 AND day >= %s ORDER BY symbol, day", conn, params=[START], parse_dates=["day"])
+        d = pd.read_sql("SELECT symbol, datetime AS day, open FROM eod WHERE exchange = 'NSE' AND open > 0 AND datetime >= %s "
+                        "ORDER BY symbol, datetime", conn, params=[START], parse_dates=["day"])
     d["next_open"] = d.groupby("symbol")["open"].shift(-1)
     d["next_day"] = d.groupby("symbol")["day"].shift(-1)
     out = d.dropna(subset=["next_open"]).set_index(["symbol", "day"])[["next_open", "next_day"]]
@@ -190,13 +229,15 @@ def _sized(stop="none", trend="any", max_open=3, slippage=0.0002, exit="1515", d
         nx = _next_opens()
         key = pd.MultiIndex.from_arrays([t["symbol"], pd.to_datetime(t["day"])])
         nxt = nx.reindex(key)
-        t = t[nxt["next_open"].notna().to_numpy() | stopped.to_numpy()].copy()
+        same_day = t["expiry"].to_numpy(bool)  # the future expires today: sold at 15:15
+        t = t[nxt["next_open"].notna().to_numpy() | stopped.to_numpy() | same_day].copy()
         nxt = nx.reindex(pd.MultiIndex.from_arrays([t["symbol"], pd.to_datetime(t["day"])]))
         stopped = t["exit_stop"].notna() if stop == "low" else pd.Series(False, index=t.index)
-        t["exit"] = np.where(stopped, t["exit_stop"], nxt["next_open"].to_numpy())
-        t["reason"] = np.where(stopped, "stop", "next open")
-        t["exit_hm"] = np.where(stopped, t["stop_at"].fillna(""), "09:15")
-        t["exit_day"] = np.where(stopped, pd.to_datetime(t["day"]), nxt["next_day"].to_numpy())
+        today = stopped.to_numpy() | t["expiry"].to_numpy(bool)
+        t["exit"] = np.where(stopped, t["exit_stop"], np.where(today, t["exit_time"], nxt["next_open"].to_numpy()))
+        t["reason"] = np.where(stopped, "stop", np.where(today, "15:15 (expiry)", "next open"))
+        t["exit_hm"] = np.where(stopped, t["stop_at"].fillna(""), np.where(today, EXIT_AT, "09:15"))
+        t["exit_day"] = np.where(today, pd.to_datetime(t["day"]), nxt["next_day"].to_numpy())
     if disaster == "on":  # the 10% disaster stop (disaster.py): out at the level if, after the buy, the day traded through it
         import disaster as ds
         level = t["entry"] * (1 - ds.PCT / 100)
