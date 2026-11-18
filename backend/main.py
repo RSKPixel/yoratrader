@@ -41,6 +41,7 @@ import v2mix
 import v2paper
 import v2data
 import v2dashboard
+import v2check
 import v2live
 import v2pnl
 import v2oops
@@ -1311,6 +1312,16 @@ def v2_data_candles(symbol: str = Query(..., min_length=1, max_length=40), inter
         return {"status": "success", "candles": v2data.candles(symbol, interval, source, exchange, days)}
     except Exception as error:
         print("v2 data candles failed:", error)
+        return {"status": "error", "message": str(error)}
+
+
+@app.get("/api/v2/paper/check")
+def v2_paper_check(gap_max_open: int = Query(5, ge=0, le=v2gap.MAX_OPEN), xsmr_max_open: int = Query(10, ge=0, le=v2xsmr.MAX_OPEN)):
+    """Paper vs backtest: each paper book's closed trades against the backtest's over the same days."""
+    try:
+        return {"status": "success", **v2check.compare(gap_max_open, xsmr_max_open)}
+    except Exception as error:
+        print("Paper check failed:", error)
         return {"status": "error", "message": str(error)}
 
 

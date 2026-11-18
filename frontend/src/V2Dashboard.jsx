@@ -492,6 +492,94 @@ export function PaperOverview() {
         <V2PaperCurve query={curveQuery} />
       </Panel>
       <Paper p={d.paper} today={d.today} openOnly={filter === "open"} />
+      <Panel title="Paper vs backtest" right="closed paper trades against the backtest on the same days, same settings">
+        <PaperCheck query={curveQuery} />
+      </Panel>
+    </div>
+  );
+}
+
+// Each paper book against its backtest over the same days: the sign a backtest was too good is a paper
+// result that stays well below it over enough trades (v2check.py).
+function PaperCheck({ query }) {
+  const [data, setData] = useState(null);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    let alive = true;
+    fetch(`/api/v2/paper/check?${query}`)
+      .then((r) => r.json())
+      .then((p) => alive && (p.status === "success" ? (setData(p), setError("")) : setError(p.message || "Could not load the check")))
+      .catch(() => alive && setError("Could not reach the API"));
+    return () => {
+      alive = false;
+    };
+  }, [query]);
+  if (error) return <p className="text-sm" style={{ color: "var(--negative)" }}>{error}</p>;
+  if (!data) return <p className="text-sm" style={{ color: "var(--faint)" }}>Comparing… (the first time builds the backtests, up to a couple of minutes)</p>;
+  const n = (v) => (v == null ? "—" : `${v > 0 ? "+" : ""}${v.toFixed(2)}%`);
+  const statusColor = (st) => (st === "in line" ? "var(--positive)" : st === "behind the backtest" ? "var(--negative)" : "var(--muted)");
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full min-w-[900px] text-sm tabular-nums">
+        <thead className="text-left text-xs" style={{ color: "var(--faint)" }}>
+          <tr>
+            <th className="px-3 py-2 font-medium">Model</th>
+            <th className="px-3 py-2 font-medium">Days compared</th>
+            <th className="px-3 py-2 font-medium">Paper trades</th>
+            <th className="px-3 py-2 font-medium">Backtest trades</th>
+            <th className="px-3 py-2 font-medium">Same picks</th>
+            <th className="px-3 py-2 font-medium">Paper win / avg</th>
+            <th className="px-3 py-2 font-medium">Backtest win / avg</th>
+            <th className="px-3 py-2 font-medium">Paper − backtest</th>
+            <th className="px-3 py-2 font-medium">Verdict</th>
+          </tr>
+        </thead>
+        <tbody>
+          {data.rows.map((r) => (
+            <tr key={r.key} className="border-t" style={{ borderColor: "var(--border)" }}>
+              <td className="px-3 py-2">
+                <a href={r.link} onClick={go(r.link)} className="font-medium hover:underline">
+                  {r.label}
+                </a>
+              </td>
+              {r.error ? (
+                <td colSpan={8} className="px-3 py-2 text-xs" style={{ color: "var(--negative)" }}>
+                  {r.error}
+                </td>
+              ) : (
+                <>
+                  <td className="px-3 py-2 text-xs" style={{ color: "var(--muted)" }}>
+                    {r.since && r.until && r.since <= r.until ? `${r.since} → ${r.until}` : "—"}
+                  </td>
+                  <td className="px-3 py-2">{r.paper.trades}</td>
+                  <td className="px-3 py-2">{r.backtest.trades}</td>
+                  <td className="px-3 py-2" title="Of the paper's (day, stock) picks, how many the backtest also took">
+                    {r.same_picks_pct == null ? "—" : `${r.same_picks_pct}%`}
+                  </td>
+                  <td className="px-3 py-2">
+                    {r.paper.win_rate == null ? "—" : `${r.paper.win_rate}%`} · <span style={{ color: tone(r.paper.avg_net_pct) }}>{n(r.paper.avg_net_pct)}</span>
+                  </td>
+                  <td className="px-3 py-2">
+                    {r.backtest.win_rate == null ? "—" : `${r.backtest.win_rate}%`} ·{" "}
+                    <span style={{ color: tone(r.backtest.avg_net_pct) }}>{n(r.backtest.avg_net_pct)}</span>
+                  </td>
+                  <td className="px-3 py-2" style={{ color: tone(r.diff_pct) }} title="Average net per trade, after costs: paper minus backtest">
+                    {n(r.diff_pct)}
+                  </td>
+                  <td className="px-3 py-2 text-xs" style={{ color: statusColor(r.status) }}>
+                    {r.status}
+                  </td>
+                </>
+              )}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <p className="mt-2 text-xs" style={{ color: "var(--muted)" }}>
+        Average net per trade, each trade on its own value after costs. A verdict needs at least {data.min_trades} closed paper trades; until then it says
+        too early. The backtest store is topped up after the close, so the latest paper days join the next day (a day later for next-open exits,
+        about a week for the 5-day holds).
+      </p>
     </div>
   );
 }
