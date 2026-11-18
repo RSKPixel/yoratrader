@@ -205,8 +205,8 @@ export default function V2PaperConnors({ params, version = 0, book = "rsi2", exi
             {book === "cum" ? "Cumulative RSI(2) < 35" : "RSI(2) < 10"}
           </span>
         </Field>
-        <Field label="Trade at" hint="Read by the runs, for new decisions. At close: the 15:15 run decides on the price then and trades at it (the closest live stand-in for the close). Next open: decided after the close on the official closes (from 16:15), and every buy and sale is done at the next session's open (09:15).">
-          <Segmented label="Trade at" options={[["close", "At close", saving], ["nextopen", "Next open", saving]]} value={tradeAt || data?.trade_at || "close"} onChange={onTradeAt} />
+        <Field label="Trade at" hint="Read by the runs, for new decisions. At close: the 15:15 run decides on the price then and trades at it (the closest live stand-in for the close). Next open: decided after the close on the official closes (from 16:15), and every buy and sale is done at the next session's open (09:15). Buy at close, sell at next open: the 15:15 run buys at the price then; each sale (on the exit chosen) is decided then and done at the next session's open.">
+          <Segmented label="Trade at" options={[["close", "At close", saving], ["nextopen", "Next open", saving], ["closeopen", "Buy at close, sell at next open", saving]]} value={tradeAt || data?.trade_at || "close"} onChange={onTradeAt} />
         </Field>
         <DisasterStop value={disaster || data?.disaster || "off"} onChange={onDisaster} hits={null} />
         <Field label="Exit" hint="Read by the 15:15 run, from the next run (open positions too): sold on the 5th trading day, or on strength (the first 15:15 the 2-day RSI is above 65, the 5th day at the latest)">
@@ -221,7 +221,7 @@ export default function V2PaperConnors({ params, version = 0, book = "rsi2", exi
       {data && (
         <>
           <StatusLine>
-            {(data.trade_at || "close") === "nextopen" ? "Decided after the close on the official closes, done at the next open: " : "Recorded at 15:15 each trading day: "}
+            {data.trade_at === "nextopen" ? "Decided after the close on the official closes, done at the next open: " : data.trade_at === "closeopen" ? "Recorded at 15:15 each trading day (sales done at the next open): " : "Recorded at 15:15 each trading day: "}
             {data.disaster === "on" ? "a position whose day's low reaches 10% under its buy is sold there; " : ""}
             {strength ? `sell positions whose 2-day RSI is above ${data.exit_rsi} (or on their ${data.hold}th trading day)` : `sell positions on their ${data.hold}th trading day`}
             {cum ? ", then buy the lowest cumulative RSI(2) signals below 35 " : ", then buy the most oversold signals (2-day RSI below 10) "}

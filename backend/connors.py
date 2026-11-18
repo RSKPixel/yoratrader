@@ -73,8 +73,9 @@ def _stop_label(k):
 # Prices: "" = the live 15:15 version (15m candles, from 2015); "-close" = official closes for the
 # signal, the buy and the sale (daily candles, from 2004). The close is a 30-minute average on NSE,
 # so it can't be traded exactly; it's the long-history check, and the two can be compared from 2015.
-TIMINGS = {"": "15:15", "-close": "close", "-nextopen": "nextopen"}
-TIMING_LABELS = {"": "", "-close": " · at the close", "-nextopen": " · signal at the close, traded at the next open"}
+TIMINGS = {"": "15:15", "-close": "close", "-nextopen": "nextopen", "-closeopen": "closeopen"}
+TIMING_LABELS = {"": "", "-close": " · at the close", "-nextopen": " · signal at the close, traded at the next open",
+                 "-closeopen": " · bought at the close, sold at the next open"}
 # Side: "" = long (the book); "-short" = the mirror image: below the 200-day average, short-term
 # overbought (2-day RSI above 90, a new 10-day high, 3 up days), sold short and bought back `hold`
 # days later (a stop above the entry); "-both" = either, ranked together by how extreme they are.
@@ -258,6 +259,7 @@ def _simulate(d, variant, lot=None):
     px, rsi = d["px"].to_numpy(), d["rsi"].to_numpy()
     score = d["cumrsi"].to_numpy() / 2 if meta["setup"] == "cumrsi2" else rsi  # ranking: the most extreme first
     op, lo, lo15, sd = (d[x].to_numpy() for x in ("open", "low", "low1515", "sigma"))
+    xp = d["exit_px"].to_numpy() if "exit_px" in d else None  # closeopen: a sale at the next day's open
     hi, hi15 = d["high"].to_numpy(), d["high1515"].to_numpy()
     lots = (lot.reindex(cols).to_numpy() if lot is not None else np.full(len(cols), np.nan))
     n = len(idx)
@@ -292,7 +294,8 @@ def _simulate(d, variant, lot=None):
                     elif pd.notna(high) and high >= tr["stop"]:
                         exit_px, reason = tr["stop"], "stop"
             if exit_px is None and last_day:
-                exit_px, reason = (float(price) if pd.notna(price) else prev), "strength" if tr.get("strong") else "time"
+                at = xp[i, s_] if xp is not None else price
+                exit_px, reason = (float(at) if pd.notna(at) else (float(price) if pd.notna(price) else prev)), "strength" if tr.get("strong") else "time"
             now = exit_px if exit_px is not None else (float(price) if pd.notna(price) else prev)
             ret = now / prev - 1
             if abs(ret) > MAX_MOVE:  # a split or bad print: earns nothing
@@ -392,7 +395,18 @@ def _next_open(d):
     return d
 
 
+def _close_open(d):
+    """Bought at the close, sold at the next day's open: the close's data, with each day's exit price the
+    next day's open (exit_px). The sale is decided at a close (the time exit or the exit on strength, as
+    chosen) and done at the following open; a position is marked at the closes in between."""
+    d = dict(d)
+    d["exit_px"] = d["open"].shift(-1)
+    return d
+
+
 def _dataset(dataset, timing):
+    if timing == "closeopen":
+        return _cached(("data", dataset, timing), lambda: _close_open(_dataset(dataset, "close")))
     if timing == "nextopen":
         return _cached(("data", dataset, timing), lambda: _next_open(_dataset(dataset, "close")))
     return _cached(("data", dataset, timing), lambda: _data(dataset, timing=timing))
@@ -429,6 +443,8 @@ def _fut_dataset(dataset, timing):
     "roll_factor" turns the adjusted prices back into the contract's own (the trade lists show those)."""
     if timing == "nextopen":
         return _cached(("data-fut", dataset, timing), lambda: _next_open(_fut_dataset(dataset, "close")))
+    if timing == "closeopen":
+        return _cached(("data-fut", dataset, timing), lambda: _close_open(_fut_dataset(dataset, "close")))
     def build():
         import futsig
         f, factor = _fut_frames(dataset)

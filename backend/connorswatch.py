@@ -129,7 +129,9 @@ def set_price(v, book="rsi2"):
 # Trade at (a setting per book, read by the runs): "close": the 15:15 run decides and trades at the price then
 # (the closest live stand-in for the close); "nextopen": decided after the close on the official closes
 # (decide(), from DECIDE_AT), stored as orders, and filled at the next session's open (execute_orders(), 09:15:01).
-TRADE_ATS = ("close", "nextopen")
+# "closeopen": the 15:15 run buys at the price then, and its sales (the exit chosen) are queued as orders for the
+# next session's open (execute_orders).
+TRADE_ATS = ("close", "nextopen", "closeopen")
 DISASTERS = ("off", "on")  # the 10% disaster stop (disaster.py) on new buys: out 10% under the buy if the day's low reaches it
 DECIDE_AT = clock(16, 15)  # after the official closes are stored (spot 15:45, futures 15:50)
 
@@ -146,7 +148,7 @@ def trade_at(book="rsi2"):
 
 def set_trade_at(v, book="rsi2"):
     if v not in TRADE_ATS:
-        raise ValueError("Trade at must be close or nextopen.")
+        raise ValueError("Trade at must be close, nextopen or closeopen.")
     db.set_settings({_book(book)["at_key"]: v})
     return v
 
@@ -164,7 +166,7 @@ def set_disaster(v, book="rsi2"):
 
 def backtest_variant(n, book="rsi2"):
     return (f"{_book(book)['setup']}-{'0d' if exit_mode(book) == 'strength' else '5d'}-max{n}"
-            f"{'-10pc' if disaster(book) == 'on' else ''}-{'nextopen' if trade_at(book) == 'nextopen' else 'close'}")
+            f"{'-10pc' if disaster(book) == 'on' else ''}-{trade_at(book)}")
 
 RECORD_AT, RECORD_UNTIL = clock(15, 15), clock(15, 30)  # the scheduler wakes at hh:mm:01: 15:15:01
 MIN_EXPIRY_DAYS = 10
@@ -249,7 +251,7 @@ def record(force=False):
         _ensure_tables(cursor)
         conn.commit()
         for book, b in BOOKS.items():
-            if trade_at(book) != "close":
+            if trade_at(book) == "nextopen":
                 continue  # next open: decided after the close (decide), filled at the next open (execute_orders)
             cursor.execute(f"SELECT 1 FROM {b['days']} WHERE day = %s", (today,))
             if not cursor.fetchone() or force:
@@ -393,7 +395,16 @@ def _record_book(book, kite, today, stamp, prices, live, uni, futures, pr="spot"
     hit = _disaster(open_rows, spot_q or {}, fut_q, today)
     to_sell, buys, signals, n_signals, score = _choose(book, open_rows, age, live, hit)
     on = disaster(book) == "on"
+    mode = trade_at(book)
     with connect() as conn, conn.cursor() as cursor:
+        if mode == "closeopen":  # the sales wait for the next open; the buys happen now
+            if to_sell:
+                execute_values(cursor, f"INSERT INTO {b['trades']}_orders (day, symbol, action, rsi, reason, priced, slots, buy_day) "
+                                       "VALUES %s ON CONFLICT DO NOTHING",
+                               [(today, s_, "sell", None, reason, None, None, d) for s_, d, _, reason in to_sell])
+            queued, to_sell = to_sell, []
+        else:
+            queued = []
         for (symbol, buy_day), (px, reason) in hit.items():
             row = next(r for r in open_rows if r[0] == symbol and r[1] == buy_day)
             fut = row[2]
@@ -415,16 +426,18 @@ def _record_book(book, kite, today, stamp, prices, live, uni, futures, pr="spot"
             if x["symbol"] not in prices:
                 continue
             own = fut_price(fut) if pr == "futures" else prices[x["symbol"]]
-            rows.append((x["symbol"], today, stamp, x[score], prices[x["symbol"]], fut, fut_price(fut), slots, pr, "close",
+            rows.append((x["symbol"], today, stamp, x[score], prices[x["symbol"]], fut, fut_price(fut), slots, pr, mode,
                          _stop_for(own) if on else None))
         if rows:
             execute_values(cursor, f"INSERT INTO {b['trades']} (symbol, buy_day, buy_at, rsi, buy, fut, fut_buy, slots, priced, "
                                    "trade_at, stop) VALUES %s ON CONFLICT (symbol, buy_day) DO NOTHING", rows)
         late = stamp.time() > clock(15, 20)
         _day_row(cursor, b, today, stamp, live, n_signals, len(rows), len(to_sell) + len(hit),
-                 f"prices taken at {stamp.time():%H:%M:%S}" + (" (late)" if late else ""), uni)
+                 f"prices taken at {stamp.time():%H:%M:%S}" + (" (late)" if late else "")
+                 + (f"; {len(queued)} to sell at the next open" if queued else ""), uni)
         conn.commit()
-    return {"sold": len(to_sell), "stopped": len(hit), "bought": [x["symbol"] for x in buys], "signals": len(signals)}
+    return {"sold": len(to_sell), "to_sell_next_open": [x[0] for x in queued], "stopped": len(hit),
+            "bought": [x["symbol"] for x in buys], "signals": len(signals)}
 
 
 def decide(force=False):

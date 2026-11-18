@@ -24,6 +24,7 @@ const INSTRUMENTS = [
 const TIMINGS = [
   ["close", "At close"],
   ["nextopen", "Next open"],
+  ["closeopen", "Buy at close, sell at next open"],
 ];
 const TAKES = [
   ["all", "All signals"],
@@ -38,7 +39,7 @@ export default function V2Connors({ params, onParams }) {
   const [savedHold, setHold] = useSetting("bt.connors.hold", "5d");
   const hold = savedHold === "0d" ? "0d" : "5d"; // 2 days is no longer offered: a saved one reads as 5 days
   const [savedTiming, setTiming] = useSetting("bt.connors.timing", "close");
-  const timing = savedTiming === "nextopen" ? "nextopen" : "close"; // 15:15 is no longer offered: a saved one reads as the close
+  const timing = ["nextopen", "closeopen"].includes(savedTiming) ? savedTiming : "close"; // 15:15 is no longer offered: a saved one reads as the close
   // No stop in the book; only the 10% disaster stop (as on the other pages): 10% under the buy, the day's low reaching it
   const [disaster, setDisaster] = useSetting("bt.connors.disaster", "on");
   const stop = disaster === "on" ? "10pc" : "none";
@@ -57,7 +58,7 @@ export default function V2Connors({ params, onParams }) {
   const closeMonth = useCallback(() => setMonth(null), []);
   const s = data?.summary;
   const capital = params.capital;
-  const at = timing === "close" ? "the close" : timing === "nextopen" ? "the next open" : "15:15";
+  const at = timing === "close" ? "the close" : timing === "nextopen" ? "the next open" : timing === "closeopen" ? "the close (sold at the next open)" : "15:15";
 
   const columns = [
     ...AT_COLUMNS,
@@ -104,7 +105,7 @@ export default function V2Connors({ params, onParams }) {
         <Field label="Hold" hint="Sold this many trading days after the buy (5 = the book's week), or on strength: at the first close the 2-day RSI is above 65 (5 days at most)">
           <Segmented label="Hold" options={HOLDS} value={hold} onChange={setHold} />
         </Field>
-        <Field label="Trade at" hint="At close: the signal, buy and sale at the official close (daily candles, 2004 on). Next open: the signal (and the exit on strength) from the official close, every buy and sale done at the next day's open (2004 on).">
+        <Field label="Trade at" hint="At close: the signal, buy and sale at the official close (daily candles, 2004 on). Next open: the signal (and the exit on strength) from the official close, every buy and sale done at the next day's open (2004 on). Buy at close, sell at next open: bought at the close, and each sale (on the exit chosen) decided at a close and done at the next day's open.">
           <Segmented label="Trade at" options={TIMINGS} value={timing} onChange={setTiming} />
         </Field>
         <DisasterStop value={disaster} onChange={setDisaster} hits={disaster === "on" ? data?.summary?.disaster_hits : null} />

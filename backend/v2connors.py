@@ -21,7 +21,7 @@ DATASETS = connors.DATASETS
 SETUPS = ("rsi2", "low10", "down3", "every", "cumrsi2")
 HOLDS = ("5d", "2d", "0d")  # 0d: exit on strength (RSI(2) above 65), 5 days at most
 STOPS = {"none": "", "1sd": "-1sd", "2sd": "-2sd", "3pc": "-3pc", "5pc": "-5pc", "7pc": "-7pc", "10pc": "-10pc"}
-TIMINGS = {"1515": "", "close": "-close", "nextopen": "-nextopen"}
+TIMINGS = {"1515": "", "close": "-close", "nextopen": "-nextopen", "closeopen": "-closeopen"}
 TAKES = ("all", "top5", "top3")
 SIDES = {"long": "", "short": "-short", "both": "-both"}
 MAX_OPEN = 10
@@ -65,10 +65,11 @@ def _sized(dataset, setup, hold, max_open, stop, timing, take, slippage, side="l
         idx_trade = pd.DatetimeIndex(nxt.to_numpy())
     else:
         idx_trade = idx
+    idx_sell = pd.DatetimeIndex(list(idx[1:]) + [idx[-1]]) if timing == "closeopen" else idx_trade  # sold the next morning
     closed = [x for x in trades if x["sell"] is not None]
     t = pd.DataFrame({
         "symbol": [cols[x["s"]] for x in closed], "entry_day": [idx_trade[x["buy_i"]] for x in closed],
-        "day": [idx_trade[x["sell_i"]] for x in closed], "w": [x["w"] for x in closed], "buy": [x["buy"] for x in closed],
+        "day": [(idx_sell if not str(x["reason"]).startswith("stop") else idx_trade)[x["sell_i"]] for x in closed], "w": [x["w"] for x in closed], "buy": [x["buy"] for x in closed],
         "sell": [x["sell"] for x in closed], "rsi": [x["rsi"] for x in closed], "reason": [x["reason"] for x in closed],
         "stop": [x.get("stop") for x in closed], "roll": [0.0 if cash else x.get("roll", 0.0) for x in closed],
         "held": [x["sell_i"] - x["buy_i"] for x in closed], "sign": [x.get("sign", 1) for x in closed]})
@@ -116,9 +117,10 @@ def month_trades(month, dataset="fno", setup="rsi2", hold="5d", max_open=3, stop
                  side="long", instrument="futures"):
     t, _, _ = _sized(dataset, setup, hold, max_open, stop, timing, take, slippage, side, instrument)
     t = t[t["day"].dt.strftime("%Y-%m") == month] if len(t) else t
-    hm = v2common.CLOSE if timing == "close" else "09:15 (open)" if timing == "nextopen" else "15:15"
+    hm = v2common.CLOSE if timing in ("close", "closeopen") else "09:15 (open)" if timing == "nextopen" else "15:15"
+    hx = "09:15 (open)" if timing == "closeopen" else hm
     return [{"entry_day": r.entry_day.date().isoformat(), "exit_day": r.day.date().isoformat(), "days": int(r.held),
-             "entry_at": f"{r.entry_day.date().isoformat()} {hm}", "exit_at": f"{r.day.date().isoformat()} {v2common.exit_time(r.reason, hm)}",
+             "entry_at": f"{r.entry_day.date().isoformat()} {hm}", "exit_at": f"{r.day.date().isoformat()} {v2common.exit_time(r.reason, hx)}",
              "symbol": r.symbol, "side": r.side, "rsi": round(float(r.rsi), 1), "entry": round(float(r.buy), 2),
              "stop": round(float(r.stop), 2) if r.stop is not None and pd.notna(r.stop) else None,
              "exit": round(float(r.sell), 2), "reason": r.reason, "rolls": round(float(r.roll) / 2),
