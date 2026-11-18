@@ -33,7 +33,7 @@ import v2margin
 import v2paper
 import xsmr
 import xsmrwatch
-from db import connect
+from db import connect, schema_once
 
 PREPARE_AT, OPEN_AT, EXIT_AT, UNTIL = clock(9, 10), clock(9, 15, 1), clock(15, 15), clock(15, 30)
 DISASTER_PCT = 10.0  # disaster.PCT (not imported here: keep the scheduler's imports light)
@@ -101,6 +101,7 @@ def set_max_open(n):
     return n
 
 
+@schema_once
 def _ensure_tables(cursor):
     cursor.execute(
         """

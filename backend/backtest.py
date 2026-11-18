@@ -38,7 +38,7 @@ from psycopg2.extras import execute_values
 
 import kite_auth
 import orb
-from db import connect, stored_lot_sizes
+from db import connect, stored_lot_sizes, schema_once
 from enrich import enrich_eod
 from universaltrader.ut import signals2
 
@@ -141,6 +141,7 @@ LOT_NOTIONAL = {"indices": 1_500_000, "stocks": 700_000, "fno": 700_000}
 FUTURES_NAME = dict(FNO_INDICES)  # index name -> futures name, for lot sizes
 
 
+@schema_once
 def _ensure_tables(cursor):
     # The first version stored ORB only, without model/variant; its rows are derived, so rebuild.
     cursor.execute(
@@ -996,6 +997,7 @@ def compare(dataset, max_per_day=3, slippage=0.0002, model_filter=None):
 FUT_MIN_BARS = 60  # daily bars needed before a futures day is scanned (about 3 months)
 
 
+@schema_once
 def _ensure_fut_tables(cursor):
     cursor.execute(
         """

@@ -19,13 +19,14 @@ from psycopg2.extras import execute_values
 
 import backtest
 import kite_auth
-from db import connect
+from db import connect, schema_once
 
 FROM = date(2015, 1, 1)
 CHUNK_DAYS = 60
 SESSION_START = 9 * 60 + 15  # minute index 0 = 09:15
 
 
+@schema_once
 def ensure_table(cursor):
     cursor.execute(
         """

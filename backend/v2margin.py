@@ -16,13 +16,14 @@ from datetime import date
 
 import gapwatch
 import kite_auth
-from db import connect
+from db import connect, schema_once
 
 BATCH = 50  # orders per margin call
 _lock = threading.Lock()
 _mem = {"day": None, "rows": None}
 
 
+@schema_once
 def _ensure(cursor):
     cursor.execute(
         """

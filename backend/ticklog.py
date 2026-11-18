@@ -18,13 +18,14 @@ from psycopg2.extras import Json, execute_values
 import gapwatch
 import kite_auth
 import xsmrwatch
-from db import connect
+from db import connect, schema_once
 
 START_AT, UNTIL = clock(9, 14), clock(9, 15, 30)
 _state = {"day": None, "ticker": None, "rows": [], "by_token": {}, "saved": None}
 _lock = threading.Lock()
 
 
+@schema_once
 def _ensure_tables(cursor):
     cursor.execute(
         """

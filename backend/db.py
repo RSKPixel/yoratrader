@@ -9,6 +9,40 @@ from psycopg2.extras import execute_values
 load_dotenv(Path(__file__).resolve().parent / ".env", override=True)
 
 
+
+# Schema statements (CREATE TABLE / ALTER TABLE ... IF NOT EXISTS) run once per process: an ALTER takes a
+# table-wide lock even when there's nothing to change, so running them on every request made requests queue
+# behind anything holding a lock (the nightly pg_dump), and the site hung while a backup ran.
+_SCHEMA_DONE = set()
+
+
+def schema_once(fn):
+    import functools
+
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        if fn in _SCHEMA_DONE:
+            return None
+        cursor = args[0] if args and hasattr(args[0], "execute") else None
+        if cursor is None:
+            result = fn(*args, **kwargs)
+            _SCHEMA_DONE.add(fn)
+            return result
+        # Wait at most 2 s for a table lock (a backup holds one): the tables exist, so skipping is safe and the
+        # statements are tried again on a later call. A savepoint keeps the caller's transaction usable.
+        cursor.execute("SAVEPOINT schema_once; SET LOCAL lock_timeout = '2s'")
+        try:
+            result = fn(*args, **kwargs)
+        except Exception as error:
+            cursor.execute("ROLLBACK TO SAVEPOINT schema_once; SET LOCAL lock_timeout TO DEFAULT")
+            if "lock timeout" in str(error).lower() or "canceling statement due to lock" in str(error).lower():
+                return None
+            raise
+        cursor.execute("RELEASE SAVEPOINT schema_once; SET LOCAL lock_timeout TO DEFAULT")
+        _SCHEMA_DONE.add(fn)
+        return result
+    return wrapper
+
 def connect():
     return psycopg2.connect(
         host=os.environ["POSTGRES_HOST"],
@@ -354,6 +388,7 @@ def fetch_eod_frame(exchange, symbol):
     return frame
 
 
+@schema_once
 def _ensure_eod_ut(cursor):
     cursor.execute(
         """
@@ -582,6 +617,7 @@ def fetch_ut_frame(exchange, symbol):
     return frame
 
 
+@schema_once
 def _ensure_kbdt_signals(cursor):
     cursor.execute(
         """
@@ -713,6 +749,7 @@ def fetch_kbdt_signals():
     ]
 
 
+@schema_once
 def _ensure_app_settings(cursor):
     cursor.execute(
         """

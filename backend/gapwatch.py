@@ -25,7 +25,7 @@ from psycopg2.extras import execute_values
 
 import backtest
 import kite_auth
-from db import connect, stored_lot_sizes
+from db import connect, stored_lot_sizes, schema_once
 
 IST = backtest.IST
 OPEN_AT = clock(9, 15, 1)  # the scheduler wakes at 09:15:01: the open is known, trading has just begun
@@ -43,6 +43,7 @@ def _now():
     return datetime.now(IST)
 
 
+@schema_once
 def _ensure_tables(cursor):
     cursor.execute(
         """

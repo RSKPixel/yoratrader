@@ -22,7 +22,7 @@ from datetime import time as clock
 import pandas as pd
 from psycopg2.extras import execute_values
 
-from db import connect
+from db import connect, schema_once
 
 SYMBOLS = ("NIFTY", "BANKNIFTY")
 SPOT = {"NIFTY": "NIFTY 50", "BANKNIFTY": "NIFTY BANK"}  # bt_daily / Kite NSE index names
@@ -36,6 +36,7 @@ UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chr
 SESSION_START = 9 * 60 + 15
 
 
+@schema_once
 def ensure_tables():
     with connect() as conn, conn.cursor() as cur:
         cur.execute("""

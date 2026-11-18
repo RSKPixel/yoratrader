@@ -19,7 +19,7 @@ from datetime import date, timedelta
 import numpy as np
 import pandas as pd
 
-from db import connect
+from db import connect, schema_once
 
 GOLD = "GOLDBEES"
 GOLD_SHARES = (0, 30)  # none or 30%: nothing in between to tune
@@ -32,6 +32,7 @@ CACHE_SECONDS = 6 * 3600
 _cache, _lock = {}, threading.Lock()
 
 
+@schema_once
 def ensure_table():
     with connect() as conn, conn.cursor() as cur:
         cur.execute("CREATE TABLE IF NOT EXISTS bt_gold (day date PRIMARY KEY, close double precision NOT NULL)")

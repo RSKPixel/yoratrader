@@ -16,15 +16,16 @@ import requests
 from psycopg2.extras import execute_values
 
 import angel_auth
-from db import connect
+from db import connect, schema_once
 
 MASTER_URL = "https://margincalculator.angelbroking.com/OpenAPI_File/files/OpenAPIScripMaster.json"
 HIST = "/rest/secure/angelbroking/historical/v1/getCandleData"
 STOCKS_FROM, INDICES_FROM = date(2021, 6, 1), date(2016, 1, 1)
 INDICES = ("NIFTY", "BANKNIFTY")
-PAUSE = 0.45  # Angel One allows about 3 historical calls a second
+PAUSE = 1.0  # about one call a second: Angel One also caps calls per hour (a faster run was cut off after ~50 minutes)
 
 
+@schema_once
 def _ensure(cursor):
     cursor.execute(
         """
@@ -67,7 +68,7 @@ def _months(start, end):
         m = date(m.year + (m.month == 12), m.month % 12 + 1, 1)
 
 
-def _fetch(token, a, b, tries=6):
+def _fetch(token, a, b, tries=10):
     for i in range(tries):
         try:
             r = angel_auth.get(HIST, {"exchange": "NFO", "symboltoken": token, "interval": "ONE_MINUTE",
@@ -79,7 +80,9 @@ def _fetch(token, a, b, tries=6):
                 raise ValueError("session")
             return r.get("data") or []
         except Exception as error:
-            time.sleep(min(30, 2 ** i))
+            time.sleep(min(600, 5 * 2 ** i))  # an hourly cap clears within the hour: wait up to 10 minutes a try
+            if i >= 3:
+                angel_auth._session["jwt"] = None  # and log in afresh
             last = error
     raise RuntimeError(f"failed after {tries} tries: {last}")
 

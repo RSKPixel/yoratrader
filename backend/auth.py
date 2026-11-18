@@ -27,6 +27,7 @@ import pyotp
 import segno
 
 import db
+from db import schema_once
 
 COOKIE_NAME = "yt_session"
 MIN_PASSWORD_LENGTH = 8
@@ -73,6 +74,7 @@ _DUMMY_HASH = hash_password(secrets.token_hex(16))
 
 # ---------- storage ----------
 
+@schema_once
 def _ensure_tables(cursor):
     cursor.execute(
         """

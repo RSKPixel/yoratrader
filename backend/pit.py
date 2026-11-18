@@ -23,7 +23,7 @@ import numpy as np
 import pandas as pd
 from psycopg2.extras import execute_values
 
-from db import connect
+from db import connect, schema_once
 
 DATASET = "fnopit"
 LABEL = "F&O, survivorship-free"
@@ -43,6 +43,7 @@ def source(dataset):
     return None
 
 
+@schema_once
 def ensure_tables():
     with connect() as conn, conn.cursor() as cur:
         cur.execute("""

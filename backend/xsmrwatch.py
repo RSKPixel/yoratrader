@@ -25,7 +25,7 @@ import backtest
 import gapwatch
 import kite_auth
 import xsmr
-from db import connect, stored_lot_sizes
+from db import connect, stored_lot_sizes, schema_once
 
 IST = backtest.IST
 PER_SIDE = 5
@@ -34,6 +34,7 @@ BACKTEST_VARIANT = "intraday-0915-top5"
 BACKTEST_VARIANT_STOP = "intraday-0915-1sd-top5"
 
 
+@schema_once
 def _ensure_tables(cursor):
     cursor.execute(
         """
@@ -307,6 +308,7 @@ PREOPEN_TAKES = (3, 5)
 _futures = {"day": None, "map": {}}
 
 
+@schema_once
 def _ensure_preopen_tables(cursor):
     cursor.execute(
         """

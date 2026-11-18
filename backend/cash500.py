@@ -27,7 +27,7 @@ import numpy as np
 import pandas as pd
 from psycopg2.extras import execute_values
 
-from db import connect
+from db import connect, schema_once
 
 DATASET = "cash500"
 LABEL = "Top 500, cash"
@@ -39,6 +39,7 @@ UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chr
 _cache, _lock = {}, threading.Lock()
 
 
+@schema_once
 def ensure_tables():
     with connect() as conn, conn.cursor() as cur:
         cur.execute("""

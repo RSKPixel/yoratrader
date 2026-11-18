@@ -4,12 +4,13 @@ archived (dropped: kept, but out of the way). A model's backtest and paper pages
 
 import re
 
-from db import connect
+from db import connect, schema_once
 
 STATUSES = ("research", "testing", "live", "archived")
 ID_RE = re.compile(r"^[a-z0-9-]{1,60}$")
 
 
+@schema_once
 def _ensure(cursor):
     cursor.execute("CREATE TABLE IF NOT EXISTS model_status (model TEXT PRIMARY KEY, status TEXT NOT NULL, "
                    "updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_by TEXT)")

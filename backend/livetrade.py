@@ -18,7 +18,7 @@ from datetime import datetime
 
 import kite_auth
 import v2tom
-from db import connect
+from db import connect, schema_once
 
 # The Live trading landing page: each model's mode, a server setting (LIVE_MODES, JSON). "off": not traded;
 # "manual": traded by hand from its page; "auto": automatic orders, which no model has yet (refused).
@@ -59,6 +59,7 @@ PRICE_BAND = 0.05  # a limit price more than 5% off the mid is refused (a typo, 
 STOP_LIMIT_BELOW = 0.10  # the stop's sell order: a LIMIT 10% under the trigger, so a fast fall still fills
 
 
+@schema_once
 def _ensure(cursor):
     cursor.execute(
         """

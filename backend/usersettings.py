@@ -10,12 +10,13 @@ import re
 
 from psycopg2.extras import Json
 
-from db import connect
+from db import connect, schema_once
 
 KEY_RE = re.compile(r"^[A-Za-z0-9_.:-]{1,100}$")
 MAX_VALUE_BYTES = 20000
 
 
+@schema_once
 def _ensure(cursor):
     cursor.execute(
         """

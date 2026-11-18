@@ -38,7 +38,7 @@ import pandas as pd
 from psycopg2.extras import execute_values
 
 import xsmr
-from db import connect
+from db import connect, schema_once
 
 MODEL = "pairs"
 DATASET = "fno"
@@ -83,6 +83,7 @@ def industries():
         return {r["symbol"]: r["industry"] for r in csv.DictReader(f)}
 
 
+@schema_once
 def _ensure_table(cursor):
     xsmr._ensure_table(cursor)
     cursor.execute(

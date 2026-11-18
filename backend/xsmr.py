@@ -27,7 +27,7 @@ import pandas as pd
 from psycopg2.extras import execute_values
 
 import backtest
-from db import connect, stored_lot_sizes
+from db import connect, stored_lot_sizes, schema_once
 
 VARIANTS = {
     "intraday-0915": {"label": "Intraday · enter 09:15 (book)", "entry": "09:15"},
@@ -70,6 +70,7 @@ RANGE_TOLERANCE = 0.005
 MAX_MOVE = 0.20
 
 
+@schema_once
 def _ensure_table(cursor):
     # "One lot per stock" mode: the same positions held as one futures lot each (today's lot sizes),
     # in rupees. Not a rescaling of bt_portfolio: real lots make the weights unequal.

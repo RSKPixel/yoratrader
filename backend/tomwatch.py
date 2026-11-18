@@ -15,13 +15,14 @@ import gapwatch
 import kite_auth
 import v2tom
 import xsmr
-from db import connect
+from db import connect, schema_once
 
 RECORD_AT, RECORD_UNTIL = clock(15, 15), clock(15, 30)
 from slip import SLIPPAGE as _SL
 SLIPPAGE = _SL["tom"]
 
 
+@schema_once
 def _ensure_tables(cursor):
     cursor.execute(
         """

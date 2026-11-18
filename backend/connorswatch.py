@@ -37,7 +37,7 @@ import xsmom
 import xsmr
 import db
 import v2margin
-from db import connect
+from db import connect, schema_once
 
 MAX_OPEN, HOLD = 3, 5  # MAX_OPEN: the default; max_open() is what the scheduler uses
 MAX_OPEN_LIMIT = 10
@@ -212,6 +212,7 @@ _futures = {"day": None, "map": {}}
 
 
 
+@schema_once
 def _ensure_tables(cursor):
     for b in BOOKS.values():
         cursor.execute(
