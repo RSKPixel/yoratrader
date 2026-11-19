@@ -69,7 +69,9 @@ def curve(day, picks, cps, size=1):
                 px = p["exit"] if p.get("closed") and p.get("exit") else b["open"]
                 out_px = out_px or px
                 t = b["t"]
-                series.setdefault(t, []).append((sign * lot * (out_px - entry), cps * lot * (entry + out_px), p["side"], p["symbol"]))
+                # the 15:00 candle's close is marked at 15:15 too: the exit replaces that mark (not added to it)
+                series[t] = [r for r in series.get(t, []) if (r[3], r[2]) != (p["symbol"], p["side"])]
+                series[t].append((sign * lot * (out_px - entry), cps * lot * (entry + out_px), p["side"], p["symbol"]))
                 break
             if out_px is None and stopped and p.get("stop"):
                 hit = (sign == 1 and b["low"] <= p["stop"]) or (sign == -1 and b["high"] >= p["stop"])

@@ -1,6 +1,15 @@
+import { createContext, useContext } from "react";
+
 // v2 form controls, styled from the theme tokens.
 
-export function Segmented({ options, value, onChange, label }) {
+// Inside <ReadOnly>, the settings controls show their values but can't be changed (the phone app's book pages)
+const ReadOnlyContext = createContext(false);
+export const ReadOnly = ({ children }) => <ReadOnlyContext.Provider value={true}>{children}</ReadOnlyContext.Provider>;
+export const useReadOnly = () => useContext(ReadOnlyContext);
+
+// view: a control that only changes what's shown (a chart's interval, a table's filter): never locked by <ReadOnly>
+export function Segmented({ options, value, onChange, label, view = false }) {
+  const ro = useReadOnly() && !view;
   return (
     <div role="group" aria-label={label} className="inline-flex rounded-md border p-0.5" style={{ borderColor: "var(--border)", background: "var(--surface-2)" }}>
       {options.map(([v, text, disabled, hint]) => {
@@ -9,11 +18,11 @@ export function Segmented({ options, value, onChange, label }) {
           <button
             key={String(v)}
             type="button"
-            onClick={() => !disabled && onChange(v)}
+            onClick={() => !disabled && !ro && onChange(v)}
             aria-pressed={active}
-            disabled={disabled}
+            disabled={disabled || ro}
             title={hint}
-            className="rounded px-2.5 py-1 text-sm transition-colors disabled:cursor-not-allowed"
+            className={`rounded px-2.5 py-1 text-sm transition-colors ${ro ? "" : "disabled:cursor-not-allowed"}`}
             style={
               active
                 ? { background: "var(--surface)", color: "var(--text)", boxShadow: "0 1px 2px rgba(0,0,0,0.15)" }

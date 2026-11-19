@@ -207,6 +207,7 @@ export default function V2CandleChart({ row, source, onClose, lines = [], initia
             {row.exchange ? <span className="ml-2 text-xs font-normal" style={{ color: "var(--faint)" }}>{row.exchange}</span> : null}
           </h2>
           <Segmented
+            view
             label="Interval"
             options={[
               ["day", "Daily"],
@@ -218,7 +219,7 @@ export default function V2CandleChart({ row, source, onClose, lines = [], initia
               setDays(v === "day" ? (kite ? 180 : 365) : kite ? 1 : 30);
             }}
           />
-          <Segmented label="Range" options={ranges} value={days} onChange={setDays} />
+          <Segmented view label="Range" options={ranges} value={days} onChange={setDays} />
           <button type="button" onClick={onClose} className="ml-auto rounded-md border px-3 py-1 text-sm" style={{ borderColor: "var(--border)" }}>
             Close
           </button>

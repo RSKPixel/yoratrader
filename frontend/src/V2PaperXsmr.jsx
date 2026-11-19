@@ -54,7 +54,7 @@ function PreopenTest({ slippage }) {
       right="picks from the futures auction prices at 09:06 / 09:07 against the futures open, entered at the futures open, out at 15:15"
     >
       <div className="mb-3 flex items-center gap-3">
-        <Segmented label="Take" options={PREOPEN_TAKES} value={take} onChange={setTake} />
+        <Segmented view label="Take" options={PREOPEN_TAKES} value={take} onChange={setTake} />
         <span className="text-xs" style={{ color: "var(--muted)" }}>
           net after {data.cost_pct}% costs a day · fresh = futures whose price had moved off yesterday's close at 09:06
         </span>

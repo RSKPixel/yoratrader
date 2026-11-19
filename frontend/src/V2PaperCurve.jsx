@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { baseOptions, Chart, themeColors, watchTheme } from "./chartjs";
 import { formatRs } from "./V2Controls";
+import { useResume } from "./resume";
 
 // Every paper book's cumulative net in rupees by day (v2dashboard.paper_curve), and the total in the
 // accent colour. One line per book; a legend under the chart.
@@ -13,6 +14,7 @@ export default function V2PaperCurve({ query }) {
   const [theme, setTheme] = useState(0);
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
+  const resumed = useResume();
   useEffect(() => watchTheme(canvas.current, () => setTheme((n) => n + 1)), []);
   useEffect(() => {
     let timer;
@@ -24,7 +26,7 @@ export default function V2PaperCurve({ query }) {
         .finally(() => (timer = setTimeout(load, 5 * 60000)));
     load();
     return () => clearTimeout(timer);
-  }, [query]);
+  }, [query, resumed]);
 
   const names = data ? Object.keys(data.series) : [];
   useEffect(() => {

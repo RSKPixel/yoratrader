@@ -141,13 +141,13 @@ export default function AppV2() {
             ))}
           </nav>
           <div className="ml-auto flex items-center gap-2 lg:ml-3 lg:border-l lg:pl-4" style={{ borderColor: "var(--border)" }}>
-            <span className="hidden text-sm sm:inline" style={{ color: "var(--muted)" }}>
+            <span className="hidden text-sm lg:inline" style={{ color: "var(--muted)" }}>
               {displayName(user)}
             </span>
             <button
               type="button"
               onClick={logout}
-              className="grid h-8 w-8 place-items-center rounded-md border transition-colors hover:bg-[var(--surface-2)]"
+              className="hidden h-8 w-8 place-items-center rounded-md border transition-colors lg:grid hover:bg-[var(--surface-2)]"
               style={{ borderColor: "var(--border)", color: "var(--muted)" }}
               aria-label="Log out"
               title="Log out"
@@ -175,9 +175,23 @@ export default function AppV2() {
             {PAGES.map((p) => (
               <NavLink key={p.id} page={p} active={p.id === "settings" ? settingsOpen : p.id === page} onSelect={select} />
             ))}
-            <span className="px-3 py-1.5 text-sm sm:hidden" style={{ color: "var(--faint)" }}>
-              {displayName(user)}
-            </span>
+            <div className="mt-1 flex items-center justify-between gap-3 border-t px-3 pt-2" style={{ borderColor: "var(--border)" }}>
+              <span className="truncate text-sm" style={{ color: "var(--muted)" }}>
+                {displayName(user)}
+              </span>
+              <button
+                type="button"
+                onClick={logout}
+                className="grid h-8 w-8 shrink-0 place-items-center rounded-md border transition-colors hover:bg-[var(--surface-2)]"
+                style={{ borderColor: "var(--border)", color: "var(--muted)" }}
+                aria-label="Log out"
+                title="Log out"
+              >
+                <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3M10 17l5-5-5-5M15 12H4" />
+                </svg>
+              </button>
+            </div>
           </nav>
         )}
       </header>

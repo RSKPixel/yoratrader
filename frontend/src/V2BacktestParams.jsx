@@ -1,6 +1,6 @@
 import { useSetting } from "./settings";
 import { useEffect, useState } from "react";
-import { Field, formatRs, inputStyle, Segmented } from "./V2Controls";
+import { Field, formatRs, inputStyle, Segmented, useReadOnly } from "./V2Controls";
 
 // The parameters every backtest has: universe, capital, max open positions, and whether results show
 // as % of capital or rupees. Each model keeps its own values, remembered per browser.
@@ -46,6 +46,7 @@ export function useBacktestParams(model, defaults = {}) {
 }
 
 export function CapitalInput({ value, onChange }) {
+  const ro = useReadOnly();
   const [text, setText] = useState(String(value));
   useEffect(() => setText(String(value)), [value]);
   const commit = () => {
@@ -63,6 +64,7 @@ export function CapitalInput({ value, onChange }) {
           value={text}
           onChange={(event) => setText(event.target.value)}
           onBlur={commit}
+          readOnly={ro}
           onKeyDown={(event) => event.key === "Enter" && commit()}
           inputMode="numeric"
           aria-label="Capital in rupees"
@@ -75,6 +77,7 @@ export function CapitalInput({ value, onChange }) {
             key={c}
             type="button"
             onClick={() => onChange(c)}
+            disabled={ro}
             aria-pressed={c === value}
             className="rounded-md border px-2 py-1 text-xs transition-colors hover:bg-[var(--surface-2)]"
             style={
@@ -92,6 +95,7 @@ export function CapitalInput({ value, onChange }) {
 }
 
 function BookStepper({ value, onChange }) {
+  const ro = useReadOnly();
   const btn =
     "grid h-8 w-8 place-items-center text-base transition-colors hover:bg-[var(--surface)] disabled:opacity-40";
   return (
@@ -103,7 +107,7 @@ function BookStepper({ value, onChange }) {
         type="button"
         className={btn}
         onClick={() => onChange(Math.max(1, value - 1))}
-        disabled={value <= 1}
+        disabled={value <= 1 || ro}
         aria-label="Fewer positions"
       >
         −
@@ -113,7 +117,7 @@ function BookStepper({ value, onChange }) {
         type="button"
         className={btn}
         onClick={() => onChange(Math.min(MAX_OPEN, value + 1))}
-        disabled={value >= MAX_OPEN}
+        disabled={value >= MAX_OPEN || ro}
         aria-label="More positions"
       >
         +
@@ -124,6 +128,7 @@ function BookStepper({ value, onChange }) {
 
 // No "as per model" sizing: always a fixed number of positions (a saved 0 from before reads as the default).
 function MaxOpenStepper({ value, onChange, step: by = 1 }) {
+  const ro = useReadOnly();
   const book = !value;
   const start = by > 1 ? 6 : 5;
   const step = (d) =>
@@ -140,7 +145,7 @@ function MaxOpenStepper({ value, onChange, step: by = 1 }) {
           type="button"
           className={btn}
           onClick={() => step(-1)}
-          disabled={!book && value <= by}
+          disabled={!book && value <= by || ro}
           aria-label="Fewer positions"
         >
           −
@@ -152,7 +157,7 @@ function MaxOpenStepper({ value, onChange, step: by = 1 }) {
           type="button"
           className={btn}
           onClick={() => step(1)}
-          disabled={!book && value >= MAX_OPEN}
+          disabled={!book && value >= MAX_OPEN || ro}
           aria-label="More positions"
         >
           +
@@ -163,6 +168,7 @@ function MaxOpenStepper({ value, onChange, step: by = 1 }) {
 }
 
 export function LiveMaxOpen({ value, onChange, saving, limit = MAX_OPEN }) {
+  const ro = useReadOnly();
   // A paper trader's own slot count, saved on the server (no "As per model")
   const btn =
     "grid h-8 w-8 place-items-center text-base transition-colors hover:bg-[var(--surface)] disabled:opacity-40";
@@ -176,7 +182,7 @@ export function LiveMaxOpen({ value, onChange, saving, limit = MAX_OPEN }) {
           type="button"
           className={btn}
           onClick={() => onChange(value - 1)}
-          disabled={saving || value <= 1}
+          disabled={saving || value <= 1 || ro}
           aria-label="Fewer positions"
         >
           −
@@ -186,7 +192,7 @@ export function LiveMaxOpen({ value, onChange, saving, limit = MAX_OPEN }) {
           type="button"
           className={btn}
           onClick={() => onChange(value + 1)}
-          disabled={saving || value >= limit}
+          disabled={saving || value >= limit || ro}
           aria-label="More positions"
         >
           +

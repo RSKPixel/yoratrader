@@ -108,7 +108,8 @@ def _schedule(cursor, today, now):
         step((15, 15), "Cumulative RSI(2): sells and buys", con_cum is not None and not (con_cum[2] or "").startswith("market closed"),
              (f"{con_cum[1] or 0} sold, {con_cum[0] or 0} bought" if con_cum and con_cum[0] is not None else (con_cum[2] if con_cum else None)),
              until=(15, 25)),
-        step((15, 16), "Intraday exits at 15:15", exits_done and not oops_open and (gap is not None or xs is not None),
+        # Oops sells at the next open (pre-open auction) unless set to 15:15: its open buys don't hold up today's exits
+        step((15, 16), "Intraday exits at 15:15", exits_done and not (oops_open and oopswatch.exit_mode() == "1515") and (gap is not None or xs is not None),
              "all closed" if exits_done and (gap is not None or xs is not None) else None, until=(15, 30)),
         step((15, 45), "Daily candles refreshed", daily is not None and daily >= today, f"to {daily}" if daily else None, until=(16, 30)),
         step((15, 50), "Live futures download (EOD + 15 min)", live_n > 0 and min(eod_today, m15_today) >= 0.8 * live_n,

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useReadOnly } from "./V2Controls";
 
 // Each model's status, shared by everyone (GET / PUT /api/v2/models/status): research (the default),
 // testing (paper traded), live (approved for real trading: a marker, nothing places orders), archived.
@@ -64,6 +65,7 @@ export function StatusButtons({ id }) {
   const current = statusOf(map, id);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const ro = useReadOnly();
   const buttons = [
     ["testing", "Paper test", "Mark as being paper traded"],
     ["live", "Go live", "Mark as approved for real trading (a marker only: nothing places orders)"],
@@ -85,7 +87,7 @@ export function StatusButtons({ id }) {
         <span className="h-2 w-2 rounded-full" style={{ background: STATUS[current].color }} aria-hidden="true" />
         {STATUS[current].label}
       </span>
-      <span className="inline-flex overflow-hidden rounded-md border" style={{ borderColor: "var(--border)" }}>
+      {!ro && <span className="inline-flex overflow-hidden rounded-md border" style={{ borderColor: "var(--border)" }}>
         {buttons.map(([status, label, hint]) => {
           const on = current === status;
           return (
@@ -103,7 +105,7 @@ export function StatusButtons({ id }) {
             </button>
           );
         })}
-      </span>
+      </span>}
       {error && <span className="text-xs" style={{ color: "var(--negative)" }}>{error}</span>}
     </span>
   );

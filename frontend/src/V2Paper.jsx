@@ -117,6 +117,21 @@ export default function V2Paper({ model, onSelect }) {
 
 function Book({ m, onSelect }) {
   const { open, toggle, select } = useSideNav("yt-v2-paper-nav", onSelect);
+  return (
+    <div className="relative flex min-h-0 min-w-0 flex-1">
+      <SideNav groups={PAPER_GROUPS} base="/v2/paper" title="Paper trading" current={m.id} onSelect={select} open={open} onToggle={toggle} pinKey="paper" />
+      <section className="min-h-0 min-w-0 flex-1 overflow-auto px-4 py-6 md:px-8">
+        <p className="text-xs font-medium uppercase tracking-[0.14em]" style={{ color: "var(--faint)" }}>
+          Paper trading · {m.group.title} · {m.group.source}
+        </p>
+        <BookBody m={m} />
+      </section>
+    </div>
+  );
+}
+
+// A paper book's title, settings and page (the wide site's book page and the phone app's, src/mobile/)
+export function BookBody({ m }) {
   const [params, setParams] = useBacktestParams(`paper-${m.id}`, paperDefaults(m));
   const step = m.step || 1;
   // No "as per model" sizing: a saved 0 (from before) reads as the default
@@ -137,12 +152,7 @@ function Book({ m, onSelect }) {
     : null;
   const modelParams = { ...params, universe: ls ? ls.universe : "fno", maxOpen: ls ? ls.max_open : maxOpen };
   return (
-    <div className="relative flex min-h-0 min-w-0 flex-1">
-      <SideNav groups={PAPER_GROUPS} base="/v2/paper" title="Paper trading" current={m.id} onSelect={select} open={open} onToggle={toggle} pinKey="paper" />
-      <section className="min-h-0 min-w-0 flex-1 overflow-auto px-4 py-6 md:px-8">
-        <p className="text-xs font-medium uppercase tracking-[0.14em]" style={{ color: "var(--faint)" }}>
-          Paper trading · {m.group.title} · {m.group.source}
-        </p>
+    <>
         <div className="mt-1 flex flex-wrap items-center gap-3">
           <h1 className="text-xl font-semibold tracking-tight">{m.label}</h1>
           <StyleTag style={m.style} />
@@ -193,7 +203,6 @@ function Book({ m, onSelect }) {
           />
         )}
         </InstrumentContext.Provider>
-      </section>
-    </div>
+    </>
   );
 }

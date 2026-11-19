@@ -1,6 +1,7 @@
 import { InstrumentSlot } from "./V2SideNav";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSetting } from "./settings";
+import { useResume } from "./resume";
 import { Field, formatRs, Segmented } from "./V2Controls";
 import V2EquityChart from "./V2EquityChart";
 import { makeValue, MonthGrid, MonthTradesModal, Panel, SummaryCards, tone, AT_COLUMNS } from "./V2BacktestView";
@@ -46,6 +47,7 @@ export function useBacktest(url, { refreshMs = 0 } = {}) {
   const [loading, setLoading] = useState(true);
   const [tick, setTick] = useState(0);
   const lastUrl = useRef(null);
+  const resumed = useResume();
   useEffect(() => {
     if (!refreshMs) return undefined;
     const timer = setInterval(() => setTick((t) => t + 1), refreshMs);
@@ -68,7 +70,7 @@ export function useBacktest(url, { refreshMs = 0 } = {}) {
       .finally(() => setLoading(false));
     return () => controller.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [url, tick]);
+  }, [url, tick, resumed]);
   return { data, error, loading };
 }
 

@@ -7,6 +7,7 @@ import { STATUS, statusOf, useModelStatuses } from "./modelStatus";
 import { findPaper, paperDefaults } from "./V2Paper";
 import V2PaperCurve from "./V2PaperCurve";
 import { InstrumentTag } from "./V2SideNav";
+import { useResume } from "./resume";
 
 // v2 Dashboard: today at a glance. Refreshes every minute while the market is open (every 5 outside).
 
@@ -18,8 +19,8 @@ const STATE = {
   off: { label: "No session", color: "var(--faint)" },
 };
 
-const pct = (v, d = 2) => (v == null ? "—" : `${v > 0 ? "+" : ""}${v.toFixed(d)}%`);
-const num = (v) => (v == null ? "—" : v.toLocaleString("en-IN", { maximumFractionDigits: 2 }));
+export const pct = (v, d = 2) => (v == null ? "—" : `${v > 0 ? "+" : ""}${v.toFixed(d)}%`);
+export const num = (v) => (v == null ? "—" : v.toLocaleString("en-IN", { maximumFractionDigits: 2 }));
 const go = (href) => (e) => {
   e.preventDefault();
   window.history.pushState(null, "", href);
@@ -40,7 +41,7 @@ function Pill({ color, children, title }) {
 }
 
 // Seconds to the dashboard's next refresh, ticking each second
-function Countdown({ at }) {
+export function Countdown({ at }) {
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 1000);
@@ -79,7 +80,7 @@ function Header({ d, nextAt }) {
   );
 }
 
-function Schedule({ steps }) {
+export function Schedule({ steps }) {
   return (
     <ol className="flex flex-col">
       {steps.map((s, i) => {
@@ -181,7 +182,7 @@ function openNow(p) {
 }
 
 // Turn of the month is traded by hand with real money (Live trading), not paper traded: its own card
-function TomCard({ tm = {} }) {
+export function TomCard({ tm = {} }) {
   const day = (iso) => (iso ? new Date(`${iso}T00:00:00`).toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" }) : "—");
   return (
       <PaperCard
@@ -435,17 +436,18 @@ function Freshness({ f, expected }) {
 }
 
 // The paper cards use the max open each paper page was last set to (the user's settings)
-function dashboardQuery(values) {
+export function dashboardQuery(values) {
   const max = (id) => savedParams(values, `paper-${id}`, paperDefaults(findPaper(id))).maxOpen || paperDefaults(findPaper(id)).maxOpen;
   return `gap_max_open=${max("buy-on-gap")}&xsmr_max_open=${max("xs-mean-reversion")}`;
 }
 
 // The dashboard's data (refreshed each minute in market hours, every 5 minutes otherwise)
-function useDashboard() {
+export function useDashboard() {
   const [d, setD] = useState(null);
   const [error, setError] = useState("");
   const [nextAt, setNextAt] = useState(null);
   const query = dashboardQuery(useSettings().values);
+  const resumed = useResume();
   useEffect(() => {
     let timer;
     const schedule = (ms) => {
@@ -475,13 +477,13 @@ function useDashboard() {
       clearTimeout(timer);
       window.removeEventListener("kite-status-changed", onKite);
     };
-  }, [query]);
+  }, [query, resumed]);
   return { d, error, nextAt };
 }
 
 // Across every paper book (archived ones left out): what's open, and the net (SR and CR each trade on its own prices (spot or futures))
 // Across every paper book (archived ones left out): books and positions open now, today's and total net
-function paperTotals(p, statuses) {
+export function paperTotals(p, statuses) {
   const on = (id) => statusOf(statuses, id) !== "archived";
   const g = p.gap || {}, x = p.xsmr || {}, c = p.connors || {}, cc = p.connors_cum || {}, op = p.oops || {}, tp = p.tom_paper || {};
   const open = openNow(p);
@@ -553,8 +555,9 @@ export function PaperOverview() {
 }
 
 // Every paper book's open positions, each a small chart of its price since it was bought (refreshed each minute)
-function OpenPositions({ query }) {
+export function OpenPositions({ query }) {
   const [data, setData] = useState(null);
+  const resumed = useResume();
   useEffect(() => {
     let timer;
     const controller = new AbortController();
@@ -573,7 +576,7 @@ function OpenPositions({ query }) {
       controller.abort();
       clearTimeout(timer);
     };
-  }, [query]);
+  }, [query, resumed]);
   if (!data) return <p className="text-sm" style={{ color: "var(--faint)" }}>Loading…</p>;
   if (data.status !== "success") return <p className="text-sm" style={{ color: "var(--negative)" }}>{data.message}</p>;
   const rows = data.positions || [];
@@ -651,6 +654,7 @@ function PositionChart({ p }) {
 function PaperCheck({ query }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
+  const resumed = useResume();
   useEffect(() => {
     let alive = true;
     fetch(`/api/v2/paper/check?${query}`)
@@ -660,7 +664,7 @@ function PaperCheck({ query }) {
     return () => {
       alive = false;
     };
-  }, [query]);
+  }, [query, resumed]);
   if (error) return <p className="text-sm" style={{ color: "var(--negative)" }}>{error}</p>;
   if (!data) return <p className="text-sm" style={{ color: "var(--faint)" }}>Comparing… (the first time builds the backtests, up to a couple of minutes)</p>;
   const n = (v) => (v == null ? "—" : `${v > 0 ? "+" : ""}${v.toFixed(2)}%`);
@@ -737,28 +741,12 @@ const DASH_TABS = [
   { id: "schedule", label: "Schedules" },
 ];
 
-const PHONE = "(max-width: 767px)";
-
-function usePhone() {
-  const [phone, setPhone] = useState(() => window.matchMedia?.(PHONE).matches ?? false);
-  useEffect(() => {
-    const m = window.matchMedia?.(PHONE);
-    if (!m) return;
-    const on = () => setPhone(m.matches);
-    m.addEventListener("change", on);
-    return () => m.removeEventListener("change", on);
-  }, []);
-  return phone;
-}
-
 export default function V2Dashboard() {
-  const phone = usePhone();
   const { d, error, nextAt } = useDashboard();
   const [saved, setTab] = useSetting("dashboard.tab", "paper");
   const tab = DASH_TABS.some((t) => t.id === saved) ? saved : "paper";
   if (error && !d) return <p className="text-sm" style={{ color: "var(--negative)" }}>{error}</p>;
   if (!d) return <p className="text-sm" style={{ color: "var(--faint)" }}>Loading…</p>;
-  if (phone) return <PhoneDashboard d={d} nextAt={nextAt} tab={tab} setTab={setTab} />;
   return (
     <div className="flex flex-col gap-4">
       <Header d={d} nextAt={nextAt} />
@@ -809,63 +797,11 @@ export default function V2Dashboard() {
   );
 }
 
-// ---- Phone: a dashboard of its own (below 768 px). A status strip, then one tab at a time chosen from a
-// bar fixed at the bottom of the screen (the same remembered tab as the wide dashboard).
+// The phone has an app of its own at /mobile (src/mobile/): a phone opening the site's home goes there (main.jsx).
 
-const signedRs = (v) => (v == null ? "—" : `${v > 0 ? "+" : ""}${formatRs(v)}`);
+export const signedRs = (v) => (v == null ? "—" : `${v > 0 ? "+" : ""}${formatRs(v)}`);
 
-function PhoneStatus({ d, nextAt }) {
-  const market = d.market_open ? ["Market open", "var(--positive)"] : d.preopen ? ["Pre-open", "var(--warning)"] : ["Closed", "var(--faint)"];
-  const kite = d.kite?.connected;
-  const dot = (color) => <span className="h-2 w-2 rounded-full" style={{ background: color }} aria-hidden="true" />;
-  return (
-    <div className="flex flex-col gap-3">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <div className="text-3xl font-semibold tabular-nums tracking-tight">{d.now.slice(11, 16)}</div>
-          <div className="text-xs" style={{ color: "var(--muted)" }}>
-            {d.weekday.slice(0, 3)}, {new Date(`${d.today}T00:00:00`).toLocaleDateString("en-IN", { day: "numeric", month: "short" })} · IST
-          </div>
-        </div>
-        <div className="flex flex-col items-end gap-1.5 text-xs font-medium">
-          <span className="flex items-center gap-1.5" style={{ color: market[1] }}>{dot(market[1])}{market[0]}</span>
-          <span className="flex items-center gap-1.5" style={{ color: kite ? "var(--positive)" : "var(--negative)" }}>
-            {dot(kite ? "var(--positive)" : "var(--negative)")}Kite {kite ? "on" : "off"}
-          </span>
-          <span className="tabular-nums" style={{ color: "var(--faint)" }}><Countdown at={nextAt} /></span>
-        </div>
-      </div>
-      {!kite && (
-        <a href="/api/kite/login" target="_blank" rel="noreferrer" className="rounded-lg py-2.5 text-center text-sm font-semibold" style={{ background: "var(--accent)", color: "var(--accent-ink)" }}>
-          Kite Login
-        </a>
-      )}
-    </div>
-  );
-}
-
-function PhoneRow({ title, href, sub, value, valueLabel, total, error }) {
-  return (
-    <a href={href} onClick={go(href)} className="flex items-center gap-3 border-t px-4 py-3 first:border-t-0 active:bg-[var(--surface-2)]" style={{ borderColor: "var(--border)" }}>
-      <div className="min-w-0 flex-1">
-        <div className="truncate text-sm font-medium">{title}</div>
-        <div className="truncate text-xs" style={{ color: error ? "var(--negative)" : "var(--muted)" }}>{error || sub}</div>
-      </div>
-      {!error && (
-        <div className="text-right tabular-nums">
-          <div className="text-sm font-semibold" style={{ color: tone(value) }}>{signedRs(value)}</div>
-          <div className="text-[0.6875rem]" style={{ color: "var(--faint)" }}>
-            {valueLabel} · realized <span style={{ color: tone(total) }}>{signedRs(total)}</span>
-          </div>
-        </div>
-      )}
-      <span style={{ color: "var(--faint)" }} aria-hidden="true">›</span>
-    </a>
-  );
-}
-
-// Every paper book together, after costs: today's net big, realized and open below (the phone's paper tab and the wide dashboard's)
-function PaperHero({ t, wide = false }) {
+export function PaperHero({ t, wide = false }) {
   const stat = (label, v, hint) => (
     <div title={hint}>
       <div className="text-xs" style={{ color: "var(--muted)" }}>{label}</div>
@@ -911,114 +847,3 @@ function WidePaper({ p, today }) {
   );
 }
 
-function PhonePaper({ p }) {
-  const statuses = useModelStatuses();
-  const t = paperTotals(p, statuses);
-  const shown = (id) => statusOf(statuses, id) !== "archived";
-  const g = p.gap || {}, x = p.xsmr || {}, c = p.connors || {}, cc = p.connors_cum || {}, op = p.oops || {};
-  const intraday = (b, word, none) => (b.today_status ? `${b.today_positions} ${word} · ${b.today_status === "open" ? "live" : "closed"}` : none);
-  const held = (b) => `${b.open ?? 0} / ${b.max_open ?? 3} open${b.open_symbols?.length ? ` · ${b.open_symbols.join(", ")}` : ""}`;
-  const rows = [
-    ["oops", { title: "Oops gap reversal", sub: intraday(op, "bought", `${op.watched ?? 0} watched, no buys yet`), value: op.today_net_rs, valueLabel: "today", total: op.total_net_rs, error: op.error }],
-    ["buy-on-gap", { title: "Buy/Sell on gap", sub: intraday(g, "positions", "no picks yet"), value: g.today_net_rs, valueLabel: "today", total: g.total_net_rs, error: g.error }],
-    ["xs-mean-reversion", { title: "Cross-sectional mean reversion", sub: intraday(x, "positions", "not recorded yet"), value: x.today_net_rs, valueLabel: "today", total: x.total_net_rs, error: x.error }],
-    ["short-term-reversion", { title: "Short-term mean reversion", sub: held(c), value: c.today_net_rs, valueLabel: "today", total: c.fut_net_rs, error: c.error }],
-    ["cumulative-rsi", { title: "Cumulative RSI(2)", sub: held(cc), value: cc.today_net_rs, valueLabel: "today", total: cc.fut_net_rs, error: cc.error }],
-    ["turn-of-month", { title: "Turn of the month", sub: (p.tom_paper || {}).open ? `holding ${p.tom_paper.fut}` : `buy ${p.tom_paper?.buy ?? "—"} · sell ${p.tom_paper?.sell ?? "—"}`, value: p.tom_paper?.today_net_rs, valueLabel: "today", total: p.tom_paper?.total_net_rs, error: p.tom_paper?.error }],
-  ].filter(([id]) => shown(id));
-  return (
-    <div className="flex flex-col gap-4">
-      <PaperHero t={t} />
-      <div className="overflow-hidden rounded-xl border" style={{ borderColor: "var(--border)", background: "var(--surface)" }}>
-        {rows.map(([id, r]) => <PhoneRow key={id} href={`/v2/paper/${id}`} {...r} />)}
-      </div>
-      <p className="text-[0.6875rem]" style={{ color: "var(--faint)" }}>One lot a position. SR and CR each trade on its own prices (spot or futures). Tap a book to open it.</p>
-    </div>
-  );
-}
-
-function PhoneSchedule({ d }) {
-  const next = d.schedule.find((s) => s.state === "running") || d.schedule.find((s) => s.state === "pending");
-  const f = d.freshness || {};
-  const data = [
-    ["Backtest · daily", f.backtest_daily], ["Backtest · index daily", f.backtest_index_daily], ["Backtest · 15 min", f.backtest_15m],
-    ["Live futures · daily", f.live_daily], ["Live futures · 15 min", f.live_15m],
-  ];
-  const box = { borderColor: "var(--border)", background: "var(--surface)" };
-  return (
-    <div className="flex flex-col gap-4">
-      {next && (
-        <div className="rounded-xl border p-4" style={box}>
-          <div className="text-xs" style={{ color: "var(--muted)" }}>{next.state === "running" ? "Due now" : "Next up"}</div>
-          <div className="mt-1 flex items-baseline gap-3">
-            <span className="text-2xl font-semibold tabular-nums">{next.at}</span>
-            <span className="text-sm font-medium">{next.label}</span>
-          </div>
-        </div>
-      )}
-      <div className="rounded-xl border px-4 py-1" style={box}>
-        <Schedule steps={d.schedule} />
-      </div>
-      <div className="grid grid-cols-2 gap-2">
-        {d.markets.map((m) => (
-          <div key={m.symbol} className="rounded-xl border p-3" style={box}>
-            <div className="truncate text-xs" style={{ color: "var(--muted)" }}>{m.symbol}</div>
-            <div className="text-base font-semibold tabular-nums">{num(m.last)}</div>
-            <div className="text-xs font-medium tabular-nums" style={{ color: tone(m.change_pct) }}>{pct(m.change_pct)}</div>
-          </div>
-        ))}
-      </div>
-      <div className="rounded-xl border" style={box}>
-        <div className="px-4 pt-3 text-xs font-semibold">Data</div>
-        {data.map(([label, day]) => {
-          const stale = !day || day < d.expected_data;
-          return (
-            <div key={label} className="flex items-center justify-between border-t px-4 py-2 text-sm first:border-t-0" style={{ borderColor: "var(--border)" }}>
-              <span>{label}</span>
-              <span className="tabular-nums text-xs font-medium" style={{ color: stale ? "var(--warning)" : "var(--positive)" }}>{day || "—"}</span>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-const PHONE_ICONS = {
-  paper: "M4 19V9m6 10V5m6 14v-7m4 7H2",
-  live: "M3 12h4l3-8 4 16 3-8h4",
-  schedule: "M12 7v5l3 2M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Z",
-};
-
-function PhoneDashboard({ d, nextAt, tab, setTab }) {
-  return (
-    <div className="flex flex-col gap-4 pb-24">
-      <PhoneStatus d={d} nextAt={nextAt} />
-      <div role="tabpanel">
-        {tab === "paper" && <PhonePaper p={d.paper} />}
-        {tab === "live" && <TomCard tm={d.paper.tom} />}
-        {tab === "schedule" && <PhoneSchedule d={d} />}
-      </div>
-      <nav
-        className="fixed inset-x-0 bottom-0 z-20 grid grid-cols-3 border-t"
-        style={{ borderColor: "var(--border)", background: "var(--surface)", paddingBottom: "env(safe-area-inset-bottom)" }}
-        role="tablist"
-        aria-label="Dashboard sections"
-      >
-        {DASH_TABS.map((t) => {
-          const active = tab === t.id;
-          return (
-            <button key={t.id} type="button" role="tab" aria-selected={active} onClick={() => setTab(t.id)}
-              className="flex flex-col items-center gap-1 py-2.5 text-[0.6875rem] font-medium"
-              style={{ color: active ? "var(--accent)" : "var(--muted)" }}>
-              <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <path d={PHONE_ICONS[t.id]} />
-              </svg>
-              {t.label}
-            </button>
-          );
-        })}
-      </nav>
-    </div>
-  );
-}
