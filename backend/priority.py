@@ -20,6 +20,7 @@ from datetime import time as clock
 import capped
 from db import connect
 
+ENABLED = False  # 19 Nov 2026: off by the user's decision: every book trades on its own until the paper results decide
 ORDER = ("oops", "gap", "xsmr")
 NAMES = {"oops": "Oops gap reversal", "gap": "Buy/Sell on gap", "xsmr": "Cross-sectional mean reversion"}
 OPEN_CLAIM = clock(9, 15, 1)
@@ -108,7 +109,9 @@ def claims(day):
 
 
 def skipped(model, day):
-    """{symbol: why} the book `model` must skip that day ({} before the tick log has it)."""
+    """{symbol: why} the book `model` must skip that day ({} before the tick log has it, or with the order off)."""
+    if not ENABLED:
+        return {}
     try:
         return claims(day)["skip"][model]
     except Exception as error:
