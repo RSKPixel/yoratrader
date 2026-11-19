@@ -187,17 +187,18 @@ def set_capital(v, book="rsi2"):
     return v
 
 
-def _spot_size(cap, slots, entry, exit_px, cps):
+def _spot_size(cap, slots, entry, exit_px, cps, slip=0.0):
     """A spot position: capital / slots in whole shares, delivery (cash: the full value is the capital used)."""
     if not entry or not slots:
         return {"lot": None, "qty": None, "contract_rs": None, "margin_rs": None, "pnl_rs": None, "cost_rs": None, "net_rs": None}
     qty = int(cap / slots // entry)
     value = qty * entry
     out = {"lot": None, "qty": qty, "contract_rs": round(value), "margin_rs": round(value), "pnl_rs": None,
-           "cost_rs": round(cps * value * 2), "net_rs": None}
-    if exit_px and qty:
-        pnl, cost = qty * (exit_px - entry), cps * qty * (entry + exit_px)
-        out.update(pnl_rs=round(pnl, 2), cost_rs=round(cost, 2), net_rs=round(pnl - cost, 2))
+           "cost_rs": round((cps - slip) * value * 2), "net_rs": None}
+    if exit_px and qty:  # slippage in the P&L (a worse price), the charges as the cost
+        slip_rs = slip * qty * (entry + exit_px)
+        pnl, cost = qty * (exit_px - entry) - slip_rs, (cps - slip) * qty * (entry + exit_px)
+        out.update(pnl_rs=round(pnl, 2), cost_rs=round(cost, 2), net_rs=round(pnl - cost, 2), slip_rs=round(slip_rs, 2))
     return out
 
 
@@ -733,7 +734,7 @@ def _book_lots(out_open, out_closed):
             "win_rate": round(100 * sum(t["book_net_rs"] > 0 for t in closed) / len(closed), 1) if closed else None}
 
 
-def _lot_sizing(out_open, out_closed, cost, today, cap=None, cash_cost=None):
+def _lot_sizing(out_open, out_closed, cost, today, cap=None, cash_cost=None, slip=0.0):
     """One F&O lot a position (today's lots and margin rates), at the stock and at the futures prices:
     each trade gets stock_* and fut_* rupee fields; the result, for each price set, the capital
     required (the peak margin of the positions held on any day) and the closed trades' totals."""
@@ -744,9 +745,9 @@ def _lot_sizing(out_open, out_closed, cost, today, cap=None, cash_cost=None):
         held = []
         for t in out_open + out_closed:
             if key == "stock" and cap:  # spot: capital / max open in shares, delivery costs
-                z = _spot_size(cap, t.get("slots"), t.get(buy), t.get(sell) or t.get(live), cash_cost)
+                z = _spot_size(cap, t.get("slots"), t.get(buy), t.get(sell) or t.get(live), cash_cost, slip)
             else:
-                z = v2margin.size(rows, t["symbol"], "long", t.get(buy), t.get(sell) or t.get(live), cost)
+                z = v2margin.size(rows, t["symbol"], "long", t.get(buy), t.get(sell) or t.get(live), cost, slip=slip)
             z["net_margin_pct"] = v2margin.margin_pct(z["net_rs"], z["margin_rs"])
             z["net_value_pct"] = v2margin.margin_pct(z["net_rs"], z["contract_rs"])
             t.update({f"{key}_{k}": v for k, v in z.items()})
@@ -813,7 +814,7 @@ def paper(slippage=0.0002, book="rsi2"):
     fnets = [t["fut_net_pct"] for t in out_closed if "fut_net_pct" in t]
     n = max_open(book)
     import v2ltlv
-    lots = _lot_sizing(out_open, out_closed, cost, today, cap=capital(book), cash_cost=v2ltlv.cash_cost_per_side(slippage))
+    lots = _lot_sizing(out_open, out_closed, cost, today, cap=capital(book), cash_cost=v2ltlv.cash_cost_per_side(slippage), slip=slippage)
     for t in out_open + out_closed:  # each trade on the prices it was bought under: the book's own figures
         k = "fut" if t["priced"] == "futures" else "stock"
         for f_ in ("net_rs", "cost_rs", "pnl_rs", "margin_rs", "contract_rs", "qty", "net_margin_pct", "net_value_pct"):

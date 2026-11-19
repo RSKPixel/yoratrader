@@ -11,7 +11,7 @@ tick can be a flash). Its cost against the paper price, beyond the model's own s
 slippage on that side. If the order book was better than the paper price, nothing is taken off: the model's
 slippage stays the floor.
 
-Covered moments (the tick log runs 09:14-09:16:30 and 15:14-15:15:30, see ticklog.py):
+Covered moments (the tick log runs 09:14-09:17 and 15:14-15:15:30, see ticklog.py):
 - entries at the open (Buy/Sell on gap, Cross-sectional): 09:15:01;
 - exits at 15:15 (Gap, Cross-sectional): 15:15:00;
 - next-open exits (Oops): 09:15:01 the next trading day;
@@ -110,4 +110,4 @@ def at_close(day):
 def in_window(t):
     """Whether a moment (naive IST) falls in the tick log's windows."""
     tt = t.time()
-    return clock(9, 15) <= tt <= clock(9, 16, 30) or clock(15, 14) <= tt <= clock(15, 15, 30)
+    return clock(9, 15) <= tt <= clock(9, 17) or clock(15, 14) <= tt <= clock(15, 15, 30)

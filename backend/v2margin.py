@@ -101,10 +101,12 @@ def as_of(rows):
     return next(iter(rows.values()))["day"] if rows else None
 
 
-def size(rows, symbol, side, entry, exit_px, cps, extra_in=0.0, extra_out=0.0):
+def size(rows, symbol, side, entry, exit_px, cps, extra_in=0.0, extra_out=0.0, slip=0.0):
     """One lot of `symbol`: qty, contract value and margin at the entry, the rupee P&L to `exit_px`
     (None while unknown) after charges + slippage on both sides (cps per side, on the value traded), plus
-    any extra slippage a thin future's recorded order book showed on either side (realfill)."""
+    any extra slippage a thin future's recorded order book showed on either side (realfill).
+    slip: the model's slippage a side (part of cps). Slippage is a worse price, not a fee: pnl_rs is at the
+    slipped prices, cost_rs the charges alone (brokerage, STT, exchange / SEBI fees, GST, stamp); net is the same."""
     r = rows.get(symbol)
     if not r or not entry:
         return {"lot": None, "qty": None, "contract_rs": None, "margin_rs": None, "pnl_rs": None, "cost_rs": None, "net_rs": None}
@@ -112,11 +114,12 @@ def size(rows, symbol, side, entry, exit_px, cps, extra_in=0.0, extra_out=0.0):
     contract = lot * entry
     sign = 1 if side == "long" else -1
     out = {"lot": lot, "qty": lot, "contract_rs": round(contract), "margin_rs": round(r["rate"] * contract),
-           "pnl_rs": None, "cost_rs": round(cps * contract * 2 + extra_in * contract), "net_rs": None}
+           "pnl_rs": None, "cost_rs": round((cps - slip) * contract * 2), "net_rs": None}
     if exit_px:
-        pnl = sign * lot * (exit_px - entry)
-        cost = cps * lot * (entry + exit_px) + lot * (extra_in * entry + extra_out * exit_px)
-        out.update(pnl_rs=round(pnl, 2), cost_rs=round(cost, 2), net_rs=round(pnl - cost, 2))
+        slip_rs = lot * (slip * (entry + exit_px) + extra_in * entry + extra_out * exit_px)
+        pnl = sign * lot * (exit_px - entry) - slip_rs
+        cost = (cps - slip) * lot * (entry + exit_px)
+        out.update(pnl_rs=round(pnl, 2), cost_rs=round(cost, 2), net_rs=round(pnl - cost, 2), slip_rs=round(slip_rs, 2))
     return out
 
 

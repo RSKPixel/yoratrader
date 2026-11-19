@@ -39,7 +39,7 @@ export default function V2Tom({ params }) {
     { h: "Entry", cell: (t) => t.entry },
     { h: "Exit", cell: (t) => t.exit },
     { h: "Return", cell: (t) => `${t.ret_pct.toFixed(2)}%`, style: (t) => ({ color: tone(t.ret_pct) }) },
-    { h: "Cost", cell: (t) => value(-t.book_cost_pct, 3), style: () => ({ color: "var(--negative)" }), title: () => "Buy, sale and one futures roll" },
+    { h: "Charges", cell: (t) => value(-t.book_cost_pct, 3), style: () => ({ color: "var(--negative)" }), title: () => "Buy, sale and one futures roll" },
     { h: "Net result", cell: (t) => <span className="font-medium">{value(t.book_net_pct, 3)}</span>, style: (t) => ({ color: tone(t.book_net_pct) }) },
   ];
 

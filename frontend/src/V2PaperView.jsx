@@ -92,10 +92,10 @@ export function LotCards({ s, money, extra = [] }) {
         label="Net"
         value={money(s.net_rs, s.net_value_pct)}
         color={tone(s.net_rs)}
-        hint={`One lot each, after charges and slippage on both sides; % of the contract value (busiest day)${s.net_margin_pct == null ? "" : ` · ${s.net_margin_pct > 0 ? "+" : ""}${s.net_margin_pct.toFixed(2)}% of the margin`}`}
+        hint={`One lot each, after slippage (in the prices) and charges on both sides; % of the contract value (busiest day)${s.net_margin_pct == null ? "" : ` · ${s.net_margin_pct > 0 ? "+" : ""}${s.net_margin_pct.toFixed(2)}% of the margin`}`}
       />
       <Card label="Net / day" value={money(s.avg_day_rs, s.avg_day_value_pct, 3)} color={tone(s.avg_day_rs)} />
-      <Card label="Costs" value={money(s.cost_rs == null ? null : -s.cost_rs, s.cost_value_pct == null ? null : -s.cost_value_pct)} color="var(--negative)" />
+      <Card label="Costs" value={money(s.cost_rs == null ? null : -s.cost_rs, s.cost_value_pct == null ? null : -s.cost_value_pct)} color="var(--negative)" hint="Charges only: brokerage, STT, exchange and SEBI fees, GST, stamp. Slippage is in the P&L (the prices)." />
       {extra.map((c) => (
         <Card key={c.label} {...c} />
       ))}
@@ -160,7 +160,7 @@ export function PaperCards({ s, value, extra = [] }) {
       <Card label="Days" value={s.days} hint="Closed paper days" />
       <Card label="Trades" value={s.trades} hint="Closed positions" />
       <Card label="Win rate" value={s.win_rate == null ? "—" : `${s.win_rate}%`} hint={s.win_days == null ? undefined : `${s.win_days}% of days net positive`} />
-      <Card label="Net" value={value(s.net_pct)} color={tone(s.net_pct)} hint="After charges and slippage on both sides" />
+      <Card label="Net" value={value(s.net_pct)} color={tone(s.net_pct)} hint="After slippage (in the prices) and charges on both sides" />
       <Card label="Net / day" value={value(s.avg_day_pct, 3)} color={tone(s.avg_day_pct)} />
       <Card label="Costs" value={value(-s.cost_pct)} color="var(--negative)" />
       {extra.map((c) => (

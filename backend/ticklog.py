@@ -1,5 +1,5 @@
 """The open and the 15:15 exit, tick by tick: every Kite tick of every current-month stock future in two
-windows a day, 09:14-09:16:30 and 15:14-15:15:30 (price, last traded quantity, volume, best bid and ask with their quantities, the five-level depth
+windows a day, 09:14-09:17 and 15:14-15:15:30 (price, last traded quantity, volume, best bid and ask with their quantities, the five-level depth
 totals, the exchange time), stored in tick_open. It answers whether a real order sent a second or two after
 the open would have filled where a paper book assumes (the opening price, an Oops level).
 
@@ -20,8 +20,8 @@ import kite_auth
 import xsmrwatch
 from db import connect, schema_once
 
-# (start, until): the open (to 09:16:30: the capped-limit version's replacement orders, see capped.py), the 15:15 exit
-WINDOWS = ((clock(9, 14), clock(9, 16, 30)), (clock(15, 14), clock(15, 15, 30)))
+# (start, until): the open (to 09:17: the tick fills' three rounds to 09:16:31 and the unpaired sell-backs, see capped.py), the 15:15 exit
+WINDOWS = ((clock(9, 14), clock(9, 17)), (clock(15, 14), clock(15, 15, 30)))
 START_AT, UNTIL = WINDOWS[0]
 _state = {"day": None, "ticker": None, "rows": [], "by_token": {}, "saved": None, "window": None}
 

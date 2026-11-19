@@ -18,7 +18,7 @@ export default function V2EquityChart({ points, format }) {
         labels: points.map((p) => p.date),
         datasets: [
           { label: "Net", data: points.map((p) => p.net), borderColor: c.accent, borderWidth: 2, pointRadius: 0, tension: 0 },
-          { label: "Gross", data: points.map((p) => p.gross), borderColor: c.faint, borderWidth: 1, pointRadius: 0, tension: 0 },
+          { label: "Before charges", data: points.map((p) => p.gross), borderColor: c.faint, borderWidth: 1, pointRadius: 0, tension: 0 },
         ],
       },
       options: baseOptions(c, format),

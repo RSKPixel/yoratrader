@@ -110,8 +110,9 @@ def paper(slippage=SLIPPAGE):
         value = t["buy"] * t["lot"]
         t["contract_rs"] = round(value)
         if end:
-            cost = cps * (value + end * t["lot"])
-            t["pnl_rs"] = round((end - t["buy"]) * t["lot"], 2)
+            slip_rs = slippage * (value + end * t["lot"])  # a worse price: in the P&L; the cost is the charges
+            cost = (cps - slippage) * (value + end * t["lot"])
+            t["pnl_rs"] = round((end - t["buy"]) * t["lot"] - slip_rs, 2)
             t["cost_rs"] = round(cost, 2)
             t["net_rs"] = round(t["pnl_rs"] - cost, 2)
             t["net_pct"] = round(100 * t["net_rs"] / value, 3)

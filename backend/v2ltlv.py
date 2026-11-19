@@ -159,9 +159,10 @@ def results(max_open=10, trail="20", slippage=0.0002, instrument="cash", dataset
         import cash500
         instrument, slippage = "cash", slippage + cash500.EXTRA_SLIPPAGE
     extra["instrument"] = instrument
-    out = v2common.build_results(t, days, slippage, extra, daily=daily)
+    cps = xsmr.cost_per_side(slippage) if instrument == "futures" else cash_cost_per_side(slippage)
+    out = v2common.build_results(t, days, slippage, extra, daily=daily, cps=cps)
     if out.get("summary") and instrument == "cash":
-        out["summary"]["cost_per_side_bps"] = round(10000 * cash_cost_per_side(slippage), 2)
+        out["summary"]["cost_per_side_bps"] = round(10000 * (cash_cost_per_side(slippage) - slippage), 2)
     return out
 
 

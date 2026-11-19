@@ -548,13 +548,17 @@ def _capped_version(days, today, live, fills_slip, cps, lots):
             ex, closed, xd = exit_of(d, s)
             k_out = fills.want(xd or d, s, "sell", realfill.at_open(xd), ex) if closed and xd else None
             x_out, tick_exit, paper_exit = {}, None, None
-            if closed and xd:  # the next-open sale at the real bid (a market order at 09:15:01)
-                tick_exit = capped.market_exit(xd, s, "long", realfill.at_open(xd))
+            exit_when = "09:15:01" if xd else None
+            if closed and xd:  # the next-open sale: in the pre-open auction (the open price, no spread); if it
+                # didn't match there, a market order at 09:15:01 at the real bid
+                auction = capped.preopen(xd, s)
+                tick_exit = auction or capped.market_exit(xd, s, "long", realfill.at_open(xd))
                 if tick_exit:
                     paper_exit, ex, k_out, x_out = ex, tick_exit[1], None, {"_x_out": -fills_slip}
+                    exit_when = "09:08 (auction)" if auction else tick_exit[0].strftime("%H:%M:%S")
             picks.append({**x_out, "paper_exit": round(paper_exit, 2) if paper_exit else None, "exit_tick": bool(tick_exit),"symbol": s, "fut": fut, "side": "long", "gap_pct": round(100 * (o / pl - 1), 2), "prev_low": round(pl, 2),
                           "open": round(o, 2), "first_second": fill_at.time() <= clock(9, 15, 1), "stop": None,
-                          "exit_at": "09:15:01" if xd else None,
+                          "exit_at": exit_when,
                           "paper_entry": round(pl, 2), "entry": round(px, 2), "triggered_at": trig.strftime("%H:%M:%S"),
                           "filled_at": fill_at.strftime("%H:%M:%S"), "entry_at": f"{d.isoformat()} {fill_at:%H:%M:%S}",
                           "exit": round(ex, 2) if ex else None, "closed": closed, "reason": "next open" if closed else ("live" if ex else "open"),

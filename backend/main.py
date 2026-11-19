@@ -894,7 +894,7 @@ def v2_backtest_ltlv_month(month: str = Query(..., pattern=r"^\d{4}-\d{2}$"), ma
                            slippage: float = Query(0.02, ge=0, le=1), instrument: str = Query("cash"), dataset: str = Query("fno")):
     args = _v2ltlv_args(max_open, trail, slippage, instrument, dataset)
     try:
-        return {"status": "success", "trades": v2ltlv.month_trades(month, **args)}
+        return {"status": "success", "trades": _split_month(v2ltlv.month_trades(month, **args), args)}
     except Exception as error:
         print("v2 low volatility month failed:", error)
         return {"status": "error", "message": str(error)}
@@ -916,18 +916,45 @@ def v2_backtest_tom_month(month: str = Query(..., pattern=r"^\d{4}-\d{2}$"), ind
                           slippage: float = Query(0.02, ge=0, le=1), instrument: str = Query("futures")):
     args = _v2tom_args(index, window, slippage, instrument)
     try:
-        return {"status": "success", "trades": v2tom.month_trades(month, **args)}
+        return {"status": "success", "trades": _split_month(v2tom.month_trades(month, **args), args)}
     except Exception as error:
         print("v2 turn of the month month failed:", error)
         return {"status": "error", "message": str(error)}
 
+
+
+def _split_month(trades, args, slippage=None):
+    """A backtest month's trades with slippage moved from the cost into the P&L (v2common.split_rows)."""
+    import v2common
+    s = args.get("slippage") if slippage is None else slippage
+    if s is None:
+        return trades
+    cps = None
+    if args.get("instrument") == "cash" or args.get("dataset") == "cash500":
+        import v2ltlv
+        if args.get("dataset") == "cash500":
+            import cash500
+            s = s + cash500.EXTRA_SLIPPAGE
+        cps = v2ltlv.cash_cost_per_side(s)
+    return v2common.split_rows(trades, v2common.slip_share(s, cps))
+
+
+@app.get("/api/v2/reports/paper-fills")
+def v2_report_paper_fills(day_from: str = Query("", pattern=r"^(\d{4}-\d{2}-\d{2})?$"), day_to: str = Query("", pattern=r"^(\d{4}-\d{2}-\d{2})?$")):
+    """Reports: the intraday paper books' fills against their signals, with the slippage on each side and analytics."""
+    import reports
+    try:
+        return {"status": "success", **reports.paper_fills(day_from or None, day_to or None)}
+    except Exception as error:
+        print("Paper fills report failed:", error)
+        return {"status": "error", "message": str(error)}
 
 @app.get("/api/v2/backtest/oops/month")
 def v2_backtest_oops_month(month: str = Query(..., pattern=r"^\d{4}-\d{2}$"), stop: str = Query("none"), trend: str = Query("any"),
                            max_open: int = Query(3, ge=0, le=v2oops.MAX_OPEN), slippage: float = Query(0.02, ge=0, le=1), exit: str = Query("1515"), disaster: str = Query("off")):
     args = _v2oops_args(stop, trend, max_open, slippage, exit, disaster)
     try:
-        return {"status": "success", "trades": v2oops.month_trades(month, **args)}
+        return {"status": "success", "trades": _split_month(v2oops.month_trades(month, **args), args)}
     except Exception as error:
         print("v2 oops month failed:", error)
         return {"status": "error", "message": str(error)}
@@ -951,7 +978,7 @@ def v2_backtest_gap_month(month: str = Query(..., pattern=r"^\d{4}-\d{2}$"), dat
                           max_open: int = Query(5, ge=0, le=v2gap.MAX_OPEN), slippage: float = Query(0.02, ge=0, le=1), disaster: str = Query("off")):
     args = _v2gap_args(dataset, side, stop, max_open, slippage, disaster)
     try:
-        return {"status": "success", "trades": v2gap.month_trades(month, **args)}
+        return {"status": "success", "trades": _split_month(v2gap.month_trades(month, **args), args)}
     except Exception as error:
         print("v2 gap month failed:", error)
         return {"status": "error", "message": str(error)}
@@ -983,7 +1010,7 @@ def v2_backtest_kbdt_month(month: str = Query(..., pattern=r"^\d{4}-\d{2}$"), da
                            max_open: int = Query(5, ge=0, le=v2kbdt.MAX_OPEN), slippage: float = Query(0.02, ge=0, le=1)):
     args = _v2kbdt_args(dataset, hold, stop_mode, stop_pct, max_open, slippage)
     try:
-        return {"status": "success", "trades": v2kbdt.month_trades(month, **args)}
+        return {"status": "success", "trades": _split_month(v2kbdt.month_trades(month, **args), args)}
     except Exception as error:
         print("v2 KBDT month failed:", error)
         return {"status": "error", "message": str(error)}
@@ -1018,7 +1045,7 @@ def v2_backtest_xsmr_month(month: str = Query(..., pattern=r"^\d{4}-\d{2}$"), da
                            slippage: float = Query(0.02, ge=0, le=1), disaster: str = Query("off"), exit: str = Query("1515")):
     args = _v2xsmr_args(dataset, version, entry, stop, max_open, pairs, slippage, disaster, exit)
     try:
-        return {"status": "success", "trades": v2xsmr.month_trades(month, **args)}
+        return {"status": "success", "trades": _split_month(v2xsmr.month_trades(month, **args), args)}
     except Exception as error:
         print("v2 xsmr month failed:", error)
         return {"status": "error", "message": str(error)}
@@ -1048,7 +1075,7 @@ def v2_backtest_pairs_month(month: str = Query(..., pattern=r"^\d{4}-\d{2}$"), m
                             pairs: int = Query(3, ge=1, le=5), slippage: float = Query(0.02, ge=0, le=1)):
     args = _v2pairs_args(method, fill, max_open, pairs, slippage)
     try:
-        return {"status": "success", "trades": v2pairs.month_trades(month, **args)}
+        return {"status": "success", "trades": _split_month(v2pairs.month_trades(month, **args), args)}
     except Exception as error:
         print("v2 pairs month failed:", error)
         return {"status": "error", "message": str(error)}
@@ -1078,7 +1105,7 @@ def v2_backtest_xsmom_month(month: str = Query(..., pattern=r"^\d{4}-\d{2}$"), d
                             pairs: int = Query(3, ge=1, le=5), slippage: float = Query(0.02, ge=0, le=1)):
     args = _v2xsmom_args(dataset, fill, max_open, pairs, slippage)
     try:
-        return {"status": "success", "trades": v2xsmom.month_trades(month, **args)}
+        return {"status": "success", "trades": _split_month(v2xsmom.month_trades(month, **args), args)}
     except Exception as error:
         print("v2 xsmom month failed:", error)
         return {"status": "error", "message": str(error)}
@@ -1106,7 +1133,7 @@ def v2_backtest_gapmom_month(month: str = Query(..., pattern=r"^\d{4}-\d{2}$"), 
         raise HTTPException(status_code=400, detail="unknown dataset")
     args = _v2gap_args(dataset, side, stop, max_open, slippage)
     try:
-        return {"status": "success", "trades": v2gap.month_trades(month, **args, model="gapmom")}
+        return {"status": "success", "trades": _split_month(v2gap.month_trades(month, **args, model="gapmom"), args)}
     except Exception as error:
         print("v2 gapmom month failed:", error)
         return {"status": "error", "message": str(error)}
@@ -1136,7 +1163,7 @@ def v2_backtest_qmom_month(month: str = Query(..., pattern=r"^\d{4}-\d{2}$"), da
                            max_open: int = Query(5, ge=0, le=v2qmom.MAX_OPEN), slippage: float = Query(0.02, ge=0, le=1)):
     args = _v2qmom_args(dataset, version, hedge, max_open, slippage)
     try:
-        return {"status": "success", "trades": v2qmom.month_trades(month, **args)}
+        return {"status": "success", "trades": _split_month(v2qmom.month_trades(month, **args), args)}
     except Exception as error:
         print("v2 qmom month failed:", error)
         return {"status": "error", "message": str(error)}
@@ -1177,7 +1204,7 @@ def v2_backtest_connors_month(month: str = Query(..., pattern=r"^\d{4}-\d{2}$"),
                               side: str = Query("long"), instrument: str = Query("cash")):
     args = _v2connors_args(dataset, setup, hold, max_open, stop, timing, take, slippage, side, instrument=instrument)
     try:
-        return {"status": "success", "trades": v2connors.month_trades(month, **args)}
+        return {"status": "success", "trades": _split_month(v2connors.month_trades(month, **args), args)}
     except Exception as error:
         print("v2 connors month failed:", error)
         return {"status": "error", "message": str(error)}

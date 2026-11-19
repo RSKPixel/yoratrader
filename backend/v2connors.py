@@ -101,14 +101,20 @@ def results(dataset="fno", setup="rsi2", hold="5d", max_open=3, stop="none", tim
     if dataset not in connors.FUTURES_DATASETS:
         instrument = "cash"
     extra["priced_on"] = "futures" if instrument == "futures" else "spot"
-    out = v2common.build_results(t, days, slippage, extra, daily=daily)
+    import v2ltlv
+    s_eff = slippage
+    if dataset == "cash500":  # its trades carry the wider spread (_sized)
+        import cash500
+        s_eff = slippage + cash500.EXTRA_SLIPPAGE
+    cps = v2ltlv.cash_cost_per_side(s_eff) if instrument == "cash" else None  # delivery charges vs futures
+    out = v2common.build_results(t, days, s_eff, extra, daily=daily, cps=cps)
     if out.get("summary") and (instrument == "cash" or dataset == "cash500"):
         import v2ltlv
         extra_slip = 0.0
         if dataset == "cash500":
             import cash500
             extra_slip = cash500.EXTRA_SLIPPAGE
-        out["summary"]["cost_per_side_bps"] = round(10000 * v2ltlv.cash_cost_per_side(slippage + extra_slip), 2)
+        out["summary"]["cost_per_side_bps"] = round(10000 * (v2ltlv.cash_cost_per_side(slippage + extra_slip) - slippage - extra_slip), 2)
         out["summary"]["instrument"] = "cash"
     return out
 

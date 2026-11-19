@@ -64,7 +64,7 @@ def _lots(rows, lots, cps):
     """Add one-lot sizing to a day's rows; returns the day's rupee totals."""
     for r in rows:
         r.update(v2margin.size(lots, r["symbol"], r["side"], r["entry"], r.get("exit"), cps,
-                               (r.get("slip_in_pct") or 0) / 100, (r.get("slip_out_pct") or 0) / 100))
+                               (r.get("slip_in_pct") or 0) / 100, (r.get("slip_out_pct") or 0) / 100, (r.get("slip_model_pct") or 0) / 100))
         _slipped(r)
         r["net_margin_pct"] = v2margin.margin_pct(r["net_rs"], r["margin_rs"])
         r["net_value_pct"] = v2margin.margin_pct(r["net_rs"], r["contract_rs"])
@@ -125,7 +125,7 @@ def apply_row(r, fills, cps):
     r.update({"slip_in_pct": round(100 * x_in, 3), "slip_out_pct": round(100 * x_out, 3), "slip_model_pct": round(100 * fills.slip, 4),
               "book_in_pct": round(100 * m_in, 3) if m_in is not None else None,
               "book_out_pct": round(100 * m_out, 3) if m_out is not None else None,
-              "thin": bool(x_in or x_out),
+              "thin": bool(x_in > 0 or x_out > 0),  # an extra cost from a thin order book (a tick fill's -slippage isn't)
               "ret_pct": round(100 * ret, 3) if ret is not None else None,
               "net_pct": round(100 * (ret - cost), 3) if ret is not None else None,
               "book_net_pct": round(100 * w * (ret - cost), 4) if ret is not None else 0.0,
@@ -190,7 +190,7 @@ def _capped_finish(model, days, misses, fills, cps, lots, market_days):
     for m in misses:
         r = apply_row(m.pop("_row"), fills, cps)
         sized = v2margin.size(lots, r["symbol"], r["side"], r["entry"], r.get("exit"), cps,
-                              (r.get("slip_in_pct") or 0) / 100, (r.get("slip_out_pct") or 0) / 100)
+                              (r.get("slip_in_pct") or 0) / 100, (r.get("slip_out_pct") or 0) / 100, (r.get("slip_model_pct") or 0) / 100)
         m.update(closed=r["closed"], market_net_pct=r["net_pct"], market_net_rs=sized["net_rs"], exit=r.get("exit"))
     same = {d["day"] for d in days}
     market = [d for d in market_days if d["day"] in same]

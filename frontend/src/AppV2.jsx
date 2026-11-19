@@ -10,6 +10,7 @@ import V2Dashboard from "./V2Dashboard";
 import { systemTheme, useSetting } from "./settings";
 import V2Live from "./V2Live";
 import V2Trade from "./V2Trade";
+import V2Reports from "./V2Reports";
 
 // YoraTrader: top navigation and one content area. Pages live at /v2/<page> ("/" opens the dashboard).
 
@@ -200,6 +201,10 @@ export default function AppV2() {
       ) : page === "live" ? (
         <main className="min-h-0 flex-1 overflow-auto px-4 py-6 md:px-6">
           <V2Live />
+        </main>
+      ) : page === "reports" ? (
+        <main className="min-h-0 flex-1 overflow-auto px-4 py-6 md:px-6">
+          <V2Reports />
         </main>
       ) : page === "data" ? (
         <main className="min-h-0 flex-1 overflow-auto px-4 py-6 md:px-6">

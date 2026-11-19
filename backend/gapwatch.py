@@ -465,7 +465,7 @@ def _tick():
 
     if ticklog.window(t):
         threading.Thread(target=ticklog.start, daemon=True, name="ticklog-start").start()
-    if (clock(9, 17) <= t < clock(9, 19) or clock(15, 16) <= t < clock(15, 18)) and ticklog.status()["recording"]:
+    if (clock(9, 18) <= t < clock(9, 20) or clock(15, 16) <= t < clock(15, 18)) and ticklog.status()["recording"]:
         ticklog.stop()
     if clock(9, 14) <= t < OPEN_AT:  # work out the zones a minute early so 09:15:01 is one quote call (futures: Kite)
         try:

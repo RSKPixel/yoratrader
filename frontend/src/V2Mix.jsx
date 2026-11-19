@@ -66,7 +66,7 @@ export default function V2Mix({ params }) {
     { h: "Return", cell: (t) => `${t.ret_pct.toFixed(2)}%`, style: (t) => ({ color: tone(t.ret_pct) }) },
     { h: "Net", cell: (t) => `${t.net_pct.toFixed(2)}%`, style: (t) => ({ color: tone(t.net_pct) }) },
     { h: "Size", cell: (t) => value(t.weight_pct), style: () => ({ color: "var(--muted)" }) },
-    { h: "Cost", cell: (t) => (t.open ? "—" : value(-t.book_cost_pct, 3)), style: () => ({ color: "var(--negative)" }) },
+    { h: "Charges", cell: (t) => (t.open ? "—" : value(-t.book_cost_pct, 3)), style: () => ({ color: "var(--negative)" }) },
     {
       h: "Net result",
       cell: (t) => (t.open ? <span style={{ color: "var(--muted)" }}>open</span> : <span className="font-medium">{value(t.book_net_pct, 3)}</span>),

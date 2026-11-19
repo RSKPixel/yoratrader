@@ -54,7 +54,7 @@ export default function V2Xsmom({ params }) {
     { h: "Return", cell: (t) => `${t.ret_pct.toFixed(2)}%`, style: (t) => ({ color: tone(t.ret_pct) }) },
     { h: "Net", cell: (t) => `${t.net_pct.toFixed(2)}%`, style: (t) => ({ color: tone(t.net_pct) }) },
     { h: "Size", cell: (t) => value(t.weight_pct), style: () => ({ color: "var(--muted)" }) },
-    { h: "Cost", cell: (t) => value(-t.book_cost_pct, 3), style: () => ({ color: "var(--negative)" }) },
+    { h: "Charges", cell: (t) => value(-t.book_cost_pct, 3), style: () => ({ color: "var(--negative)" }) },
     { h: "Net result", cell: (t) => <span className="font-medium">{value(t.book_net_pct, 3)}</span>, style: (t) => ({ color: tone(t.book_net_pct) }) },
   ];
   const dayColumns = [
@@ -63,7 +63,7 @@ export default function V2Xsmom({ params }) {
     { h: "Long", cell: (t) => value(t.long_pct, 3), style: (t) => ({ color: tone(t.long_pct) }) },
     { h: "Short", cell: (t) => value(t.short_pct, 3), style: (t) => ({ color: tone(t.short_pct) }) },
     { h: "Gross", cell: (t) => value(t.ret_pct, 3), style: (t) => ({ color: tone(t.ret_pct) }) },
-    { h: "Cost", cell: (t) => value(-t.book_cost_pct, 3), style: () => ({ color: "var(--negative)" }) },
+    { h: "Charges", cell: (t) => value(-t.book_cost_pct, 3), style: () => ({ color: "var(--negative)" }) },
     { h: "Net", cell: (t) => <span className="font-medium">{value(t.book_net_pct, 3)}</span>, style: (t) => ({ color: tone(t.book_net_pct) }) },
   ];
 

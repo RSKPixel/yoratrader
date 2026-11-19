@@ -64,9 +64,9 @@ export function SummaryCards({ s, value }) {
         value={s.trades.toLocaleString("en-IN")}
         hint={s.trades_label ? `${s.trades_label}: one stock on one day · ${s.days_traded} trading days` : "Closed trades · results count on the exit day"}
       />
-      <Card label="Win rate" value={`${s.win_rate}%`} hint={`After costs. Before costs: ${s.win_rate_gross}%`} />
-      <Card label="Gross" value={value(s.gross_pct)} color={tone(s.gross_pct)} hint="Before costs" />
-      <Card label="Costs" value={value(-s.cost_pct)} color="var(--negative)" hint={`Charges + slippage (${s.cost_per_side_bps} bps a side); ${value(-s.avg_cost_pct, 3)} a trade`} />
+      <Card label="Win rate" value={`${s.win_rate}%`} hint={`After charges. Before charges (slipped prices): ${s.win_rate_gross}%`} />
+      <Card label="P&L" value={value(s.gross_pct)} color={tone(s.gross_pct)} hint={`At the slipped prices (slippage ${s.slippage_side_pct ?? "—"}% a side${s.slippage_pct == null ? "" : `, ${value(-s.slippage_pct)} in all`}), before charges`} />
+      <Card label="Costs" value={value(-s.cost_pct)} color="var(--negative)" hint={`Charges only: brokerage, STT, exchange and SEBI fees, GST, stamp (${s.cost_per_side_bps} bps a side); ${value(-s.avg_cost_pct, 3)} a trade. Slippage is in the P&L.`} />
       <Card label="Net" value={value(s.net_pct)} color={tone(s.net_pct)} hint={`${value(s.net_year_pct)} a year`} />
       {s.cagr_pct != null && (
         <Card

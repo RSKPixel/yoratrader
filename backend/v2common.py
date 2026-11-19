@@ -24,7 +24,35 @@ def exit_time(reason, normal):
     return normal
 
 
-def build_results(t, days, slippage, extra=None, daily=None):
+def slip_share(slippage, cps=None):
+    """The part of a trade's cost that is slippage (the rest: brokerage, STT, exchange / SEBI fees, GST, stamp).
+    cps: the cost per side it is part of (futures by default; delivery: v2ltlv.cash_cost_per_side)."""
+    cps = xsmr.cost_per_side(slippage) if cps is None else cps
+    return slippage / cps if cps else 0.0
+
+
+def split_rows(rows, share):
+    """Per-trade rows: slippage moved out of the cost into the P&L (ret_pct is then at the slipped prices, cost_pct
+    / book_cost_pct are fees only; slip_pct / book_slip_pct show what it took). Net is unchanged."""
+    for r in rows or []:
+        bc = r.get("book_cost_pct")
+        c = r.get("cost_pct")
+        if c is None and bc is not None and r.get("weight_pct"):
+            c = bc / (r["weight_pct"] / 100)
+        if c is not None:
+            slip = c * share
+            r["slip_pct"] = round(slip, 3)
+            if r.get("cost_pct") is not None:
+                r["cost_pct"] = round(r["cost_pct"] - slip, 3)
+            if r.get("ret_pct") is not None:
+                r["ret_pct"] = round(r["ret_pct"] - slip, 3)
+        if bc is not None:
+            r["book_slip_pct"] = round(bc * share, 4)
+            r["book_cost_pct"] = round(bc - bc * share, 4)
+    return rows
+
+
+def build_results(t, days, slippage, extra=None, daily=None, cps=None):
     """t: one row per closed trade with day (the day its result counts: the exit), ret / cost / net
     (on the position's own value) and book_ret / book_cost / book_net (its share of capital).
     days: every trading day in the span (flat days count for Sharpe and the equity).
@@ -33,12 +61,21 @@ def build_results(t, days, slippage, extra=None, daily=None):
     show when they happen instead of all on its exit day. Trade counts and win rates still come from t."""
     if t.empty:
         return {"summary": None}
+    # slippage is a worse price, not a fee: it goes into the P&L ("gross" = at the slipped prices), and costs are the
+    # charges alone (brokerage, STT, exchange / SEBI fees, GST, stamp); net is unchanged
+    share = slip_share(slippage, cps)
+    t = t.copy()
+    t["book_slip"] = t["book_cost"] * share
+    t["ret"], t["cost"] = t["ret"] - t["cost"] * share, t["cost"] * (1 - share)
+    t["book_ret"], t["book_cost"] = t["book_ret"] - t["book_slip"], t["book_cost"] - t["book_slip"]
     days = days[days >= t["day"].min()]
     if daily is not None:
         daily = daily.reindex(days, fill_value=0.0)[["book_ret", "book_cost"]].copy()
+        daily["book_slip"] = daily["book_cost"] * share
+        daily["book_ret"], daily["book_cost"] = daily["book_ret"] - daily["book_slip"], daily["book_cost"] - daily["book_slip"]
         daily["book_net"] = daily["book_ret"] - daily["book_cost"]
     else:
-        daily = t.groupby("day")[["book_ret", "book_net", "book_cost"]].sum().reindex(days, fill_value=0.0)
+        daily = t.groupby("day")[["book_ret", "book_net", "book_cost", "book_slip"]].sum().reindex(days, fill_value=0.0)
     eq = daily["book_net"].cumsum()
     r = daily["book_net"]
     wins, losses = t.loc[t["book_net"] > 0, "book_net"].sum(), -t.loc[t["book_net"] < 0, "book_net"].sum()
@@ -50,7 +87,9 @@ def build_results(t, days, slippage, extra=None, daily=None):
         "win_rate": round(float(100 * (t["net"] > 0).mean()), 1),
         "win_rate_gross": round(float(100 * (t["ret"] > 0).mean()), 1),
         "gross_pct": round(float(100 * daily["book_ret"].sum()), 3),
-        "cost_pct": round(float(100 * daily["book_cost"].sum()), 3),
+        "cost_pct": round(float(100 * daily["book_cost"].sum()), 3),  # fees only
+        "slippage_pct": round(float(100 * daily["book_slip"].sum()), 3),
+        "slippage_side_pct": round(100 * slippage, 3),
         "net_pct": round(float(100 * daily["book_net"].sum()), 3),
         "avg_cost_pct": round(float(100 * t["book_cost"].mean()), 4),
         "avg_net_pct": round(float(100 * t["book_net"].mean()), 4),
@@ -62,7 +101,7 @@ def build_results(t, days, slippage, extra=None, daily=None):
         **ruin(monthly_compounded(r)),
         "sharpe": round(float(r.mean() / r.std() * np.sqrt(TRADING_DAYS)), 2) if r.std() else None,
         "green_years": int((yearly > 0).sum()), "years": int(len(yearly)),
-        "cost_per_side_bps": round(10000 * xsmr.cost_per_side(slippage), 2),
+        "cost_per_side_bps": round(10000 * ((xsmr.cost_per_side(slippage) if cps is None else cps) - slippage), 2),  # fees a side
         **(extra or {}),
     }
     return {

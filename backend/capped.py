@@ -31,7 +31,8 @@ IST = ZoneInfo("Asia/Kolkata")
 CAP = {"gap": 0.002, "xsmr": 0.002, "oops": 0.003}  # round numbers, not tuned: well above a liquid future's spread
 WAIT = 30  # seconds an order rests before it's cancelled
 FIRST = clock(9, 15, 1)  # the open-entry books send their first orders here
-DATA_END = clock(9, 16, 30)  # the morning tick log's end
+DATA_END = clock(9, 17)  # the morning tick log's end
+ROUNDS = 3  # the open-entry books' rounds of WAIT seconds (09:15:01-09:16:31): fixed, whatever the log covers
 
 
 def _ticks(day, symbols, start=clock(9, 15), end=DATA_END):
@@ -84,7 +85,9 @@ def open_entries(day, cands, slots, cap):
     queue = {g: [c for c in cands if c["group"] == g] for g in slots}
     fills, misses = [], []
     a = last = datetime.combine(day, FIRST)
-    while a <= end and any(free[g] > 0 and queue[g] for g in free):
+    rounds = 0
+    while a <= end and rounds < ROUNDS and any(free[g] > 0 and queue[g] for g in free):
+        rounds += 1
         b = a + timedelta(seconds=WAIT)
         if b > end:  # the tick log stops before this round's wait is up: judged on what's there if most of it is
             if (end - a).total_seconds() < 0.66 * WAIT:
@@ -113,6 +116,18 @@ def market_exit(day, symbol, side, at, within=60):
         px = bid if side == "long" else ask
         if px:
             return ts, float(px)
+    return None
+
+
+def preopen(day, symbol):
+    """The future's pre-open auction price that day (the official open) if the auction matched: the tick log's last
+    snapshot before 09:15 with volume traded. None when it didn't match (no volume) or wasn't recorded."""
+    with connect() as conn, conn.cursor() as cursor:
+        cursor.execute("SELECT exch_ts, ltp, volume FROM tick_open WHERE day = %s AND symbol = %s AND exch_ts < %s "
+                       "ORDER BY exch_ts DESC, recv_ts DESC LIMIT 1", (day, symbol, datetime.combine(day, clock(9, 15))))
+        row = cursor.fetchone()
+    if row and row[1] and row[2] and row[2] > 0 and row[0].date() == day:
+        return row[0], float(row[1])
     return None
 
 
