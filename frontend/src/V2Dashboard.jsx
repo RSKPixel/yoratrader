@@ -546,9 +546,9 @@ function PaperTotals({ p, realized = true }) {
   const signed = (v) => `${v > 0 ? "+" : ""}${formatRs(v)}`;
   return (
     <div className={`grid grid-cols-2 gap-3 sm:grid-cols-3 ${realized ? "lg:grid-cols-5" : "lg:grid-cols-4"}`}>
+      <Card label="Today's net" value={signed(today)} color={tone(today)} hint="Every paper book today, one lot each: the intraday books' trades, and SR and CR each trade on its own prices (spot or futures) (positions held from before: the move since yesterday's close)" />
       <Card label="Books with open trades" value={`${openBooks} / ${books}`} hint="Paper books holding something now" />
       <Card label="Open positions" value={positions} hint="Intraday books: today's live positions; SR and CR: positions held" />
-      <Card label="Today's net" value={signed(today)} color={tone(today)} hint="Every paper book today, one lot each: the intraday books' trades, and SR and CR each trade on its own prices (spot or futures) (positions held from before: the move since yesterday's close)" />
       <Card label="Open today" value={signed(openToday)} color={tone(openToday)} hint="Today's move on the positions still held: bought today, their whole result; held from before (SR, CR, TOM), since yesterday's close. Today's net = what closed today + this" />
       {realized && (
         <div className="rounded-lg border px-3 py-2.5" style={{ borderColor: "var(--border)", background: "var(--surface)" }} title="Trades already sold, every paper book since it started, one lot each, after charges and slippage">
