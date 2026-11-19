@@ -50,6 +50,8 @@ def _on_ticks(ws, ticks):
         d = tk.get("depth") or {}
         b, a = (d.get("buy") or [{}])[0], (d.get("sell") or [{}])[0]
         ts = tk.get("exchange_timestamp") or tk.get("last_trade_time")
+        if ts is not None:  # Kite's library gives the server's local clock (UTC in the container): store India time
+            ts = ts.astimezone(gapwatch.IST).replace(tzinfo=None)
         _state["rows"].append((now.date(), tk["instrument_token"], meta[0], meta[1], ts, now, tk.get("last_price"),
                                tk.get("last_traded_quantity") or tk.get("last_quantity"), tk.get("volume_traded") or tk.get("volume"),
                                b.get("price") or None, b.get("quantity") or None, a.get("price") or None, a.get("quantity") or None,

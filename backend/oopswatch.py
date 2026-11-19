@@ -36,6 +36,7 @@ import xsmrwatch
 from db import connect, schema_once
 
 PREPARE_AT, OPEN_AT, EXIT_AT, UNTIL = clock(9, 10), clock(9, 15, 1), clock(15, 15), clock(15, 30)
+RETRY_UNTIL = clock(9, 20)  # a quiet first quote is retried each minute until then before the day counts as closed
 DISASTER_PCT = 10.0  # disaster.PCT (not imported here: keep the scheduler's imports light)
 STOP_BELOW = 0.999
 MAX_OPEN, MAX_OPEN_LIMIT, MAX_OPEN_KEY = 3, 10, "OOPS_PAPER_MAX_OPEN"
@@ -200,7 +201,7 @@ def _record_open(kite, today, stamp):
     """09:15:01: the watchlist, every future that opened below its yesterday's low."""
     with connect() as conn, conn.cursor() as cursor:
         lows = _prev_lows(cursor, kite, today)
-    quotes = _fut_quotes(kite, [f for f, _ in lows.values()])
+    quotes = gapwatch.open_quotes(kite, [f for f, _ in lows.values()], today)
     traded = sum(1 for q in quotes.values() if q.get("last_trade_time") and q["last_trade_time"].date() == today)
     watch = []
     for s, (fut, pl) in lows.items():
@@ -209,6 +210,12 @@ def _record_open(kite, today, stamp):
         if o and o < pl:
             watch.append((today, s, float(pl), float(o), fut, bool(high and high >= pl)))
     note = None if traded >= 0.5 * max(1, len(quotes)) else f"market closed (only {traded} of {len(quotes)} futures traded today)"
+    if note and stamp.time() < RETRY_UNTIL:
+        # futures quotes lag in the first second (19 Nov: 105 of 218 showed a trade at 09:15:01, the tick stream 209):
+        # not "closed" yet; ask again next minute, and only a market still quiet at 09:20 counts as closed
+        return {"gapped": 0, "note": None, "retry": f"only {traded} of {len(quotes)} futures traded yet"}
+    late = stamp.time() >= clock(9, 15, 10)  # a later watchlist can't tell what the first second showed
+    watch = [w[:5] + (None if late else w[5],) for w in watch]
     with connect() as conn, conn.cursor() as cursor:
         if watch and not note:
             cursor.executemany("INSERT INTO oops_paper_watch (day, symbol, prev_low, open, fut, first_sec) VALUES (%s, %s, %s, %s, %s, %s) "
@@ -371,6 +378,8 @@ def tick(force=False, stream=True):
     out = {}
     if day is None:
         out["open"] = _record_open(kite, today, now)
+        if out["open"].get("retry"):
+            return {**out, "done": False}
         day = (out["open"]["note"],)
     if day[0]:  # market closed
         return {"done": False, "reason": day[0]}

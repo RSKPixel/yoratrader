@@ -144,6 +144,24 @@ def _fut_quotes(kite, futs):
     return {k.split(":", 1)[1]: v for k, v in quotes.items()}
 
 
+def open_quotes(kite, futs, today, share=0.95, until=clock(9, 15, 15)):
+    """_fut_quotes for the opening snapshot. Futures quotes lag in the first second (19 Nov: at 09:15:01 only 105 of
+    218 showed a trade today, though the tick stream had 209): the ones not yet traded are asked again each second
+    until `share` of them have traded or `until` passes. The open (ohlc.open) doesn't change, so waiting costs nothing."""
+    quotes = _fut_quotes(kite, futs)
+
+    def fresh(q):
+        t = (q or {}).get("last_trade_time")
+        return bool(t and t.date() == today and ((q.get("ohlc") or {}).get("open") or 0) > 0)
+    while _now().time() < until:
+        missing = [f for f in futs if not fresh(quotes.get(f))]
+        if len(missing) <= (1 - share) * len(futs):
+            break
+        time.sleep(1)
+        quotes.update(_fut_quotes(kite, missing))
+    return quotes
+
+
 def instrument_token(kite, symbol, fut=None):
     """The token of the row's instrument: its future when it has one, else the NSE share."""
     if fut:
@@ -188,7 +206,7 @@ def record_open(force=False):
     zones = [dict(z) for z in every if (z["buy_below"] or z["sell_above"]) and z["symbol"] in futs]
     for z in zones:
         z["fut"] = futs[z["symbol"]][0]
-    quotes = _fut_quotes(kite, [z["fut"] for z in zones]) if zones else {}
+    quotes = open_quotes(kite, [z["fut"] for z in zones], today) if zones else {}
     snap = _now()
     live_ok = snap.time() <= LIVE_FILL_BY
     rows, quoted = [], 0

@@ -121,14 +121,25 @@ def download(only=None):
             if (name, m) in done:
                 continue
             end = min(date(m.year + (m.month == 12), m.month % 12 + 1, 1) - timedelta(days=1), today)
-            candles = _fetch(tokens[name], m, end)
+            mid = m + timedelta(days=15)  # two calls a month: Angel One returns at most 8000 candles a call (a full month is ~8600)
+            candles = _fetch(tokens[name], m, min(mid - timedelta(days=1), end))
             time.sleep(PAUSE)
+            if mid <= end:
+                candles += _fetch(tokens[name], mid, end)
+                time.sleep(PAUSE)
+            if not candles and got:  # data stopped mid-series (seen after midnight: empty answers): log in again and retry once
+                angel_auth._session["jwt"] = None
+                time.sleep(30)
+                candles = _fetch(tokens[name], m, min(mid - timedelta(days=1), end)) + (_fetch(tokens[name], mid, end) if mid <= end else [])
+                if not candles:  # a real gap (e.g. out of F&O for a while) or a bad answer: leave the month open for a later run
+                    print(f"  {name} {m:%Y-%m}: empty after earlier data, left open", flush=True)
+                    continue
             rows = _rows(name, candles)
             with connect() as conn, conn.cursor() as cursor:
                 if rows:
                     execute_values(cursor, "INSERT INTO fut_1m (symbol, day, minute, open, high, low, close, volume) VALUES %s "
                                            "ON CONFLICT (symbol, day) DO NOTHING", rows)
-                if m.year != today.year or m.month != today.month:  # the current month stays open for a later top-up
+                if (m.year, m.month) != (today.year, today.month):  # the current month stays open for a later top-up
                     cursor.execute("INSERT INTO fut_1m_done (symbol, month, candles) VALUES (%s, %s, %s) ON CONFLICT DO NOTHING",
                                    (name, m, len(candles)))
                 conn.commit()

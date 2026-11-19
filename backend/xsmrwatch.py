@@ -94,7 +94,7 @@ def record_open(force=False):
     kite = kite_auth.trading_client()
     futs = _current_futures(kite, today)  # the book trades each stock's near-month future: its own open and previous close
     by_fut = {fut: stock for stock, (fut, _) in futs.items()}
-    quotes = {by_fut[f]: q for f, q in gapwatch._fut_quotes(kite, list(by_fut)).items() if f in by_fut}
+    quotes = {by_fut[f]: q for f, q in gapwatch.open_quotes(kite, list(by_fut), today).items() if f in by_fut}
     snap = gapwatch._now()
     live_ok = snap.time() <= gapwatch.LIVE_FILL_BY
     stocks = []
