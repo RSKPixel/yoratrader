@@ -14,6 +14,9 @@ import priority
 import v2paper
 from slip import SLIPPAGE as SL
 
+# The slippage a side at which each model's backtest stops making money (research, Nov 2026): the room the paper fills have
+BREAK_EVEN = {"oops": 0.11, "gap": 0.27, "xsmr": 0.25}
+
 BOOKS = (("oops", "Oops gap reversal"), ("gap", "Buy/Sell on gap"), ("xsmr", "Cross-sectional mean reversion"))
 
 
@@ -72,7 +75,10 @@ def _stats(rows, misses):
         "trades": len(rows), "closed": len(closed), "open": len(rows) - len(closed), "missed": len(misses),
         "fill_rate_pct": round(100 * len(rows) / tried, 1) if tried else None,
         "slip_in": dist(ins), "slip_out": dist(outs),
-        "slip_rs": round(slip_rs, 2), "charges_rs": round(sum(r["charges_rs"] or 0 for r in closed), 2),
+        "slip_rs": round(slip_rs, 2), "slip_in_rs": round(sum(r["slip_in_rs"] or 0 for r in rows), 2),
+        "slip_out_rs": round(sum(r["slip_out_rs"] or 0 for r in rows), 2),
+        "fixed_in": sum(r["in_source"] == "fixed" for r in rows), "fixed_out": sum(r["out_source"] == "fixed" for r in closed),
+        "break_even_pct": BREAK_EVEN.get(rows[0]["book"]) if rows else None, "charges_rs": round(sum(r["charges_rs"] or 0 for r in closed), 2),
         "pnl_rs": round(pnl, 2), "net_rs": round(sum(r["net_rs"] or 0 for r in closed), 2),
         "at_signal_rs": round(gross, 2),
         "slip_share_pct": round(100 * sum((r["slip_in_rs"] or 0) + (r["slip_out_rs"] or 0) for r in closed) / abs(gross), 1) if gross else None,

@@ -24,6 +24,77 @@ function SlipCell({ pct, rupees, source }) {
   );
 }
 
+// One model's slippage: each side's spread of fills, the rupees, and the average a side against the slippage at
+// which its backtest stops making money (break-even). Too few fills: no verdict yet.
+const MIN_FILLS = 20;
+
+function SlipBlock({ b }) {
+  if (b.error) return (
+    <Panel title={b.name}>
+      <p className="text-sm" style={{ color: "var(--negative)" }}>{b.error}</p>
+    </Panel>
+  );
+  const sides = [b.slip_in?.avg, b.slip_out?.avg].filter((v) => v != null);
+  const perSide = sides.length ? sides.reduce((a, v) => a + v, 0) / sides.length : null;
+  const n = (b.slip_in?.n || 0) + (b.slip_out?.n || 0);
+  const be = b.break_even_pct;
+  const verdict = perSide == null || be == null ? ["No fills yet", "var(--faint)"]
+    : n < MIN_FILLS ? [`Too early (${n} of ${MIN_FILLS} fills)`, "var(--muted)"]
+    : perSide <= be / 2 ? ["Well within break-even", "var(--positive)"]
+    : perSide <= be ? ["Within break-even, little room", "var(--warning)"]
+    : ["Above break-even", "var(--negative)"];
+  const scale = Math.max(be || 0, perSide || 0, 0.01) * 1.25;
+  const w = (v) => `${Math.max(0, Math.min(100, (100 * v) / scale))}%`;
+  const line = (label, dist, extra) => (
+    <div className="flex items-baseline justify-between gap-3 border-t py-1.5 text-sm first:border-t-0" style={{ borderColor: "var(--border)" }}>
+      <span style={{ color: "var(--muted)" }}>{label}</span>
+      <span className="text-right tabular-nums">
+        {dist ? (
+          <>
+            <span className="font-medium" style={{ color: slipColor(dist.avg) }}>{pc(dist.avg)}</span>
+            <span className="text-xs" style={{ color: "var(--faint)" }}> avg · median {pc(dist.median)} · worst {pc(dist.max)} · best {pc(dist.min)} · {dist.n}</span>
+          </>
+        ) : extra ?? "—"}
+      </span>
+    </div>
+  );
+  const rsLine = (label, v, hint) => (
+    <div className="flex items-baseline justify-between gap-3 border-t py-1.5 text-sm" style={{ borderColor: "var(--border)" }} title={hint}>
+      <span style={{ color: "var(--muted)" }}>{label}</span>
+      <span className="tabular-nums">{v}</span>
+    </div>
+  );
+  return (
+    <Panel title={b.name} right={<span style={{ color: verdict[1] }}>{verdict[0]}</span>}>
+      <div className="flex flex-col gap-3">
+        <div>
+          <div className="flex items-baseline justify-between text-xs" style={{ color: "var(--muted)" }}>
+            <span>Average a side</span>
+            <span className="tabular-nums">
+              <span className="text-base font-semibold" style={{ color: slipColor(perSide) }}>{perSide == null ? "—" : pc(perSide)}</span>
+              {be != null && <span> · break-even {be}%</span>}
+            </span>
+          </div>
+          <div className="relative mt-1.5 h-2 rounded-full" style={{ background: "var(--surface-2)" }} aria-hidden="true">
+            {perSide != null && perSide > 0 && <div className="absolute inset-y-0 left-0 rounded-full" style={{ width: w(perSide), background: verdict[1] }} />}
+            {be != null && <div className="absolute -inset-y-1 w-0.5" style={{ left: w(be), background: "var(--negative)" }} title={`Break-even ${be}% a side`} />}
+            {be != null && <div className="absolute -inset-y-1 w-px" style={{ left: w(be / 2), background: "var(--faint)" }} title={`Half the break-even ${be / 2}%`} />}
+          </div>
+        </div>
+        <div>
+          {line("Buy-in", b.slip_in)}
+          {line("Exit", b.slip_out, "no tick exits yet")}
+          {rsLine("Slippage ₹ in / out", `${formatRs(-b.slip_in_rs)} / ${formatRs(-b.slip_out_rs)}`, "One lot each; negative = cost")}
+          {rsLine("Slippage ₹ total", <span style={{ color: tone(-b.slip_rs) }}>{formatRs(-b.slip_rs)}</span>)}
+          {rsLine("Share of the result at signal prices", b.slip_share_pct == null ? "—" : `${b.slip_share_pct}%`, "Closed trades: slippage as a share of what they made at the signal prices")}
+          {rsLine("Thin futures · pairs broken · missed", `${b.thin} · ${b.unpaired} · ${b.missed}`)}
+          {(b.fixed_in > 0 || b.fixed_out > 0) && rsLine("Sides at fixed slippage (no ticks)", `${b.fixed_in} in · ${b.fixed_out} out`)}
+        </div>
+      </div>
+    </Panel>
+  );
+}
+
 function PaperFills() {
   const [pick, setPick] = useSetting("reports.paperfills.day", "all");
   const q = pick === "all" ? "" : `?day_from=${pick}&day_to=${pick}`;
@@ -101,6 +172,16 @@ function PaperFills() {
         <Card label="Net (closed)" value={rs(o.net_rs)} color={tone(o.net_rs)} hint={`At the signal prices it would have been ${rs(o.at_signal_rs - o.charges_rs)}`} />
         <Card label="Missed winners" value={data.missed_closed ? `${data.missed_winners} / ${data.missed_closed}` : "—"} hint={data.missed_closed ? `Closed misses that would have made money; together ${rs(data.missed_net_rs)}` : "No closed misses yet"} />
       </div>
+      <section className="flex flex-col gap-2">
+        <h3 className="text-sm font-semibold">Slippage by model</h3>
+        <div className="grid gap-3 lg:grid-cols-3">
+          {Object.values(data.books).map((b) => <SlipBlock key={b.name} b={b} />)}
+        </div>
+        <p className="text-xs" style={{ color: "var(--faint)" }}>
+          Tick fills only (the recorded order book). Break-even: the slippage a side at which the model's backtest stops making money (red mark); the grey mark is half of it.
+          A verdict needs {MIN_FILLS} fills.
+        </p>
+      </section>
       <Panel title="By book" right={`${data.from ? day(data.from) : ""}${data.to && data.to !== data.from ? ` – ${day(data.to)}` : ""}`}>
         <PositionsTable rows={Object.values(data.books)} columns={bookCols} minWidth={980} empty="No books." />
       </Panel>

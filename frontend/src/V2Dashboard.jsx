@@ -130,7 +130,22 @@ function Markets({ rows }) {
   );
 }
 
-function PaperCard({ title, href, style, lines, error, price }) {
+// Realized net's move since yesterday: the trades sold today (up / down arrow and the rupees)
+export function Delta({ v, className = "text-xs" }) {
+  if (v == null) return null;
+  const up = v > 0, down = v < 0;
+  return (
+    <span className={`inline-flex items-center gap-1 tabular-nums ${className}`} style={{ color: up ? "var(--positive)" : down ? "var(--negative)" : "var(--faint)" }}
+      title="Since yesterday: the trades sold today">
+      <span aria-hidden="true">{up ? "▲" : down ? "▼" : "•"}</span>
+      {up || down ? `${formatRs(Math.abs(v))} today` : "no change today"}
+    </span>
+  );
+}
+
+function PaperCard({ title, href, style, lines, error, price, headline, side }) {
+  // side: [label, value, color]: shown to the right of the headline (unrealized)
+  // headline: [label, value, color]: the card's big number (the paper books: realized net)
   return (
     <a
       href={href}
@@ -152,7 +167,23 @@ function PaperCard({ title, href, style, lines, error, price }) {
           {error}
         </p>
       ) : (
-        <dl className="mt-3 flex flex-col gap-1.5 text-sm">
+        <>
+        {headline && (
+          <div className="mt-2 flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="text-[0.6875rem]" style={{ color: "var(--muted)" }}>{headline[0]}</div>
+              <div className="text-2xl font-semibold tabular-nums tracking-tight" style={{ color: headline[2] || "var(--text)" }}>{headline[1]}</div>
+              <Delta v={headline[3]} />
+            </div>
+            {side && (
+              <div className="text-right" title="Open positions marked at the current price: not locked in">
+                <div className="text-[0.6875rem]" style={{ color: "var(--muted)" }}>{side[0]}</div>
+                <div className="text-lg font-semibold tabular-nums" style={{ color: side[2] || "var(--text)" }}>{side[1]}</div>
+              </div>
+            )}
+          </div>
+        )}
+        <dl className="mt-3 flex flex-col gap-1.5 border-t pt-3 text-sm" style={{ borderColor: headline ? "var(--border)" : "transparent", ...(headline ? {} : { paddingTop: 0, borderTopWidth: 0 }) }}>
           {lines.map(([k, v, color]) => (
             <div key={k} className="flex justify-between gap-3">
               <dt style={{ color: "var(--muted)" }}>{k}</dt>
@@ -162,6 +193,7 @@ function PaperCard({ title, href, style, lines, error, price }) {
             </div>
           ))}
         </dl>
+        </>
       )}
     </a>
   );
@@ -228,11 +260,12 @@ function Paper({ p, today, openOnly = false }) {
         href="/v2/paper/oops"
         style="Intraday"
         error={op.error}
+        headline={["Realized net", rs(op.total_net_rs), tone(op.total_net_rs), op.sold_today_rs]}
+        side={["Unrealized", rs(op.open_net_rs), tone(op.open_net_rs)]}
         lines={[
           ["Watching", `${op.watched ?? 0} opened below yesterday's low`],
           ["Today", op.today_status ? `${op.today_positions} bought · ${op.today_status === "open" ? "live" : "closed"}` : "no buys yet"],
           ["Today's net", rs(op.today_net_rs, op.today_value_pct), tone(op.today_net_rs)],
-          ["Realized net", rs(op.total_net_rs), tone(op.total_net_rs)],
           ["Capital required", op.capital_rs ? formatRs(op.capital_rs) : "—"],
         ]}
       />
@@ -243,13 +276,13 @@ function Paper({ p, today, openOnly = false }) {
         href="/v2/paper/buy-on-gap"
         style="Intraday"
         error={g.error}
+        headline={["Realized net", rs(g.total_net_rs), tone(g.total_net_rs), g.sold_today_rs]}
+        side={["Unrealized", rs(g.open_net_rs), tone(g.open_net_rs)]}
         lines={[
           ["Today", g.today_status ? `${g.today_positions} positions · ${g.today_status === "open" ? "live" : "closed"}` : "no picks yet"],
           ["Max open", g.max_open ? g.max_open : "as per model"],
           ["Today's net", rs(g.today_net_rs, g.today_margin_pct), tone(g.today_net_rs)],
-          ["Realized net", rs(g.total_net_rs), tone(g.total_net_rs)],
           ["Capital required", g.capital_rs ? formatRs(g.capital_rs) : "—"],
-          ["Watchlist", `${g.watchlist ?? "—"} stocks for ${g.session === today ? "today" : g.session}`],
         ]}
       />
       )}
@@ -259,11 +292,12 @@ function Paper({ p, today, openOnly = false }) {
         href="/v2/paper/xs-mean-reversion"
         style="Intraday"
         error={x.error}
+        headline={["Realized net", rs(x.total_net_rs), tone(x.total_net_rs), x.sold_today_rs]}
+        side={["Unrealized", rs(x.open_net_rs), tone(x.open_net_rs)]}
         lines={[
           ["Today", x.today_status ? `${x.today_positions} positions · ${x.today_status === "open" ? "live" : "closed"}` : "not recorded yet"],
           ["Max open", x.max_open ? `${x.max_open} (${x.pairs} + ${x.pairs})` : "as per model (5 + 5)"],
           ["Today's net", rs(x.today_net_rs, x.today_margin_pct), tone(x.today_net_rs)],
-          ["Realized net", rs(x.total_net_rs), tone(x.total_net_rs)],
           ["Capital required", x.capital_rs ? formatRs(x.capital_rs) : "—"],
         ]}
       />
@@ -275,12 +309,12 @@ function Paper({ p, today, openOnly = false }) {
         style="Positional"
         price={c.price}
         error={c.error}
+        headline={["Realized net", rs(c.fut_net_rs), tone(c.fut_net_rs), c.sold_today_rs]}
+        side={["Unrealized", rs(c.open_fut_net_rs), tone(c.open_fut_net_rs)]}
         lines={[
           ["Open", `${c.open ?? 0} / ${c.max_open ?? 3}${c.open_symbols?.length ? ` · ${c.open_symbols.join(", ")}` : ""}`],
           ["Closed trades", c.closed ?? 0],
           ["Today's net", rs(c.today_net_rs), tone(c.today_net_rs)],
-          ["Open now", rs(c.open_fut_net_rs), tone(c.open_fut_net_rs)],
-          ["Realized net", rs(c.fut_net_rs), tone(c.fut_net_rs)],
           ["Capital required", c.capital_rs ? formatRs(c.capital_rs) : "—"],
         ]}
       />
@@ -292,12 +326,12 @@ function Paper({ p, today, openOnly = false }) {
         style="Positional"
         price={cc.price}
         error={cc.error}
+        headline={["Realized net", rs(cc.fut_net_rs), tone(cc.fut_net_rs), cc.sold_today_rs]}
+        side={["Unrealized", rs(cc.open_fut_net_rs), tone(cc.open_fut_net_rs)]}
         lines={[
           ["Open", `${cc.open ?? 0} / ${cc.max_open ?? 3}${cc.open_symbols?.length ? ` · ${cc.open_symbols.join(", ")}` : ""}`],
           ["Closed trades", cc.closed ?? 0],
           ["Today's net", rs(cc.today_net_rs), tone(cc.today_net_rs)],
-          ["Open now", rs(cc.open_fut_net_rs), tone(cc.open_fut_net_rs)],
-          ["Realized net", rs(cc.fut_net_rs), tone(cc.fut_net_rs)],
           ["Capital required", cc.capital_rs ? formatRs(cc.capital_rs) : "—"],
         ]}
       />
@@ -308,12 +342,12 @@ function Paper({ p, today, openOnly = false }) {
         href="/v2/paper/turn-of-month"
         style="Positional"
         error={(p.tom_paper || {}).error}
+        headline={["Realized net", rs((p.tom_paper || {}).total_net_rs), tone((p.tom_paper || {}).total_net_rs), (p.tom_paper || {}).sold_today_rs]}
+        side={["Unrealized", rs((p.tom_paper || {}).open_net_rs), tone((p.tom_paper || {}).open_net_rs)]}
         lines={[
           ["Now", (p.tom_paper || {}).open ? `holding ${p.tom_paper.fut}` : (p.tom_paper || {}).state === "waiting" ? `${p.tom_paper.days_to_buy} trading days to the buy` : (p.tom_paper || {}).state ?? "—"],
           ["Buy · sell (15:15)", `${day((p.tom_paper || {}).buy)} · ${day((p.tom_paper || {}).sell)}`],
           ["Today's net", rs((p.tom_paper || {}).today_net_rs), tone((p.tom_paper || {}).today_net_rs)],
-          ["Open now", rs((p.tom_paper || {}).open_net_rs), tone((p.tom_paper || {}).open_net_rs)],
-          ["Realized net", rs((p.tom_paper || {}).total_net_rs), tone((p.tom_paper || {}).total_net_rs)],
         ]}
       />
       )}
@@ -501,20 +535,28 @@ export function paperTotals(p, statuses) {
     ["short-term-reversion", c.open_fut_net_rs], ["cumulative-rsi", cc.open_fut_net_rs], ["turn-of-month", tp.open_net_rs]]);
   const openToday = sum([["buy-on-gap", g.open_today_rs], ["xs-mean-reversion", x.open_today_rs], ["oops", op.open_today_rs],
     ["short-term-reversion", c.open_today_rs], ["cumulative-rsi", cc.open_today_rs], ["turn-of-month", tp.open_today_rs]]);
-  return { openBooks: ids.filter((id) => open[id]).length, books: ids.length, positions, today, total, openRs, openToday };
+  const soldToday = sum([["buy-on-gap", g.sold_today_rs], ["xs-mean-reversion", x.sold_today_rs], ["oops", op.sold_today_rs],
+    ["short-term-reversion", c.sold_today_rs], ["cumulative-rsi", cc.sold_today_rs], ["turn-of-month", tp.sold_today_rs]]);
+  return { openBooks: ids.filter((id) => open[id]).length, books: ids.length, positions, today, total, openRs, openToday, soldToday };
 }
 
-function PaperTotals({ p }) {
-  const { openBooks, books, positions, today, total, openRs, openToday } = paperTotals(p, useModelStatuses());
+function PaperTotals({ p, realized = true }) {
+  // realized false: the dashboard, whose realized total ends the Realized net by model row
+  const { openBooks, books, positions, today, total, openToday, soldToday } = paperTotals(p, useModelStatuses());
   const signed = (v) => `${v > 0 ? "+" : ""}${formatRs(v)}`;
   return (
-    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+    <div className={`grid grid-cols-2 gap-3 sm:grid-cols-3 ${realized ? "lg:grid-cols-5" : "lg:grid-cols-4"}`}>
       <Card label="Books with open trades" value={`${openBooks} / ${books}`} hint="Paper books holding something now" />
       <Card label="Open positions" value={positions} hint="Intraday books: today's live positions; SR and CR: positions held" />
       <Card label="Today's net" value={signed(today)} color={tone(today)} hint="Every paper book today, one lot each: the intraday books' trades, and SR and CR each trade on its own prices (spot or futures) (positions held from before: the move since yesterday's close)" />
-      <Card label="Open now" value={signed(openRs)} color={tone(openRs)} hint="Positions not sold yet, marked at the current price, one lot each (SR and CR each trade on its own prices (spot or futures), since their buy): not locked in" />
       <Card label="Open today" value={signed(openToday)} color={tone(openToday)} hint="Today's move on the positions still held: bought today, their whole result; held from before (SR, CR, TOM), since yesterday's close. Today's net = what closed today + this" />
-      <Card label="Realized net" value={signed(total)} color={tone(total)} hint="Trades already sold, every paper book since it started, one lot each, after costs; SR and CR each trade on its own prices (spot or futures)" />
+      {realized && (
+        <div className="rounded-lg border px-3 py-2.5" style={{ borderColor: "var(--border)", background: "var(--surface)" }} title="Trades already sold, every paper book since it started, one lot each, after charges and slippage">
+          <p className="text-[0.6875rem] font-semibold uppercase tracking-[0.12em]" style={{ color: "var(--faint)" }}>Realized net</p>
+          <p className="mt-1 text-lg font-semibold tabular-nums" style={{ color: tone(total) }}>{signed(total)}</p>
+          <Delta v={soldToday} className="text-[0.6875rem]" />
+        </div>
+      )}
     </div>
   );
 }
@@ -823,13 +865,17 @@ export function PaperHero({ t, wide = false }) {
         <div className="ml-auto self-center text-xs" style={{ color: "var(--muted)" }}>{count} · after costs</div>
       </div>
     );
+  // the phone: realized net big, today's net with the open ones below
+  const todayNet = stat("Today's net", t.today, "Every paper book today, one lot each, after charges and slippage");
   return (
     <div className="rounded-xl border p-4" style={{ borderColor: "var(--border)", background: "var(--surface)" }}>
-      <div className="text-xs" style={{ color: "var(--muted)" }}>Today's net · all paper books</div>
-      <div className="mt-1 text-3xl font-semibold tabular-nums tracking-tight" style={{ color: tone(t.today) }}>{signedRs(t.today)}</div>
-      <div className="mt-3 grid grid-cols-3 gap-3 border-t pt-3 text-sm tabular-nums" style={{ borderColor: "var(--border)" }}>
-        {realized}
-        {open}
+      <div className="text-xs" style={{ color: "var(--muted)" }}>Realized net · all paper books</div>
+      <div className="mt-1 flex flex-wrap items-baseline gap-x-3">
+        <span className="text-3xl font-semibold tabular-nums tracking-tight" style={{ color: tone(t.total) }}>{signedRs(t.total)}</span>
+        <Delta v={t.soldToday} className="text-sm" />
+      </div>
+      <div className="mt-3 grid grid-cols-2 gap-3 border-t pt-3 text-sm tabular-nums" style={{ borderColor: "var(--border)" }}>
+        {todayNet}
         {openToday}
       </div>
       <div className="mt-2 text-xs" style={{ color: "var(--muted)" }}>{count}</div>
@@ -837,11 +883,60 @@ export function PaperHero({ t, wide = false }) {
   );
 }
 
+// One small card a paper book (tap: the book): its today's net, or its realized net (the trades already sold since it started)
+const ROW_FIELDS = {
+  today: { title: "Today's net by model", hint: "Today, one lot each, after charges and slippage (positions held from before: the move since yesterday's close)",
+    pick: { oops: "today_net_rs", gap: "today_net_rs", xsmr: "today_net_rs", connors: "today_net_rs", connors_cum: "today_net_rs", tom_paper: "today_net_rs" } },
+  realized: { title: "Realized net by model", hint: "Trades already sold since the book started, one lot each, after charges and slippage",
+    pick: { oops: "total_net_rs", gap: "total_net_rs", xsmr: "total_net_rs", connors: "fut_net_rs", connors_cum: "fut_net_rs", tom_paper: "total_net_rs" } },
+};
+
+function ModelRow({ p, field }) {
+  const statuses = useModelStatuses();
+  const f = ROW_FIELDS[field];
+  const books = [
+    ["oops", "Oops", "oops"],
+    ["buy-on-gap", "Buy/Sell on gap", "gap"],
+    ["xs-mean-reversion", "Cross-sectional", "xsmr"],
+    ["short-term-reversion", "Short-term MR", "connors"],
+    ["cumulative-rsi", "Cumulative RSI(2)", "connors_cum"],
+    ["turn-of-month", "Turn of the month", "tom_paper"],
+  ].filter(([id]) => statusOf(statuses, id) !== "archived");
+  return (
+    <section className="flex flex-col gap-2">
+      <h2 className="text-xs font-semibold uppercase tracking-[0.14em]" style={{ color: "var(--faint)" }}>{f.title}</h2>
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 xl:grid-cols-7">
+        {books.map(([id, label, key]) => {
+          const b = p[key] || {};
+          const v = b[f.pick[key]];
+          return (
+            <a key={id} href={`/v2/paper/${id}`} onClick={go(`/v2/paper/${id}`)} className="rounded-lg border px-3 py-2.5 transition-colors hover:bg-[var(--surface-2)]" style={{ borderColor: "var(--border)", background: "var(--surface)" }} title={f.hint}>
+              <div className="truncate text-xs" style={{ color: "var(--muted)" }}>{label}</div>
+              <div className="mt-0.5 text-lg font-semibold tabular-nums" style={{ color: b.error ? "var(--negative)" : tone(v) }}>{b.error ? "error" : signedRs(v ?? 0)}</div>
+              {field === "realized" && !b.error && <Delta v={b.sold_today_rs} className="text-[0.6875rem]" />}
+            </a>
+          );
+        })}
+        {field === "realized" && (() => {
+          const { total, soldToday } = paperTotals(p, statuses);
+          return (
+            <div className="rounded-lg border px-3 py-2.5" style={{ borderColor: "var(--accent)", background: "var(--surface)" }} title="Every paper book together: trades already sold since each started, one lot each, after charges and slippage">
+              <div className="truncate text-xs font-medium" style={{ color: "var(--text)" }}>All books</div>
+              <div className="mt-0.5 text-lg font-semibold tabular-nums" style={{ color: tone(total) }}>{signedRs(total)}</div>
+              <Delta v={soldToday} className="text-[0.6875rem]" />
+            </div>
+          );
+        })()}
+      </div>
+    </section>
+  );
+}
+
 function WidePaper({ p, today }) {
-  const t = paperTotals(p, useModelStatuses());
   return (
     <div className="flex flex-col gap-3">
-      <PaperHero t={t} wide />
+      <PaperTotals p={p} realized={false} />
+      <ModelRow p={p} field="realized" />
       <Paper p={p} today={today} />
     </div>
   );

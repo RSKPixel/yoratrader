@@ -157,7 +157,7 @@ def _paper(gap_max_open=5, xsmr_max_open=10):
         today = next((d for d in g["days"] if d["day"] == g["today"]), None)
         out["gap"] = {"today_positions": len(today["picks"]) if today else 0, "today_net_rs": today["net_rs"] if today else None,
                       "today_margin_pct": today["net_value_pct"] if today else None, "today_margin_rs": today["margin_rs"] if today else None,
-                      "today_status": today["status"] if today else None, "total_net_rs": g["summary"]["net_rs"], "open_net_rs": _open_days_rs(g["days"]), "open_today_rs": _open_today_rs(g["days"], g["today"]),
+                      "today_status": today["status"] if today else None, "total_net_rs": g["summary"]["net_rs"], "open_net_rs": _open_days_rs(g["days"]), "open_today_rs": _open_today_rs(g["days"], g["today"]), "sold_today_rs": _sold_today_rs(g["days"], g["today"]),
                       "capital_rs": g["summary"]["capital_rs"], "days": g["summary"]["days"], "max_open": gap_max_open,
                       "watchlist": len(g["watchlist"]), "session": g["session"]}
     except Exception as error:
@@ -167,7 +167,7 @@ def _paper(gap_max_open=5, xsmr_max_open=10):
         today = next((d for d in x["days"] if d["day"] == x["today"]), None)
         out["xsmr"] = {"today_positions": len(today["picks"]) if today else 0, "today_net_rs": today["net_rs"] if today else None,
                        "today_margin_pct": today["net_value_pct"] if today else None, "today_margin_rs": today["margin_rs"] if today else None,
-                       "today_status": today["status"] if today else None, "total_net_rs": x["summary"]["net_rs"], "open_net_rs": _open_days_rs(x["days"]), "open_today_rs": _open_today_rs(x["days"], x["today"]),
+                       "today_status": today["status"] if today else None, "total_net_rs": x["summary"]["net_rs"], "open_net_rs": _open_days_rs(x["days"]), "open_today_rs": _open_today_rs(x["days"], x["today"]), "sold_today_rs": _sold_today_rs(x["days"], x["today"]),
                        "capital_rs": x["summary"]["capital_rs"], "days": x["summary"]["days"], "max_open": xsmr_max_open, "pairs": pairs}
     except Exception as error:
         out["xsmr"] = {"error": str(error)}
@@ -176,7 +176,7 @@ def _paper(gap_max_open=5, xsmr_max_open=10):
         today = next((d for d in o["days"] if d["day"] == o["today"]), None)
         out["oops"] = {"watched": len(o["watchlist"]), "today_positions": len(today["picks"]) if today else 0,
                        "today_status": today["status"] if today else None, "today_net_rs": today["net_rs"] if today else None,
-                       "today_value_pct": today["net_value_pct"] if today else None, "total_net_rs": o["summary"]["net_rs"], "open_net_rs": _open_days_rs(o["days"]), "open_today_rs": _open_today_rs(o["days"], o["today"]),
+                       "today_value_pct": today["net_value_pct"] if today else None, "total_net_rs": o["summary"]["net_rs"], "open_net_rs": _open_days_rs(o["days"]), "open_today_rs": _open_today_rs(o["days"], o["today"]), "sold_today_rs": _sold_today_rs(o["days"], o["today"]),
                        "capital_rs": o["summary"]["capital_rs"], "days": o["summary"]["days"], "max_open": o["max_open"]}
     except Exception as error:
         out["oops"] = {"error": str(error)}
@@ -187,6 +187,7 @@ def _paper(gap_max_open=5, xsmr_max_open=10):
         out["tom_paper"] = {"open": len(tp["open"]), "fut": o["fut"] if o else None, "buy": tp["plan"]["buy"], "sell": tp["plan"]["sell"],
                             "state": tp["plan"]["state"], "days_to_buy": tp["plan"]["days_to_buy"],
                             "open_net_rs": tp["summary"]["open_net_rs"], "total_net_rs": tp["summary"]["net_rs"],
+                            "sold_today_rs": round(sum(t.get("net_rs") or 0 for t in tp["closed"] if t.get("sell_day") == gapwatch._now().date().isoformat()), 2),
                             "trades": tp["summary"]["trades"], "capital_rs": tp["summary"]["capital_rs"],
                             **_tom_today(tp, gapwatch._now().date().isoformat())}
     except Exception as error:
@@ -201,6 +202,7 @@ def _paper(gap_max_open=5, xsmr_max_open=10):
                         "capital_rs": c["capital"] if c.get("price") == "spot" else
                         (c["lots"]["book"]["capital_rs"] or (c["max_open"] * (c["lots"]["avg_lot_margin_rs"] or 0))),
                         "open_symbols": [t["symbol"] for t in c["open"]],
+                        "sold_today_rs": round(sum(t.get("book_net_rs") or 0 for t in c["closed"] if t.get("sell_day") == gapwatch._now().date().isoformat()), 2),
                         **_positional_today(c, gapwatch._now().date().isoformat())}
         except Exception as error:
             out[key] = {"error": str(error)}
@@ -226,6 +228,13 @@ def _tom_today(tp, today):
         return {"today_net_rs": None}
     move = round((end - prev) * t["lot"] - ((t["cost_rs"] or 0) / 2 if t["closed"] else 0), 2)
     return {"today_net_rs": move, "open_today_rs": move if o else None}
+
+
+def _sold_today_rs(days, today):
+    """An intraday book's trades sold today (Oops: yesterday's buys sold at today's open too): how much its realized
+    net moved since yesterday."""
+    return round(sum(p.get("net_rs") or 0 for d in days for p in d["picks"]
+                     if p.get("closed") and (p.get("exit_day") or d["day"]) == today), 2)
 
 
 def _open_today_rs(days, today):

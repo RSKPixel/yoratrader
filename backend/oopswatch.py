@@ -558,7 +558,7 @@ def _capped_version(days, today, live, fills_slip, cps, lots):
                     exit_when = "09:08 (auction)" if auction else tick_exit[0].strftime("%H:%M:%S")
             picks.append({**x_out, "paper_exit": round(paper_exit, 2) if paper_exit else None, "exit_tick": bool(tick_exit),"symbol": s, "fut": fut, "side": "long", "gap_pct": round(100 * (o / pl - 1), 2), "prev_low": round(pl, 2),
                           "open": round(o, 2), "first_second": fill_at.time() <= clock(9, 15, 1), "stop": None,
-                          "exit_at": exit_when,
+                          "exit_at": exit_when, "exit_day": xd.isoformat() if closed and xd else None,
                           "paper_entry": round(pl, 2), "entry": round(px, 2), "triggered_at": trig.strftime("%H:%M:%S"),
                           "filled_at": fill_at.strftime("%H:%M:%S"), "entry_at": f"{d.isoformat()} {fill_at:%H:%M:%S}",
                           "exit": round(ex, 2) if ex else None, "closed": closed, "reason": "next open" if closed else ("live" if ex else "open"),
@@ -632,6 +632,7 @@ def paper(slippage=0.0002):
             "exit_at": f"{day.isoformat()} {exit_at.astimezone(gapwatch.IST).strftime('%H:%M:%S')}" if exit_at else f"{day.isoformat()} open",
             "exit": round(px, 2) if px else None, "reason": reason or ("live" if px else "open"), "closed": closed,
             "exit_at": exit_at.astimezone(gapwatch.IST).strftime("%H:%M:%S") if exit_at else None,
+            "exit_day": exit_at.astimezone(gapwatch.IST).date().isoformat() if exit_at else None,
             "weight_pct": round(100 * w, 3)})
     fills.load()
     days = []
