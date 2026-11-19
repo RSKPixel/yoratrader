@@ -156,7 +156,7 @@ def _paper(gap_max_open=5, xsmr_max_open=10):
         today = next((d for d in g["days"] if d["day"] == g["today"]), None)
         out["gap"] = {"today_positions": len(today["picks"]) if today else 0, "today_net_rs": today["net_rs"] if today else None,
                       "today_margin_pct": today["net_value_pct"] if today else None, "today_margin_rs": today["margin_rs"] if today else None,
-                      "today_status": today["status"] if today else None, "total_net_rs": g["summary"]["net_rs"], "open_net_rs": _open_days_rs(g["days"]),
+                      "today_status": today["status"] if today else None, "total_net_rs": g["summary"]["net_rs"], "open_net_rs": _open_days_rs(g["days"]), "open_today_rs": _open_today_rs(g["days"], g["today"]),
                       "capital_rs": g["summary"]["capital_rs"], "days": g["summary"]["days"], "max_open": gap_max_open,
                       "watchlist": len(g["watchlist"]), "session": g["session"]}
     except Exception as error:
@@ -166,7 +166,7 @@ def _paper(gap_max_open=5, xsmr_max_open=10):
         today = next((d for d in x["days"] if d["day"] == x["today"]), None)
         out["xsmr"] = {"today_positions": len(today["picks"]) if today else 0, "today_net_rs": today["net_rs"] if today else None,
                        "today_margin_pct": today["net_value_pct"] if today else None, "today_margin_rs": today["margin_rs"] if today else None,
-                       "today_status": today["status"] if today else None, "total_net_rs": x["summary"]["net_rs"], "open_net_rs": _open_days_rs(x["days"]),
+                       "today_status": today["status"] if today else None, "total_net_rs": x["summary"]["net_rs"], "open_net_rs": _open_days_rs(x["days"]), "open_today_rs": _open_today_rs(x["days"], x["today"]),
                        "capital_rs": x["summary"]["capital_rs"], "days": x["summary"]["days"], "max_open": xsmr_max_open, "pairs": pairs}
     except Exception as error:
         out["xsmr"] = {"error": str(error)}
@@ -175,7 +175,7 @@ def _paper(gap_max_open=5, xsmr_max_open=10):
         today = next((d for d in o["days"] if d["day"] == o["today"]), None)
         out["oops"] = {"watched": len(o["watchlist"]), "today_positions": len(today["picks"]) if today else 0,
                        "today_status": today["status"] if today else None, "today_net_rs": today["net_rs"] if today else None,
-                       "today_value_pct": today["net_value_pct"] if today else None, "total_net_rs": o["summary"]["net_rs"], "open_net_rs": _open_days_rs(o["days"]),
+                       "today_value_pct": today["net_value_pct"] if today else None, "total_net_rs": o["summary"]["net_rs"], "open_net_rs": _open_days_rs(o["days"]), "open_today_rs": _open_today_rs(o["days"], o["today"]),
                        "capital_rs": o["summary"]["capital_rs"], "days": o["summary"]["days"], "max_open": o["max_open"]}
     except Exception as error:
         out["oops"] = {"error": str(error)}
@@ -215,7 +215,7 @@ def _tom_today(tp, today):
     if not t:
         return {"today_net_rs": None}
     if t["buy_day"] == today:
-        return {"today_net_rs": t["net_rs"]}
+        return {"today_net_rs": t["net_rs"], "open_today_rs": t["net_rs"] if o else None}
     try:
         prev = kite_auth.trading_client().quote([f"NFO:{t['fut']}"])[f"NFO:{t['fut']}"]["ohlc"]["close"]
     except Exception:
@@ -223,7 +223,14 @@ def _tom_today(tp, today):
     end = t["sell"] if t["closed"] else t.get("ltp")
     if end is None:
         return {"today_net_rs": None}
-    return {"today_net_rs": round((end - prev) * t["lot"] - ((t["cost_rs"] or 0) / 2 if t["closed"] else 0), 2)}
+    move = round((end - prev) * t["lot"] - ((t["cost_rs"] or 0) / 2 if t["closed"] else 0), 2)
+    return {"today_net_rs": move, "open_today_rs": move if o else None}
+
+
+def _open_today_rs(days, today):
+    """An intraday book's positions bought today and not sold yet, marked now (their whole move is today's)."""
+    rows = [p["net_rs"] for d in days if d["day"] == today for p in d["picks"] if not p.get("closed") and p.get("net_rs") is not None]
+    return round(sum(rows), 2) if rows else None
 
 
 def _open_days_rs(days):
@@ -240,6 +247,7 @@ def _positional_today(c, today):
     sold = [t for t in c["closed"] if t.get("sell_day") == today and t["buy_day"] != today]
     new = [t for t in c["open"] + c["closed"] if t["buy_day"] == today and (t in c["open"] or t.get("sell_day") == today)]
     total = sum(t.get("book_net_rs") or 0 for t in new)
+    open_today = sum(t.get("book_net_rs") or 0 for t in new if t in c["open"])  # today's move on what's still held
     fut = lambda t: t.get("priced") == "futures" and t.get("fut")
     key = lambda t: f"NFO:{t['fut']}" if fut(t) else f"NSE:{t['symbol']}"
     keys = sorted({key(t) for t in held + sold})
@@ -257,8 +265,12 @@ def _positional_today(c, today):
             end = (t.get("fut_sell") if t in sold else t.get("fut_ltp")) if fut(t) else (t.get("sell") if t in sold else t.get("ltp"))
             if not prev or end is None or not t.get(f"{k}_qty"):
                 return {"today_net_rs": None}
-            total += (end - prev) * t[f"{k}_qty"] - ((t.get(f"{k}_cost_rs") or 0) / 2 if t in sold else 0)
-    return {"today_net_rs": round(total, 2) if held or sold or new else None}
+            move = (end - prev) * t[f"{k}_qty"] - ((t.get(f"{k}_cost_rs") or 0) / 2 if t in sold else 0)
+            total += move
+            if t in held:
+                open_today += move
+    return {"today_net_rs": round(total, 2) if held or sold or new else None,
+            "open_today_rs": round(open_today, 2) if held or any(t in c["open"] for t in new) else None}
 
 
 def paper_curve(gap_max_open=5, xsmr_max_open=10):

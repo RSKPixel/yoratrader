@@ -497,18 +497,21 @@ function paperTotals(p, statuses) {
     ["short-term-reversion", c.fut_net_rs], ["cumulative-rsi", cc.fut_net_rs], ["turn-of-month", tp.total_net_rs]]);
   const openRs = sum([["buy-on-gap", g.open_net_rs], ["xs-mean-reversion", x.open_net_rs], ["oops", op.open_net_rs],
     ["short-term-reversion", c.open_fut_net_rs], ["cumulative-rsi", cc.open_fut_net_rs], ["turn-of-month", tp.open_net_rs]]);
-  return { openBooks: ids.filter((id) => open[id]).length, books: ids.length, positions, today, total, openRs };
+  const openToday = sum([["buy-on-gap", g.open_today_rs], ["xs-mean-reversion", x.open_today_rs], ["oops", op.open_today_rs],
+    ["short-term-reversion", c.open_today_rs], ["cumulative-rsi", cc.open_today_rs], ["turn-of-month", tp.open_today_rs]]);
+  return { openBooks: ids.filter((id) => open[id]).length, books: ids.length, positions, today, total, openRs, openToday };
 }
 
 function PaperTotals({ p }) {
-  const { openBooks, books, positions, today, total, openRs } = paperTotals(p, useModelStatuses());
+  const { openBooks, books, positions, today, total, openRs, openToday } = paperTotals(p, useModelStatuses());
   const signed = (v) => `${v > 0 ? "+" : ""}${formatRs(v)}`;
   return (
-    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
       <Card label="Books with open trades" value={`${openBooks} / ${books}`} hint="Paper books holding something now" />
       <Card label="Open positions" value={positions} hint="Intraday books: today's live positions; SR and CR: positions held" />
       <Card label="Today's net" value={signed(today)} color={tone(today)} hint="Every paper book today, one lot each: the intraday books' trades, and SR and CR each trade on its own prices (spot or futures) (positions held from before: the move since yesterday's close)" />
       <Card label="Open now" value={signed(openRs)} color={tone(openRs)} hint="Positions not sold yet, marked at the current price, one lot each (SR and CR each trade on its own prices (spot or futures), since their buy): not locked in" />
+      <Card label="Open today" value={signed(openToday)} color={tone(openToday)} hint="Today's move on the positions still held: bought today, their whole result; held from before (SR, CR, TOM), since yesterday's close. Today's net = what closed today + this" />
       <Card label="Realized net" value={signed(total)} color={tone(total)} hint="Trades already sold, every paper book since it started, one lot each, after costs; SR and CR each trade on its own prices (spot or futures)" />
     </div>
   );
@@ -871,6 +874,7 @@ function PaperHero({ t, wide = false }) {
   );
   const realized = stat("Realized net", t.total, "Trades already sold, every paper book since it started, one lot each, after charges and slippage");
   const open = stat("Open now", t.openRs, "Positions not sold yet, marked at the current price, after costs: not locked in");
+  const openToday = stat("Open today", t.openToday, "Today's move on the positions still held (held from before: since yesterday's close)");
   const count = `${t.positions} positions open · ${t.openBooks} of ${t.books} books`;
   if (wide)
     return (
@@ -879,7 +883,7 @@ function PaperHero({ t, wide = false }) {
           <div className="text-xs" style={{ color: "var(--muted)" }}>Today's net · all paper books</div>
           <div className="mt-1 text-3xl font-semibold tabular-nums tracking-tight" style={{ color: tone(t.today) }}>{signedRs(t.today)}</div>
         </div>
-        <div className="flex gap-10 tabular-nums">{realized}{open}</div>
+        <div className="flex gap-10 tabular-nums">{realized}{open}{openToday}</div>
         <div className="ml-auto self-center text-xs" style={{ color: "var(--muted)" }}>{count} · after costs</div>
       </div>
     );
@@ -887,9 +891,10 @@ function PaperHero({ t, wide = false }) {
     <div className="rounded-xl border p-4" style={{ borderColor: "var(--border)", background: "var(--surface)" }}>
       <div className="text-xs" style={{ color: "var(--muted)" }}>Today's net · all paper books</div>
       <div className="mt-1 text-3xl font-semibold tabular-nums tracking-tight" style={{ color: tone(t.today) }}>{signedRs(t.today)}</div>
-      <div className="mt-3 grid grid-cols-2 gap-3 border-t pt-3 text-sm tabular-nums" style={{ borderColor: "var(--border)" }}>
+      <div className="mt-3 grid grid-cols-3 gap-3 border-t pt-3 text-sm tabular-nums" style={{ borderColor: "var(--border)" }}>
         {realized}
         {open}
+        {openToday}
       </div>
       <div className="mt-2 text-xs" style={{ color: "var(--muted)" }}>{count}</div>
     </div>
