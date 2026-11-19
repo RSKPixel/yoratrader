@@ -547,7 +547,12 @@ def _capped_version(days, today, live, fills_slip, cps, lots):
             pl, o, fut = watch[s]
             ex, closed, xd = exit_of(d, s)
             k_out = fills.want(xd or d, s, "sell", realfill.at_open(xd), ex) if closed and xd else None
-            picks.append({"symbol": s, "fut": fut, "side": "long", "gap_pct": round(100 * (o / pl - 1), 2), "prev_low": round(pl, 2),
+            x_out, tick_exit, paper_exit = {}, None, None
+            if closed and xd:  # the next-open sale at the real bid (a market order at 09:15:01)
+                tick_exit = capped.market_exit(xd, s, "long", realfill.at_open(xd))
+                if tick_exit:
+                    paper_exit, ex, k_out, x_out = ex, tick_exit[1], None, {"_x_out": -fills_slip}
+            picks.append({**x_out, "paper_exit": round(paper_exit, 2) if paper_exit else None, "exit_tick": bool(tick_exit),"symbol": s, "fut": fut, "side": "long", "gap_pct": round(100 * (o / pl - 1), 2), "prev_low": round(pl, 2),
                           "open": round(o, 2), "first_second": fill_at.time() <= clock(9, 15, 1), "stop": None,
                           "exit_at": "09:15:01" if xd else None,
                           "paper_entry": round(pl, 2), "entry": round(px, 2), "triggered_at": trig.strftime("%H:%M:%S"),

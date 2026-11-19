@@ -34,14 +34,14 @@ FIRST = clock(9, 15, 1)  # the open-entry books send their first orders here
 DATA_END = clock(9, 16, 30)  # the morning tick log's end
 
 
-def _ticks(day, symbols):
-    """{symbol: [(exch_ts, ltp, bid, ask)]} for the morning window, in time order."""
+def _ticks(day, symbols, start=clock(9, 15), end=DATA_END):
+    """{symbol: [(exch_ts, ltp, bid, ask)]} for a window of the tick log (default: the morning), in time order."""
     if not symbols:
         return {}
     with connect() as conn, conn.cursor() as cursor:
         cursor.execute("SELECT symbol, exch_ts, ltp, bid, ask FROM tick_open WHERE day = %s AND symbol = ANY(%s) "
                        "AND exch_ts >= %s AND exch_ts <= %s ORDER BY symbol, exch_ts, recv_ts",
-                       (day, list(symbols), datetime.combine(day, clock(9, 15)), datetime.combine(day, DATA_END)))
+                       (day, list(symbols), datetime.combine(day, start), datetime.combine(day, end)))
         out = {}
         for s, ts, ltp, bid, ask in cursor.fetchall():
             out.setdefault(s, []).append((ts, ltp, bid, ask))
@@ -103,6 +103,17 @@ def open_entries(day, cands, slots, cap):
                     misses.append((c, f"not filled {a:%H:%M:%S}-{b:%H:%M:%S} at {limit:.2f} or better"))
         a = last = b
     return fills, misses, last
+
+
+def market_exit(day, symbol, side, at, within=60):
+    """An intraday book's exit as a market order sent at `at` (naive IST): a long sells at the bid, a short buys
+    at the ask, the first quote in the tick log within `within` seconds. (time, price) or None (not recorded)."""
+    rows = _ticks(day, {symbol}, at.time(), (at + timedelta(seconds=within)).time()).get(symbol) or []
+    for ts, ltp, bid, ask in rows:
+        px = bid if side == "long" else ask
+        if px:
+            return ts, float(px)
+    return None
 
 
 def unwind(day, symbol, side, at):

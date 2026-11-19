@@ -110,7 +110,7 @@ export default function FixedRules({ id, paper = false, label = "" }) {
   const slip = { "buy-on-gap": "gap", "xs-mean-reversion": "xsmr", oops: "oops", "short-term-reversion": "connors", "cumulative-rsi": "connors", "turn-of-month": "tom" }[id];
   if (paper && slip) rules = [...rules, ["Slippage", `${SLIPPAGE_DEFAULT[slip]}% a side (fixed; measured from the paper fills over time)`]];
   if (paper && (slip === "gap" || slip === "xsmr" || slip === "oops"))
-    rules = [...rules, ["Fills", `tick by tick from the recorded order book: a limit no worse than ${slip === "oops" ? "0.3%" : "0.2%"} past the ${slip === "oops" ? "buy level" : "open"}, cancelled after 30 s, the slot to the next candidate; filled at the real ask / bid (charges only on the way in)`]];
+    rules = [...rules, ["Fills", `tick by tick from the recorded order book: a limit no worse than ${slip === "oops" ? "0.3%" : "0.2%"} past the ${slip === "oops" ? "buy level" : "open"}, cancelled after 30 s, the slot to the next candidate; filled at the real ask / bid (charges only on the way in). The exit (${slip === "oops" ? "the next open, 09:15:01" : "15:15"}) is a market order at the real bid / ask too; a stop, or a moment the tick log didn't record, is the price + slippage`]];
   if (paper && slip === "xsmr")
     rules = [...rules, ["Pairs", "a long trades only with its short: if one side doesn't fill by the last round (09:16:30), the side that did is sold straight back at the market"]];
   if (paper && (slip === "gap" || slip === "xsmr" || slip === "oops"))

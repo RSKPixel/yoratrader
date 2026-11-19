@@ -538,12 +538,12 @@ export function PaperOverview() {
       <Panel title="Open positions" right="price since bought, one lot each · on the future each book trades (older gap and XR rows: the share)">
         <OpenPositions query={curveQuery} />
       </Panel>
-      <Panel title="Net P&L by day" right="cumulative, one lot a position · SR and CR each trade on its own prices (spot or futures), open positions marked now">
-        <V2PaperCurve query={curveQuery} />
-      </Panel>
       <Paper p={d.paper} today={d.today} openOnly={filter === "open"} />
       <Panel title="Paper vs backtest" right="closed paper trades against the backtest on the same days, same settings">
         <PaperCheck query={curveQuery} />
+      </Panel>
+      <Panel title="Net P&L by day" right="cumulative, one lot a position · SR and CR each trade on its own prices (spot or futures), open positions marked now">
+        <V2PaperCurve query={curveQuery} />
       </Panel>
     </div>
   );
