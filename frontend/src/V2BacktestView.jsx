@@ -77,6 +77,14 @@ export function SummaryCards({ s, value }) {
         />
       )}
       <Card label="Net a year" value={value(s.net_year_pct)} color={tone(s.net_year_pct)} hint="The average year's net, as % of capital (not compounded)" />
+      {s.return_on_used_pct != null && (
+        <Card
+          label="Return on capital used"
+          value={`${s.return_on_used_pct > 0 ? "+" : ""}${s.return_on_used_pct.toFixed(1)}%`}
+          color={tone(s.return_on_used_pct)}
+          hint={`The average year's net on the capital actually in trades: on average ${s.used_pct}% of the capital was in trades, and something was open on ${s.in_market_pct}% of the days (not compounded). Net a year and CAGR count all the capital, idle days included.`}
+        />
+      )}
       <Card
         label="Sharpe"
         value={s.sharpe ?? "—"}

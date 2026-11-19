@@ -98,6 +98,7 @@ def build_results(t, days, slippage, extra=None, daily=None, cps=None):
         "max_dd_pct": round(float(100 * (eq - eq.cummax()).min()), 3),
         "net_year_pct": round(float(100 * r.mean() * TRADING_DAYS), 2),
         **compounded(r, TRADING_DAYS),
+        **capital_used(t, days, r),
         **ruin(monthly_compounded(r)),
         "sharpe": round(float(r.mean() / r.std() * np.sqrt(TRADING_DAYS)), 2) if r.std() else None,
         "green_years": int((yearly > 0).sum()), "years": int(len(yearly)),
@@ -111,6 +112,29 @@ def build_results(t, days, slippage, extra=None, daily=None, cps=None):
         "years": _periods(t, daily, "year"),
         "months": _periods(t, daily, "month"),
     }
+
+
+def capital_used(t, days, r):
+    """How much of the capital was in trades, and the net a year on that part alone. Each trade holds its share of
+    capital (w) from its entry day to its exit day (intraday: its one day). used_pct: the average share of capital
+    in trades over every day; in_market_pct: the days with anything open; return_on_used_pct: the average year's
+    net ÷ the average share used (not compounded, like Net a year)."""
+    import numpy as np
+    w = t["w"] if "w" in t else (t["book_net"] / t["net"]).where(t["net"] != 0)
+    w = w.fillna(0.0).abs().to_numpy()
+    if not len(days) or not w.any():
+        return {"used_pct": None, "in_market_pct": None, "return_on_used_pct": None}
+    end = days.searchsorted(pd.DatetimeIndex(t["day"]))
+    start = days.searchsorted(pd.DatetimeIndex(t["entry_day"])) if "entry_day" in t and t["entry_day"].notna().all() else end
+    diff = np.zeros(len(days) + 1)
+    np.add.at(diff, np.clip(start, 0, len(days)), w)
+    # held from the entry day up to the exit day (the exit day's capital goes to the next buy); a same-day trade: its day
+    np.add.at(diff, np.clip(np.maximum(end, start + 1), 0, len(days)), -w)
+    held = np.cumsum(diff)[:-1]
+    used = float(held.mean())
+    year = float(r.mean() * TRADING_DAYS)
+    return {"used_pct": round(100 * used, 1), "in_market_pct": round(float(100 * (held > 1e-9).mean()), 1),
+            "return_on_used_pct": round(100 * year / used, 2) if used > 0 else None}
 
 
 def compounded(r, per_year):

@@ -8,7 +8,7 @@ import { PaperOverview } from "./V2Dashboard";
 import V2PaperGap from "./V2PaperGap";
 import V2PaperXsmr from "./V2PaperXsmr";
 import V2PaperOops from "./V2PaperOops";
-import { SideNav, StyleTag, InstrumentContext, useSideNav } from "./V2SideNav";
+import { StyleTag, InstrumentContext } from "./V2SideNav";
 
 // v2 Paper trading: a side nav of the models the production scheduler paper-trades, each page sized
 // by its own capital / max open / show (universe: the F&O stocks).
@@ -89,10 +89,8 @@ export const paperDefaults = (m) => ({ universe: "fno", maxOpen: m.step > 1 ? 10
 
 // The landing page (no model picked): the same paper trading cards as the dashboard
 function Landing({ onSelect }) {
-  const { open, toggle, select } = useSideNav("yt-v2-paper-nav", onSelect);
   return (
     <div className="relative flex min-h-0 min-w-0 flex-1">
-      <SideNav groups={PAPER_GROUPS} base="/v2/paper" title="Paper trading" current={null} onSelect={select} open={open} onToggle={toggle} pinKey="paper" />
       <section className="min-h-0 min-w-0 flex-1 overflow-auto px-4 py-6 md:px-8">
         <p className="text-xs font-medium uppercase tracking-[0.14em]" style={{ color: "var(--faint)" }}>
           Paper trading
@@ -116,10 +114,8 @@ export default function V2Paper({ model, onSelect }) {
 }
 
 function Book({ m, onSelect }) {
-  const { open, toggle, select } = useSideNav("yt-v2-paper-nav", onSelect);
   return (
     <div className="relative flex min-h-0 min-w-0 flex-1">
-      <SideNav groups={PAPER_GROUPS} base="/v2/paper" title="Paper trading" current={m.id} onSelect={select} open={open} onToggle={toggle} pinKey="paper" />
       <section className="min-h-0 min-w-0 flex-1 overflow-auto px-4 py-6 md:px-8">
         <p className="text-xs font-medium uppercase tracking-[0.14em]" style={{ color: "var(--faint)" }}>
           Paper trading · {m.group.title} · {m.group.source}

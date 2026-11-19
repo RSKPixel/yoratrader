@@ -204,11 +204,13 @@ function PinIcon({ on }) {
   );
 }
 
-function List({ groups, title, current, item, onClose, closeLabel, pinned, onPin, statuses = {}, archived = [] }) {
+function List({ groups, title, current, item, onClose, closeLabel, pinned, onPin, statuses = {}, archived = [], menu = false, head = null }) {
+  // menu: inside the top bar's dropdown (no frame of its own, no pin / collapse); head: extra items on top
   const [showArchived, setShowArchived] = useState(false); // closed until opened
   return (
-    <nav className="flex h-full w-80 flex-col overflow-y-auto border-r" style={{ borderColor: "var(--border)", background: "var(--surface)" }} aria-label={title}>
-      <div className="flex items-center justify-between px-4 pb-1 pt-3">
+    <nav className={menu ? "flex flex-col" : "flex h-full w-80 flex-col overflow-y-auto border-r"} style={menu ? undefined : { borderColor: "var(--border)", background: "var(--surface)" }} aria-label={title}>
+      {head}
+      {!menu && <div className="flex items-center justify-between px-4 pb-1 pt-3">
         <span className="text-xs font-semibold uppercase tracking-[0.14em]" style={{ color: "var(--muted)" }}>
           {title}
         </span>
@@ -239,7 +241,7 @@ function List({ groups, title, current, item, onClose, closeLabel, pinned, onPin
           </button>
         )}
         </span>
-      </div>
+      </div>}
       <div className="flex flex-col gap-4 px-3 pb-4 pt-2">
         {groups.map((g) => (
           <div key={g.title}>
@@ -306,6 +308,33 @@ function List({ groups, title, current, item, onClose, closeLabel, pinned, onPin
       </div>
     </nav>
   );
+}
+
+function useGrouped(allGroups) {
+  const statuses = useModelStatuses();
+  const every = allGroups.flatMap((g) => g.models.map((m) => ({ ...m, author: g.title, source: g.source, section: m.section || g.section || m.style })));
+  const archived = every.filter((m) => statusOf(statuses, m.id) === "archived");
+  const groups = ["Intraday", "Positional"]
+    .map((section) => ({ title: section, models: every.filter((m) => m.section === section && statusOf(statuses, m.id) !== "archived") }))
+    .filter((g) => g.models.length);
+  return { groups, archived, statuses };
+}
+
+// The models of Backtesting / Paper trading as a dropdown under the top bar's link (instead of a side nav):
+// Intraday and Positional models with their authors, archived ones folded at
+// the bottom. inline: drawn in place (the phone menu), not as a floating panel.
+export function ModelMenu({ groups: allGroups, base, title, current, onSelect, onDone }) {
+  const { groups, archived, statuses } = useGrouped(allGroups);
+  const item = (m, active) => ({
+    href: `${base}/${m.id}`,
+    onClick: (event) => {
+      event.preventDefault();
+      onSelect(m.id);
+      onDone?.();
+    },
+    "aria-current": active ? "page" : undefined,
+  });
+  return <List menu groups={groups} title={title} current={current} item={item} statuses={statuses} archived={archived} />;
 }
 
 export function SideNav({ groups: allGroups, base, title, current, onSelect, open, onToggle, pinKey = "nav" }) {

@@ -27,9 +27,29 @@ window.fetch = async (input, init) => {
 // The sign-in screen follows the system theme (settings are per user, on the server, and load after sign-in).
 const field = { borderColor: "var(--border)", background: "var(--surface-2)", color: "var(--text)" };
 
+// A light / dark switch top right: for this visit only (before sign-in there are no saved settings, and settings
+// never live in the browser); after sign-in the user's own saved theme applies.
 function Shell({ children }) {
+  const [theme, setTheme] = useState(systemTheme);
+  const dark = theme === "dark";
   return (
-    <div className="v2 flex h-full items-center justify-center px-4" data-theme={systemTheme()}>
+    <div className="v2 relative flex h-full items-center justify-center px-4" data-theme={theme}>
+      <button
+        type="button"
+        onClick={() => setTheme(dark ? "light" : "dark")}
+        className="absolute right-4 top-4 grid h-9 w-9 place-items-center rounded-md border transition-colors hover:bg-[var(--surface-2)]"
+        style={{ borderColor: "var(--border)", color: "var(--muted)", background: "var(--surface)" }}
+        aria-label={dark ? "Switch to light mode" : "Switch to dark mode"}
+        title={dark ? "Light mode" : "Dark mode"}
+      >
+        <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          {dark ? (
+            <path d="M12 4V2m0 20v-2m8-8h2M2 12h2m13.66-5.66 1.41-1.41M4.93 19.07l1.41-1.41m0-11.32L4.93 4.93m14.14 14.14-1.41-1.41M16 12a4 4 0 1 1-8 0 4 4 0 0 1 8 0Z" />
+          ) : (
+            <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z" />
+          )}
+        </svg>
+      </button>
       {children}
     </div>
   );

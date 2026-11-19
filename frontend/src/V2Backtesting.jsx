@@ -1,5 +1,5 @@
 import { StatusButtons } from "./modelStatus";
-import { SideNav, StyleTag, InstrumentContext, useSideNav } from "./V2SideNav";
+import { StyleTag, InstrumentContext } from "./V2SideNav";
 import FixedRules from "./V2FixedRules";
 import V2BacktestParams, { useBacktestParams } from "./V2BacktestParams";
 import V2BuyOnGap from "./V2BuyOnGap";
@@ -75,10 +75,8 @@ export function findBacktest(id) {
 
 // The landing page (no model picked): every backtest at its default settings, as on the dashboard
 function Landing({ onSelect }) {
-  const { open, toggle, select } = useSideNav("yt-v2-backtest-nav", onSelect);
   return (
     <div className="relative flex min-h-0 min-w-0 flex-1">
-      <SideNav groups={BACKTEST_GROUPS} base="/v2/backtesting" title="Backtests" current={null} onSelect={select} open={open} onToggle={toggle} pinKey="backtesting" />
       <section className="min-h-0 min-w-0 flex-1 overflow-auto px-4 py-6 md:px-8">
         <p className="text-xs font-medium uppercase tracking-[0.14em]" style={{ color: "var(--faint)" }}>
           Backtesting
@@ -104,7 +102,6 @@ export default function V2Backtesting({ model, onSelect }) {
 }
 
 function Model({ m, onSelect }) {
-  const { open, toggle, select } = useSideNav("yt-v2-backtest-nav", onSelect);
   const [params, setParams] = useBacktestParams(m.id, { universe: m.universes[0], maxOpen: m.defaultOpen || (m.step > 1 ? 6 : 5) });
   // Per model; a saved universe the model no longer has falls back to its first.
   const universe = m.universes.includes(params.universe) ? params.universe : m.universes[0];
@@ -118,7 +115,6 @@ function Model({ m, onSelect }) {
   const modelParams = { ...params, universe: pit ? "fnopit" : universe, maxOpen };
   return (
     <div className="relative flex min-h-0 min-w-0 flex-1">
-      <SideNav groups={BACKTEST_GROUPS} base="/v2/backtesting" title="Backtests" current={m.id} onSelect={select} open={open} onToggle={toggle} pinKey="backtesting" />
       <section className="min-h-0 min-w-0 flex-1 overflow-auto px-4 py-6 md:px-8">
         <p className="text-xs font-medium uppercase tracking-[0.14em]" style={{ color: "var(--faint)" }}>
           {m.group.title} · {m.group.source}
