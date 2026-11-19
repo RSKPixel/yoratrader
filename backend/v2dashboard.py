@@ -92,11 +92,11 @@ def _schedule(cursor, today, now):
                      (today,)) or 0
     return [
         step((9, 6), "Pre-open snapshot (futures auction)", bool(pre), f"{pre} futures quoted" if pre else None, until=(9, 9)),
-        step((9, 15), "Buy/Sell on gap: picks at the open", gap is not None, f"{gap} qualifying stocks" if gap is not None else None, until=(9, 20)),
-        step((9, 15), "Cross-sectional mean reversion: 5 + 5 at the open", xs is not None, f"{xs} stocks quoted" if xs is not None else None, until=(9, 20)),
         step((9, 15), "Oops gap reversal: watchlist, then buys through the day", oops_day is not None and not (oops_day[1] or "").startswith("market closed"),
              (oops_day[1] if oops_day and oops_day[1] else f"{oops_day[0]} opened below yesterday's low · {oops_n} bought" if oops_day else None),
              until=(9, 20)),
+        step((9, 15), "Buy/Sell on gap: picks at the open", gap is not None, f"{gap} qualifying stocks" if gap is not None else None, until=(9, 20)),
+        step((9, 15), "Cross-sectional mean reversion: 5 + 5 at the open", xs is not None, f"{xs} stocks quoted" if xs is not None else None, until=(9, 20)),
         step((15, 15), "Short-term mean reversion: sells and buys", con is not None and not (con[2] or "").startswith("market closed"),
              (f"{con[1] or 0} sold, {con[0] or 0} bought" if con and con[0] is not None else (con[2] if con else None)), until=(15, 25)),
         step((15, 15), "Cumulative RSI(2): sells and buys", con_cum is not None and not (con_cum[2] or "").startswith("market closed"),
@@ -265,9 +265,9 @@ def paper_curve(gap_max_open=5, xsmr_max_open=10):
     def days_net(label, days):
         daily[label] = {d["day"]: d["net_rs"] for d in days if d.get("net_rs") is not None}
 
-    for label, build in (("Buy/Sell on gap", lambda: v2paper.gap("long", "none", gap_max_open, SL["gap"])["days"]),
-                         ("Cross-sectional mean reversion", lambda: v2paper.xsmr_(pairs, "none", xsmr_max_open, SL["xsmr"])["days"]),
-                         ("Oops gap reversal", lambda: oopswatch.paper(SL["oops"])["days"])):
+    for label, build in (("Oops gap reversal", lambda: oopswatch.paper(SL["oops"])["days"]),
+                         ("Buy/Sell on gap", lambda: v2paper.gap("long", "none", gap_max_open, SL["gap"])["days"]),
+                         ("Cross-sectional mean reversion", lambda: v2paper.xsmr_(pairs, "none", xsmr_max_open, SL["xsmr"])["days"])):
         try:
             days_net(label, build())
         except Exception as error:
@@ -463,9 +463,9 @@ def open_positions(gap_max_open=5, xsmr_max_open=10):
         except Exception as error:
             errors[label] = str(error)
 
+    intraday("Oops gap reversal", "/v2/paper/oops", lambda: oopswatch.paper(SL["oops"]), fut=True)
     intraday("Buy/Sell on gap", "/v2/paper/buy-on-gap", lambda: v2paper.gap("long", "none", gap_max_open, SL["gap"]), fut=True)
     intraday("Cross-sectional mean reversion", "/v2/paper/xs-mean-reversion", lambda: v2paper.xsmr_(pairs, "none", xsmr_max_open, SL["xsmr"]), fut=True)
-    intraday("Oops gap reversal", "/v2/paper/oops", lambda: oopswatch.paper(SL["oops"]), fut=True)
     for label, href, book in (("Short-term mean reversion", "/v2/paper/short-term-reversion", "rsi2"),
                               ("Cumulative RSI(2)", "/v2/paper/cumulative-rsi", "cum")):
         try:

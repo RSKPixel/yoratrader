@@ -21,6 +21,7 @@ from datetime import date
 
 import capped
 import gapwatch
+import priority
 import realfill
 import v2common
 import v2margin
@@ -116,7 +117,7 @@ def apply_row(r, fills, cps):
     k_in, k_out = r.pop("_k", (None, None))
     w, ret = r.pop("_w"), r.pop("_ret")
     x_in = r.pop("_x_in") if "_x_in" in r else fills.extra(k_in) if k_in is not None else 0.0
-    x_out = fills.extra(k_out) if k_out is not None else 0.0
+    x_out = r.pop("_x_out") if "_x_out" in r else fills.extra(k_out) if k_out is not None else 0.0
     m_in = fills.measured(k_in) if k_in is not None else None
     m_out = fills.measured(k_out) if k_out is not None else None
     ratio = r["exit"] / r["entry"] if r.get("exit") and r.get("entry") else 1
@@ -138,11 +139,21 @@ def _capped_prepare(model, inputs, fills, slippage):
     out, misses = [], []
     for day, rows, slots, group in inputs:
         d = date.fromisoformat(str(day))
-        cands = [{"symbol": r["symbol"], "side": r["side"], "entry": r["entry"], "group": group(r), "row": dict(r)} for r in rows]
+        skip = priority.skipped(model, d)  # one stock, one intraday book (priority.py): the next candidate instead
+        cands = [{"symbol": r["symbol"], "side": r["side"], "entry": r["entry"], "group": group(r), "row": dict(r)} for r in rows
+                 if r["symbol"] not in skip]
+        misses += [{"day": str(day), "symbol": r["symbol"], "side": r["side"], "rank": r.get("rank"), "open": r["entry"],
+                    "reason": f"skipped: {skip[r['symbol']]}", "skipped": True, "_row": dict(r)} for r in rows if r["symbol"] in skip]
         res = capped.open_entries(d, cands, slots, capped.CAP[model])
         if res is None:  # no tick log that day (before 19 Nov 2026)
             continue
-        got, missed = res
+        got, missed, ended = res
+        unpaired = []
+        if model == "xsmr":  # a pair trades only if both sides fill: the unmatched fills are sold straight back
+            longs = sorted([g for g in got if g[0]["side"] == "long"], key=lambda g: g[0]["row"]["rank"])
+            shorts = sorted([g for g in got if g[0]["side"] == "short"], key=lambda g: g[0]["row"]["rank"])
+            n = min(len(longs), len(shorts))
+            got, unpaired = longs[:n] + shorts[:n], longs[n:] + shorts[n:]
         picks = []
         for c, ts, px in got:
             r = dict(c["row"])
@@ -150,6 +161,16 @@ def _capped_prepare(model, inputs, fills, slippage):
             r.update(paper_entry=r["entry"], entry=round(px, 2), filled_at=ts.strftime("%H:%M:%S"), entry_at=f"{day} {ts:%H:%M:%S}",
                      _ret=sign * (r["exit"] / px - 1) if r.get("exit") else None,
                      _k=(None, r["_k"][1]), _x_in=-slippage)  # the fill is the real price: charges only on the way in
+            picks.append(r)
+        for c, ts, px in unpaired:
+            r = dict(c["row"])
+            sign = 1 if r["side"] == "long" else -1
+            back = capped.unwind(d, r["symbol"], r["side"], ended)
+            out_px = back[1] if back else px
+            r.update(paper_entry=r["entry"], entry=round(px, 2), filled_at=ts.strftime("%H:%M:%S"), entry_at=f"{day} {ts:%H:%M:%S}",
+                     exit=round(out_px, 2), closed=True, reason="no pair: sold back", unpaired=True,
+                     exit_at=f"{day} {back[0]:%H:%M:%S}" if back else f"{day} {ended:%H:%M:%S}",
+                     _ret=sign * (out_px / px - 1), _k=(None, None), _x_in=-slippage, _x_out=-slippage)  # both real prices: charges only
             picks.append(r)
         out.append({"day": str(day), "status": "closed" if all(r["closed"] for r in picks) else "open", "picks": picks})
         misses += [{"day": str(day), "symbol": c["symbol"], "side": c["side"], "rank": c["row"].get("rank"), "open": c["entry"],
@@ -178,6 +199,24 @@ def _capped_finish(model, days, misses, fills, cps, lots, market_days):
             "missed_winners": sum(m["market_net_rs"] > 0 for m in closed_misses), "missed_closed": len(closed_misses),
             "misses": misses, "cap_pct": round(100 * capped.CAP[model], 2), "wait_s": capped.WAIT,
             "from": min(same) if same else None}
+
+
+def tick_book(days, cap):
+    """The book filled tick by tick: each day the tick log covers takes the tick-filled (capped-limit) day in
+    place of the printed-price one; other days (none since 19 Nov 2026, or today before the log is saved at
+    about 09:17) keep the printed price, marked fill = "printed"."""
+    if not cap:
+        for d in days:
+            d["fill"] = "printed"
+        return days
+    tick = {d["day"]: d for d in cap["days"]}
+    out = []
+    for d in days:
+        t = tick.get(d["day"])
+        out.append({**t, "fill": "tick"} if t is not None else {**d, "fill": "printed"})
+    have = {d["day"] for d in days}
+    out += [{**t, "fill": "tick"} for day, t in tick.items() if day not in have]  # a day only the tick fills have
+    return sorted(out, key=lambda d: d["day"], reverse=True)
 
 
 def _apply_fills(days, fills, cps, lots):
@@ -247,6 +286,7 @@ def gap(side="long", stop="none", max_open=5, slippage=0.0002, disaster="off"):
     cap_days, cap_miss = _capped_prepare("gap", cap_in, fills, slippage)
     _apply_fills(days, fills.load(), cps, lots)
     cap = _capped_finish("gap", cap_days, cap_miss, fills, cps, lots, days)
+    days = tick_book(days, cap)
     watch = data["watchlist"]
     if side == "long":
         watch = [z for z in watch if z.get("buy_below")]
@@ -327,6 +367,7 @@ def xsmr_(pairs=5, stop="none", max_open=10, slippage=0.0002, disaster="off"):
     cap_days, cap_miss = _capped_prepare("xsmr", cap_in, fills, slippage)
     _apply_fills(days, fills.load(), cps, lots)
     cap = _capped_finish("xsmr", cap_days, cap_miss, fills, cps, lots, days)
+    days = tick_book(days, cap)
     meta = _meta(data, days, cps)
     return {"now": data["now"], "today": data["today"], "market_open": data["market_open"], "meta": meta,
             "today_recorded": data["today_recorded"], "ltp_at": data["ltp_at"], "days": days, "summary": {**_summary(days), **_lot_summary(days, lots)},

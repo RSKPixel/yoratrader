@@ -30,6 +30,7 @@ import db
 import capped
 import gapwatch
 import kite_auth
+import priority
 import realfill
 import v2margin
 import v2paper
@@ -510,9 +511,23 @@ def _capped_version(days, today, live, fills_slip, cps, lots):
     for d, watch in sorted(by_day.items(), reverse=True):
         events = capped.oops_events(d, {s: w[0] for s, w in watch.items()})
         slots = slots_of.get(d) or max_open()
-        taken = [e for e in events if e[2]][:slots]
-        todo.append((d, watch, taken, [e for e in events if not e[2]]))
-    nxt = _next_opens([(s, d) for d, _, taken, missed in todo for s, *_ in taken + missed if d < today])
+        skip = priority.skipped("oops", d)  # held by Gap / Cross-sectional before this buy: the next one instead
+        taken = [e for e in events if e[2] and e[0] not in skip][:slots]
+        todo.append((d, watch, taken, [e for e in events if not e[2]], [e for e in events if e[2] and e[0] in skip], skip))
+    nxt = _next_opens([(s, d) for d, _, taken, missed, held, _ in todo for s, *_ in taken + missed + held if d < today])
+    # held from an earlier day and today's daily candle not in yet: today's open from a quote (the next-open sale)
+    need = {watch[s][2]: s for d, watch, taken, missed, held, _ in todo if d < today for s, *_ in taken + missed + held
+            if (s, d) not in nxt and not (market.get((d.isoformat(), s)) or {}).get("closed") and watch[s][2]}
+    if need and kite_auth.status().get("connected"):
+        try:
+            for f, q in _fut_quotes(kite_auth.trading_client(), sorted(need)).items():
+                o, lt = (q.get("ohlc") or {}).get("open"), q.get("last_trade_time")
+                if o and lt and lt.date() == today:
+                    for d, watch, taken, missed, held, _ in todo:
+                        if d < today and need.get(f) in watch and (need[f], d) not in nxt:
+                            nxt[(need[f], d)] = (today, float(o))
+        except Exception as error:
+            print("Oops tick book: today's opens failed:", error)
 
     def exit_of(d, s):
         """(exit price, closed, exit day) as the book would: its own exit if it held it, else the next open."""
@@ -526,26 +541,29 @@ def _capped_version(days, today, live, fills_slip, cps, lots):
             return n[1], True, n[0]
         return (live.get(s) or {}).get("last_price"), False, None
 
-    for d, watch, taken, missed in todo:
+    for d, watch, taken, missed, held, skip in todo:
         picks = []
         for s, trig, fill_at, px in taken:
             pl, o, fut = watch[s]
             ex, closed, xd = exit_of(d, s)
             k_out = fills.want(xd or d, s, "sell", realfill.at_open(xd), ex) if closed and xd else None
             picks.append({"symbol": s, "fut": fut, "side": "long", "gap_pct": round(100 * (o / pl - 1), 2), "prev_low": round(pl, 2),
+                          "open": round(o, 2), "first_second": fill_at.time() <= clock(9, 15, 1), "stop": None,
+                          "exit_at": "09:15:01" if xd else None,
                           "paper_entry": round(pl, 2), "entry": round(px, 2), "triggered_at": trig.strftime("%H:%M:%S"),
                           "filled_at": fill_at.strftime("%H:%M:%S"), "entry_at": f"{d.isoformat()} {fill_at:%H:%M:%S}",
                           "exit": round(ex, 2) if ex else None, "closed": closed, "reason": "next open" if closed else ("live" if ex else "open"),
                           "weight_pct": round(100 / slots, 3), "_w": 1.0 / slots, "_ret": ex / px - 1 if ex else None,
                           "_k": (None, k_out), "_x_in": -fills_slip})
         out_days.append({"day": d.isoformat(), "status": "closed" if all(r["closed"] for r in picks) else "open", "picks": picks})
-        for s, trig, _, _ in missed:
+        for s, trig, _, _ in missed + held:
             pl, o, fut = watch[s]
             ex, closed, xd = exit_of(d, s)
             k_in = fills.want(d, s, "buy", trig, pl) if realfill.in_window(trig) else None
             k_out = fills.want(xd, s, "sell", realfill.at_open(xd), ex) if closed and xd else None
             misses.append({"day": d.isoformat(), "symbol": s, "side": "long", "prev_low": round(pl, 2), "triggered_at": trig.strftime("%H:%M:%S"),
-                           "reason": f"not filled within {capped.WAIT} s at {pl * (1 + capped.CAP['oops']):.2f} or better",
+                           "reason": f"skipped: {skip[s]}" if s in skip else f"not filled within {capped.WAIT} s at {pl * (1 + capped.CAP['oops']):.2f} or better",
+                           "skipped": s in skip,
                            "_row": {"symbol": s, "side": "long", "entry": pl, "exit": ex, "closed": closed,
                                     "_w": 1.0 / slots, "_ret": ex / pl - 1 if ex else None, "_k": (k_in, k_out)}})
     fills.load()
@@ -615,6 +633,7 @@ def paper(slippage=0.0002):
         days.append({"day": day, "status": status, "picks": rows, "net_pct": round(sum(r["book_net_pct"] for r in rows), 4),
                      **v2paper._lots(rows, lots, cps)})
     cap = _capped_version(days, today, live, fills_slip=slippage, cps=cps, lots=lots)
+    days = v2paper.tick_book(days, cap)
     held = {r["symbol"] for d in days if d["day"] == today.isoformat() for r in d["picks"]}
     watchlist = [{"symbol": s, "prev_low": round(pl, 2), "open": round(o, 2), "gap_pct": round(100 * (o / pl - 1), 2),
                   "ltp": (live.get(s) or {}).get("last_price"), "high": ((live.get(s) or {}).get("ohlc") or {}).get("high"),

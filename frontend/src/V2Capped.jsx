@@ -2,9 +2,9 @@ import { formatRs } from "./V2Controls";
 import { tone } from "./V2BacktestView";
 import { Panel, PositionsTable } from "./V2PaperView";
 
-// The capped-limit version of a paper book (backend capped.py), side by side with the book as it is: a limit order
-// no worse than the printed price by the cap, cancelled after the wait, the slot passed to the next candidate.
-// Worked out from the recorded order book; nothing places orders.
+// The paper book is filled tick by tick (backend capped.py): a limit order no worse than the printed price by the cap,
+// cancelled after the wait, the slot passed to the next candidate, from the recorded order book. This panel puts it
+// side by side with the printed-price way (every pick at its open / level + slippage). Nothing places orders.
 
 const rs = (v) => (v == null ? "—" : `${v > 0 ? "+" : ""}${formatRs(v)}`);
 
@@ -55,24 +55,24 @@ export default function CappedPanel({ cap, entryLabel = "Fill" }) {
     { h: "Side", cell: (m) => m.side },
     { h: "Why", cell: (m) => m.reason, style: () => ({ color: "var(--muted)" }) },
     {
-      h: "It made (market version)",
+      h: "It made (at the printed price)",
       cell: (m) => (m.market_net_rs == null ? "—" : `${rs(m.market_net_rs)}${m.closed ? "" : " · open"}`),
       style: (m) => ({ color: tone(m.market_net_rs) }),
-      title: () => "What this pick made (or makes so far) bought at its paper price with the market version's costs: a missed winner is the price of the cap",
+      title: () => "What this pick made (or makes so far) bought at its printed price + slippage: a missed winner is the price of the cap",
     },
   ];
   return (
     <Panel
-      title="Capped-limit version · side by side"
+      title="Tick fills vs printed price · side by side"
       right={`a limit no worse than ${cap.cap_pct}% past the paper price, cancelled after ${cap.wait_s} s, the slot to the next candidate${cap.from ? ` · from ${day(cap.from)} (the tick log)` : ""}`}
     >
       <div className="grid gap-3 md:grid-cols-2">
-        <Side title="Market version (the book)" s={cap.market_same_days} note="The same days, filled at the paper price + slippage (thin futures: the order book's cost)" />
-        <Side title="Capped limit" s={cap.summary} note="Filled only where the order book allowed within the cap; real fill prices" />
+        <Side title="Tick-filled (the book)" s={cap.summary} note="Filled only where the order book allowed within the cap, at the real fill prices" />
+        <Side title="At the printed price (for comparison)" s={cap.market_same_days} note="The same days, every pick at its open / level + slippage (thin futures: the order book's cost)" />
       </div>
       <p className="mt-3 text-xs" style={{ color: "var(--muted)" }}>
         Missed so far: {cap.misses.length}
-        {cap.missed_closed ? ` · of the closed ones, ${cap.missed_winners} of ${cap.missed_closed} were winners, together ${rs(cap.missed_net_rs)} in the market version` : ""}
+        {cap.missed_closed ? ` · of the closed ones, ${cap.missed_winners} of ${cap.missed_closed} were winners, together ${rs(cap.missed_net_rs)} at the printed price` : ""}
       </p>
       <h3 className="mt-4 mb-1 text-xs font-semibold uppercase tracking-[0.08em]" style={{ color: "var(--faint)" }}>Filled</h3>
       <PositionsTable rows={fills} columns={fillCols} minWidth={820} empty="No capped fills yet." />

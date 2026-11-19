@@ -221,6 +221,21 @@ function Paper({ p, today, openOnly = false }) {
   const day = (iso) => (iso ? new Date(`${iso}T00:00:00`).toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" }) : "—");
   return (
     <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+      {shown("oops") && (
+      <PaperCard
+        title="Oops gap reversal"
+        href="/v2/paper/oops"
+        style="Intraday"
+        error={op.error}
+        lines={[
+          ["Watching", `${op.watched ?? 0} opened below yesterday's low`],
+          ["Today", op.today_status ? `${op.today_positions} bought · ${op.today_status === "open" ? "live" : "closed"}` : "no buys yet"],
+          ["Today's net", rs(op.today_net_rs, op.today_value_pct), tone(op.today_net_rs)],
+          ["Realized net", rs(op.total_net_rs), tone(op.total_net_rs)],
+          ["Capital required", op.capital_rs ? formatRs(op.capital_rs) : "—"],
+        ]}
+      />
+      )}
       {shown("buy-on-gap") && (
       <PaperCard
         title="Buy/Sell on gap"
@@ -249,21 +264,6 @@ function Paper({ p, today, openOnly = false }) {
           ["Today's net", rs(x.today_net_rs, x.today_margin_pct), tone(x.today_net_rs)],
           ["Realized net", rs(x.total_net_rs), tone(x.total_net_rs)],
           ["Capital required", x.capital_rs ? formatRs(x.capital_rs) : "—"],
-        ]}
-      />
-      )}
-      {shown("oops") && (
-      <PaperCard
-        title="Oops gap reversal"
-        href="/v2/paper/oops"
-        style="Intraday"
-        error={op.error}
-        lines={[
-          ["Watching", `${op.watched ?? 0} opened below yesterday's low`],
-          ["Today", op.today_status ? `${op.today_positions} bought · ${op.today_status === "open" ? "live" : "closed"}` : "no buys yet"],
-          ["Today's net", rs(op.today_net_rs, op.today_value_pct), tone(op.today_net_rs)],
-          ["Realized net", rs(op.total_net_rs), tone(op.total_net_rs)],
-          ["Capital required", op.capital_rs ? formatRs(op.capital_rs) : "—"],
         ]}
       />
       )}
@@ -914,9 +914,9 @@ function PhonePaper({ p }) {
   const intraday = (b, word, none) => (b.today_status ? `${b.today_positions} ${word} · ${b.today_status === "open" ? "live" : "closed"}` : none);
   const held = (b) => `${b.open ?? 0} / ${b.max_open ?? 3} open${b.open_symbols?.length ? ` · ${b.open_symbols.join(", ")}` : ""}`;
   const rows = [
+    ["oops", { title: "Oops gap reversal", sub: intraday(op, "bought", `${op.watched ?? 0} watched, no buys yet`), value: op.today_net_rs, valueLabel: "today", total: op.total_net_rs, error: op.error }],
     ["buy-on-gap", { title: "Buy/Sell on gap", sub: intraday(g, "positions", "no picks yet"), value: g.today_net_rs, valueLabel: "today", total: g.total_net_rs, error: g.error }],
     ["xs-mean-reversion", { title: "Cross-sectional mean reversion", sub: intraday(x, "positions", "not recorded yet"), value: x.today_net_rs, valueLabel: "today", total: x.total_net_rs, error: x.error }],
-    ["oops", { title: "Oops gap reversal", sub: intraday(op, "bought", `${op.watched ?? 0} watched, no buys yet`), value: op.today_net_rs, valueLabel: "today", total: op.total_net_rs, error: op.error }],
     ["short-term-reversion", { title: "Short-term mean reversion", sub: held(c), value: c.today_net_rs, valueLabel: "today", total: c.fut_net_rs, error: c.error }],
     ["cumulative-rsi", { title: "Cumulative RSI(2)", sub: held(cc), value: cc.today_net_rs, valueLabel: "today", total: cc.fut_net_rs, error: cc.error }],
     ["turn-of-month", { title: "Turn of the month", sub: (p.tom_paper || {}).open ? `holding ${p.tom_paper.fut}` : `buy ${p.tom_paper?.buy ?? "—"} · sell ${p.tom_paper?.sell ?? "—"}`, value: p.tom_paper?.today_net_rs, valueLabel: "today", total: p.tom_paper?.total_net_rs, error: p.tom_paper?.error }],

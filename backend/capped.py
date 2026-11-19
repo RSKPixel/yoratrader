@@ -83,7 +83,7 @@ def open_entries(day, cands, slots, cap):
     free = dict(slots)
     queue = {g: [c for c in cands if c["group"] == g] for g in slots}
     fills, misses = [], []
-    a = datetime.combine(day, FIRST)
+    a = last = datetime.combine(day, FIRST)
     while a <= end and any(free[g] > 0 and queue[g] for g in free):
         b = a + timedelta(seconds=WAIT)
         if b > end:  # the tick log stops before this round's wait is up: judged on what's there if most of it is
@@ -101,8 +101,20 @@ def open_entries(day, cands, slots, cap):
                     free[g] -= 1
                 else:
                     misses.append((c, f"not filled {a:%H:%M:%S}-{b:%H:%M:%S} at {limit:.2f} or better"))
-        a = b
-    return fills, misses
+        a = last = b
+    return fills, misses, last
+
+
+def unwind(day, symbol, side, at):
+    """Selling back a filled leg at the market at `at` (a long: the bid, a short: the ask): the first quote at or
+    after it, else the last one recorded before it. (time, price) or None."""
+    rows = _ticks(day, {symbol}).get(symbol) or []
+    after = [r for r in rows if r[0] >= at]
+    for ts, ltp, bid, ask in after + list(reversed([r for r in rows if r[0] < at])):
+        px = bid if side == "long" else ask
+        if px:
+            return ts, float(px)
+    return None
 
 
 # ---- Oops: triggers through the day ---------------------------------------------------------------

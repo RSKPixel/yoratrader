@@ -68,8 +68,19 @@ def _months(start, end):
         m = date(m.year + (m.month == 12), m.month % 12 + 1, 1)
 
 
-def _fetch(token, a, b, tries=10):
+def _market_pause():
+    """Angel One rate-limits historical calls hard in market hours (19 Nov 2026: slowed from 09:20, then 403
+    "exceeding access rate"): wait until 15:45 on a weekday between 09:00 and 15:45."""
+    now = datetime.now()
+    if now.weekday() < 5 and (9, 0) <= (now.hour, now.minute) < (15, 45):
+        until = now.replace(hour=15, minute=45, second=0, microsecond=0)
+        print(f"{now:%H:%M:%S} market hours: paused until 15:45", flush=True)
+        time.sleep((until - now).total_seconds())
+
+
+def _fetch(token, a, b, tries=12):
     for i in range(tries):
+        _market_pause()
         try:
             r = angel_auth.get(HIST, {"exchange": "NFO", "symboltoken": token, "interval": "ONE_MINUTE",
                                       "fromdate": a.strftime("%Y-%m-%d 09:15"), "todate": b.strftime("%Y-%m-%d 15:30")})
@@ -80,7 +91,7 @@ def _fetch(token, a, b, tries=10):
                 raise ValueError("session")
             return r.get("data") or []
         except Exception as error:
-            time.sleep(min(600, 5 * 2 ** i))  # an hourly cap clears within the hour: wait up to 10 minutes a try
+            time.sleep(min(1800, 5 * 2 ** i))  # a rate block clears in time: wait up to 30 minutes a try
             if i >= 3:
                 angel_auth._session["jwt"] = None  # and log in afresh
             last = error

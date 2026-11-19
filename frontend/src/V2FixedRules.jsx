@@ -110,6 +110,12 @@ export default function FixedRules({ id, paper = false, label = "" }) {
   const slip = { "buy-on-gap": "gap", "xs-mean-reversion": "xsmr", oops: "oops", "short-term-reversion": "connors", "cumulative-rsi": "connors", "turn-of-month": "tom" }[id];
   if (paper && slip) rules = [...rules, ["Slippage", `${SLIPPAGE_DEFAULT[slip]}% a side (fixed; measured from the paper fills over time)`]];
   if (paper && (slip === "gap" || slip === "xsmr" || slip === "oops"))
+    rules = [...rules, ["Fills", `tick by tick from the recorded order book: a limit no worse than ${slip === "oops" ? "0.3%" : "0.2%"} past the ${slip === "oops" ? "buy level" : "open"}, cancelled after 30 s, the slot to the next candidate; filled at the real ask / bid (charges only on the way in)`]];
+  if (paper && (slip === "gap" || slip === "xsmr" || slip === "oops"))
+    rules = [...rules, ["One stock, one book", "intraday books in order 1. Oops gap reversal, 2. Buy/Sell on gap, 3. Cross-sectional: a stock another book already holds is skipped and the next candidate taken (at the open the order decides; later, whoever holds it first)"]];
+  if (paper && slip === "xsmr")
+    rules = [...rules, ["Pairs", "a long trades only with its short: if one side doesn't fill by the last round (09:16:30), the side that did is sold straight back at the market"]];
+  if (paper && (slip === "gap" || slip === "xsmr" || slip === "oops"))
     rules = [...rules, ["Thin futures", "where the recorded order book was worse: a buy pays the ask, a sell gets the bid (median of the next 10 seconds at the open, the 15:15 exit or the Oops fill), and anything beyond the fixed slippage is added to that trade's costs (marked THIN)"]];
   if (paper && (id === "short-term-reversion" || id === "cumulative-rsi")) // these paper books buy at the 15:15 run
     rules = rules.map(([k, v]) => (k === "Entry" ? [k, "at the close: 15:15 (the paper run)"] : [k, v]));
