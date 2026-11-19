@@ -428,7 +428,7 @@ def paper(slippage=SLIPPAGE):
         r["live_at"] = r["live_at"].strftime("%H:%M:%S") if r.get("live_at") else None
         for key in ("r", "r_stop", "r_0916", "r_live"):
             if r.get(key) is not None:
-                entry = {"r_0916": r["entry_0916"], "r_live": r["entry_live"]}.get(key, r["entry"])
+                entry = {"r_0916": r["entry_0916"], "r_live": r["entry_live"]}.get(key) or r["entry"]  # no live snapshot: the open
                 sign = 1 if r["side"] == "long" else -1
                 cost = backtest._cost_r({"entry": entry, "stop": entry - sign * risk_pts, "r": r[key], "side": r["side"],
                                          "t1_hit": False}, "fno", slippage)
