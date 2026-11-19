@@ -31,7 +31,7 @@ def _settings():
     """The paper pages' saved settings (the one user's), with the pages' defaults."""
     with connect() as conn, conn.cursor() as cursor:
         cursor.execute("SELECT key, value FROM user_settings WHERE key IN ('params.paper-buy-on-gap', 'params.paper-xs-mean-reversion', "
-                       "'paper.gap.side', 'paper.xsmr.pairs') ORDER BY user_id")
+                       "'paper.gap.side', 'paper.xsmr.pairs', 'paper.gap.disaster', 'paper.xsmr.disaster') ORDER BY user_id")
         got = {}
         for k, v in cursor.fetchall():
             got.setdefault(k, v)
@@ -49,7 +49,8 @@ def _settings():
     gap_open = int((val("params.paper-buy-on-gap", {}) or {}).get("maxOpen") or 5)
     xs_open = int((val("params.paper-xs-mean-reversion", {}) or {}).get("maxOpen") or 10)
     pairs = int(val("paper.xsmr.pairs", 5) or 5)
-    return {"gap_open": gap_open, "gap_side": val("paper.gap.side", "long"), "xs_k": max(1, min(pairs, 5, xs_open // 2 or 5))}
+    return {"gap_open": gap_open, "gap_side": val("paper.gap.side", "long"), "xs_k": max(1, min(pairs, 5, xs_open // 2 or 5)),
+            "gap_disaster": val("paper.gap.disaster", "on"), "xs_disaster": val("paper.xsmr.disaster", "off")}  # the pages' defaults
 
 
 def _oops_fills(day):

@@ -35,6 +35,12 @@ _models = {"at": 0, "value": None, "building": False}
 _lock = threading.Lock()
 
 
+def _cfg():
+    """The paper pages' saved settings (side, disaster stop, ...), so the dashboard shows the books as their pages do."""
+    import priority
+    return priority._settings()
+
+
 def _one(cursor, sql, args=()):
     cursor.execute(sql, args)
     row = cursor.fetchone()
@@ -146,7 +152,7 @@ def _paper(gap_max_open=5, xsmr_max_open=10):
         out["tom"] = {"error": str(error)}
     pairs = min(5, xsmr_max_open // 2) if xsmr_max_open else 5
     try:
-        g = v2paper.gap("long", "none", gap_max_open, SL["gap"])
+        g = v2paper.gap(_cfg()["gap_side"], "none", gap_max_open, SL["gap"], _cfg()["gap_disaster"])
         today = next((d for d in g["days"] if d["day"] == g["today"]), None)
         out["gap"] = {"today_positions": len(today["picks"]) if today else 0, "today_net_rs": today["net_rs"] if today else None,
                       "today_margin_pct": today["net_value_pct"] if today else None, "today_margin_rs": today["margin_rs"] if today else None,
@@ -156,7 +162,7 @@ def _paper(gap_max_open=5, xsmr_max_open=10):
     except Exception as error:
         out["gap"] = {"error": str(error)}
     try:
-        x = v2paper.xsmr_(pairs, "none", xsmr_max_open, SL["xsmr"])
+        x = v2paper.xsmr_(pairs, "none", xsmr_max_open, SL["xsmr"], _cfg()["xs_disaster"])
         today = next((d for d in x["days"] if d["day"] == x["today"]), None)
         out["xsmr"] = {"today_positions": len(today["picks"]) if today else 0, "today_net_rs": today["net_rs"] if today else None,
                        "today_margin_pct": today["net_value_pct"] if today else None, "today_margin_rs": today["margin_rs"] if today else None,
@@ -266,8 +272,8 @@ def paper_curve(gap_max_open=5, xsmr_max_open=10):
         daily[label] = {d["day"]: d["net_rs"] for d in days if d.get("net_rs") is not None}
 
     for label, build in (("Oops gap reversal", lambda: oopswatch.paper(SL["oops"])["days"]),
-                         ("Buy/Sell on gap", lambda: v2paper.gap("long", "none", gap_max_open, SL["gap"])["days"]),
-                         ("Cross-sectional mean reversion", lambda: v2paper.xsmr_(pairs, "none", xsmr_max_open, SL["xsmr"])["days"])):
+                         ("Buy/Sell on gap", lambda: v2paper.gap(_cfg()["gap_side"], "none", gap_max_open, SL["gap"], _cfg()["gap_disaster"])["days"]),
+                         ("Cross-sectional mean reversion", lambda: v2paper.xsmr_(pairs, "none", xsmr_max_open, SL["xsmr"], _cfg()["xs_disaster"])["days"])):
         try:
             days_net(label, build())
         except Exception as error:
@@ -448,7 +454,12 @@ def open_positions(gap_max_open=5, xsmr_max_open=10):
     pairs = min(5, xsmr_max_open // 2) if xsmr_max_open else 5
     found, errors = [], {}
 
-    def intraday(label, href, build, fut=False):
+    def intraday(label, href, build, fut=False, disaster="off"):
+        def stop_of(p):  # the stop the book really uses: the 10% disaster stop if it's on (no 1σ stop in paper)
+            if disaster != "on" or not p.get("entry"):
+                return None
+            import disaster as ds
+            return round(p["entry"] * (1 - ds.PCT / 100 if p.get("side", "long") == "long" else 1 + ds.PCT / 100), 2)
         try:
             for d in build()["days"]:
                 if d.get("status") == "closed":
@@ -458,14 +469,14 @@ def open_positions(gap_max_open=5, xsmr_max_open=10):
                         continue
                     key = f"NFO:{p['fut']}" if fut and p.get("fut") else f"NSE:{p['symbol']}"
                     found.append({"book": label, "href": href, "symbol": p["symbol"], "key": key, "side": p.get("side", "long"),
-                                  "since": d["day"], "entry_at": p.get("entry_at"), "entry": p.get("entry"), "stop": p.get("stop"),
+                                  "since": d["day"], "entry_at": p.get("entry_at"), "entry": p.get("entry"), "stop": stop_of(p),
                                   "last": p.get("exit"), "net_rs": p.get("net_rs"), "net_pct": p.get("net_value_pct")})
         except Exception as error:
             errors[label] = str(error)
 
-    intraday("Oops gap reversal", "/v2/paper/oops", lambda: oopswatch.paper(SL["oops"]), fut=True)
-    intraday("Buy/Sell on gap", "/v2/paper/buy-on-gap", lambda: v2paper.gap("long", "none", gap_max_open, SL["gap"]), fut=True)
-    intraday("Cross-sectional mean reversion", "/v2/paper/xs-mean-reversion", lambda: v2paper.xsmr_(pairs, "none", xsmr_max_open, SL["xsmr"]), fut=True)
+    intraday("Oops gap reversal", "/v2/paper/oops", lambda: oopswatch.paper(SL["oops"]), fut=True, disaster="on" if oopswatch.stop_mode() == "on" else "off")
+    intraday("Buy/Sell on gap", "/v2/paper/buy-on-gap", lambda: v2paper.gap(_cfg()["gap_side"], "none", gap_max_open, SL["gap"], _cfg()["gap_disaster"]), fut=True, disaster=_cfg()["gap_disaster"])
+    intraday("Cross-sectional mean reversion", "/v2/paper/xs-mean-reversion", lambda: v2paper.xsmr_(pairs, "none", xsmr_max_open, SL["xsmr"], _cfg()["xs_disaster"]), fut=True, disaster=_cfg()["xs_disaster"])
     for label, href, book in (("Short-term mean reversion", "/v2/paper/short-term-reversion", "rsi2"),
                               ("Cumulative RSI(2)", "/v2/paper/cumulative-rsi", "cum")):
         try:

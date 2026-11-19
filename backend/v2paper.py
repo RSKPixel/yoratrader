@@ -161,9 +161,9 @@ def _capped_prepare(model, inputs, fills, slippage):
             r.update(paper_entry=r["entry"], entry=round(px, 2), filled_at=ts.strftime("%H:%M:%S"), entry_at=f"{day} {ts:%H:%M:%S}",
                      _k=(None, r["_k"][1]), _x_in=-slippage)  # the fill is the real price: charges only on the way in
             if r["closed"] and r.get("exit") and "stop" not in str(r.get("reason")):  # the 15:15 exit at the real bid / ask
-                out = capped.market_exit(d, r["symbol"], r["side"], realfill.at_close(d))
-                if out:
-                    r.update(paper_exit=r["exit"], exit=round(out[1], 2), exit_at=f"{day} {out[0]:%H:%M:%S}", exit_tick=True,
+                got_out = capped.market_exit(d, r["symbol"], r["side"], realfill.at_close(d))
+                if got_out:
+                    r.update(paper_exit=r["exit"], exit=round(got_out[1], 2), exit_at=f"{day} {got_out[0]:%H:%M:%S}", exit_tick=True,
                              _k=(None, None), _x_out=-slippage)
             r["_ret"] = sign * (r["exit"] / px - 1) if r.get("exit") else None
             picks.append(r)
