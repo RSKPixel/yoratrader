@@ -535,7 +535,7 @@ export function PaperOverview() {
         />
       </div>
       <PaperTotals p={d.paper} />
-      <Panel title="Open positions" right="price since bought, one lot each · on the future each book trades (older gap and XR rows: the share)">
+      <Panel title="Open positions" right="price since bought, one lot each · on the future each book trades (SR and CR: their own prices, spot or futures)">
         <OpenPositions query={curveQuery} />
       </Panel>
       <Paper p={d.paper} today={d.today} openOnly={filter === "open"} />
