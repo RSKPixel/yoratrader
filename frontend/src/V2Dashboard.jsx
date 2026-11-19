@@ -775,7 +775,7 @@ export default function V2Dashboard() {
         ))}
       </div>
       <div role="tabpanel">
-        {tab === "paper" && <Paper p={d.paper} today={d.today} />}
+        {tab === "paper" && <WidePaper p={d.paper} today={d.today} />}
         {tab === "live" && (
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
             <TomCard tm={d.paper.tom} />
@@ -861,6 +861,51 @@ function PhoneRow({ title, href, sub, value, valueLabel, total, error }) {
   );
 }
 
+// Every paper book together, after costs: today's net big, realized and open below (the phone's paper tab and the wide dashboard's)
+function PaperHero({ t, wide = false }) {
+  const stat = (label, v, hint) => (
+    <div title={hint}>
+      <div className="text-xs" style={{ color: "var(--muted)" }}>{label}</div>
+      <div className={`font-semibold ${wide ? "text-lg" : ""}`} style={{ color: tone(v) }}>{signedRs(v)}</div>
+    </div>
+  );
+  const realized = stat("Realized net", t.total, "Trades already sold, every paper book since it started, one lot each, after charges and slippage");
+  const open = stat("Open now", t.openRs, "Positions not sold yet, marked at the current price, after costs: not locked in");
+  const count = `${t.positions} positions open · ${t.openBooks} of ${t.books} books`;
+  if (wide)
+    return (
+      <div className="flex flex-wrap items-end gap-x-10 gap-y-3 rounded-xl border px-5 py-4" style={{ borderColor: "var(--border)", background: "var(--surface)" }}>
+        <div>
+          <div className="text-xs" style={{ color: "var(--muted)" }}>Today's net · all paper books</div>
+          <div className="mt-1 text-3xl font-semibold tabular-nums tracking-tight" style={{ color: tone(t.today) }}>{signedRs(t.today)}</div>
+        </div>
+        <div className="flex gap-10 tabular-nums">{realized}{open}</div>
+        <div className="ml-auto self-center text-xs" style={{ color: "var(--muted)" }}>{count} · after costs</div>
+      </div>
+    );
+  return (
+    <div className="rounded-xl border p-4" style={{ borderColor: "var(--border)", background: "var(--surface)" }}>
+      <div className="text-xs" style={{ color: "var(--muted)" }}>Today's net · all paper books</div>
+      <div className="mt-1 text-3xl font-semibold tabular-nums tracking-tight" style={{ color: tone(t.today) }}>{signedRs(t.today)}</div>
+      <div className="mt-3 grid grid-cols-2 gap-3 border-t pt-3 text-sm tabular-nums" style={{ borderColor: "var(--border)" }}>
+        {realized}
+        {open}
+      </div>
+      <div className="mt-2 text-xs" style={{ color: "var(--muted)" }}>{count}</div>
+    </div>
+  );
+}
+
+function WidePaper({ p, today }) {
+  const t = paperTotals(p, useModelStatuses());
+  return (
+    <div className="flex flex-col gap-3">
+      <PaperHero t={t} wide />
+      <Paper p={p} today={today} />
+    </div>
+  );
+}
+
 function PhonePaper({ p }) {
   const statuses = useModelStatuses();
   const t = paperTotals(p, statuses);
@@ -878,21 +923,7 @@ function PhonePaper({ p }) {
   ].filter(([id]) => shown(id));
   return (
     <div className="flex flex-col gap-4">
-      <div className="rounded-xl border p-4" style={{ borderColor: "var(--border)", background: "var(--surface)" }}>
-        <div className="text-xs" style={{ color: "var(--muted)" }}>Today's net · all paper books</div>
-        <div className="mt-1 text-3xl font-semibold tabular-nums tracking-tight" style={{ color: tone(t.today) }}>{signedRs(t.today)}</div>
-        <div className="mt-3 grid grid-cols-2 gap-3 border-t pt-3 text-sm tabular-nums" style={{ borderColor: "var(--border)" }}>
-          <div>
-            <div className="text-xs" style={{ color: "var(--muted)" }}>Realized net</div>
-            <div className="font-semibold" style={{ color: tone(t.total) }}>{signedRs(t.total)}</div>
-          </div>
-          <div>
-            <div className="text-xs" style={{ color: "var(--muted)" }}>Open now</div>
-            <div className="font-semibold" style={{ color: tone(t.openRs) }}>{signedRs(t.openRs)}</div>
-          </div>
-        </div>
-        <div className="mt-2 text-xs" style={{ color: "var(--muted)" }}>{t.positions} positions open · {t.openBooks} of {t.books} books</div>
-      </div>
+      <PaperHero t={t} />
       <div className="overflow-hidden rounded-xl border" style={{ borderColor: "var(--border)", background: "var(--surface)" }}>
         {rows.map(([id, r]) => <PhoneRow key={id} href={`/v2/paper/${id}`} {...r} />)}
       </div>

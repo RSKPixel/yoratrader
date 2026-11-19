@@ -5,6 +5,7 @@ import { Field, formatRs, Segmented } from "./V2Controls";
 import { tone, AT_COLUMNS } from "./V2BacktestView";
 import { SLIPPAGE_DEFAULT, useBacktest, useLiveRefresh } from "./V2BuyOnGap";
 import V2PnlChart from "./V2PnlChart";
+import CappedPanel from "./V2Capped";
 import { DayLog, LotCards, lotColumns, lotMoney, netBoth, usePaperChart, Panel, PositionsTable } from "./V2PaperView";
 import DisasterStop from "./V2Disaster";
 
@@ -46,6 +47,8 @@ export default function V2PaperGap({ params }) {
     { h: "Net", cell: (t) => (t.net_pct == null ? "—" : `${t.net_pct.toFixed(2)}%`), style: (t) => ({ color: tone(t.net_pct) }) },
     lot.value,
     lot.margin,
+    lot.slip,
+    lot.paperNet,
     lot.result,
   ];
   function t_exit() {
@@ -85,6 +88,7 @@ export default function V2PaperGap({ params }) {
             )}
             <PositionsTable rows={today?.picks || []} columns={[chart.column, ...columns]} minWidth={1050} empty="No picks today." />
           </Panel>
+          <CappedPanel cap={data.capped} />
           <Panel title={`Watchlist for ${data.session}`} right={`${data.watchlist.length} stocks · a pick if it opens past its level and stays on the right side of its 20-day average`}>
             <div className="max-h-96 overflow-auto">
               <PositionsTable rows={data.watchlist} columns={watchCols} minWidth={700} empty="No levels yet (futures daily candles download at 15:50)." />

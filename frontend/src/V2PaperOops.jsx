@@ -5,6 +5,7 @@ import { Field, formatRs, Segmented } from "./V2Controls";
 import { tone, AT_COLUMNS } from "./V2BacktestView";
 import { SLIPPAGE_DEFAULT, useBacktest, useLiveRefresh } from "./V2BuyOnGap";
 import V2PnlChart from "./V2PnlChart";
+import CappedPanel from "./V2Capped";
 import { DayLog, LotCards, lotColumns, lotMoney, netBoth, usePaperChart, Panel, PositionsTable } from "./V2PaperView";
 import DisasterStop from "./V2Disaster";
 
@@ -40,6 +41,8 @@ export default function V2PaperOops({ params, stop, onStop, exit, onExit, saving
     { h: "Return", cell: (t) => (t.ret_pct == null ? "—" : `${t.ret_pct.toFixed(2)}%`), style: (t) => ({ color: tone(t.ret_pct) }) },
     lot.value,
     lot.margin,
+    lot.slip,
+    lot.paperNet,
     lot.result,
   ];
   const today = data?.days.find((d) => d.day === data.today);
@@ -91,6 +94,7 @@ export default function V2PaperOops({ params, stop, onStop, exit, onExit, saving
             )}
             <PositionsTable rows={today?.picks || []} columns={[chart.column, ...columns]} minWidth={1000} empty="No buys yet today." />
           </Panel>
+          <CappedPanel cap={data.capped} entryLabel="Fill (buy limit)" />
           <Panel title={`Watching today · ${data.watchlist.length} futures opened below yesterday's low`} right="bought when the price trades back up to the buy level">
             <div className="max-h-96 overflow-auto">
               <PositionsTable rows={data.watchlist} columns={watchCols} minWidth={640} empty={data.market_open ? "None opened below yesterday's low today." : "The watchlist is made at 09:15 on trading days."} />

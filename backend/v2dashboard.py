@@ -465,7 +465,7 @@ def open_positions(gap_max_open=5, xsmr_max_open=10):
 
     intraday("Buy/Sell on gap", "/v2/paper/buy-on-gap", lambda: v2paper.gap("long", "none", gap_max_open, SL["gap"]), fut=True)
     intraday("Cross-sectional mean reversion", "/v2/paper/xs-mean-reversion", lambda: v2paper.xsmr_(pairs, "none", xsmr_max_open, SL["xsmr"]), fut=True)
-    intraday("Oops gap reversal", "/v2/paper/oops", oopswatch.paper, fut=True)
+    intraday("Oops gap reversal", "/v2/paper/oops", lambda: oopswatch.paper(SL["oops"]), fut=True)
     for label, href, book in (("Short-term mean reversion", "/v2/paper/short-term-reversion", "rsi2"),
                               ("Cumulative RSI(2)", "/v2/paper/cumulative-rsi", "cum")):
         try:

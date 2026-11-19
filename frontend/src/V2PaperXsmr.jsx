@@ -5,6 +5,7 @@ import { Field, formatRs, Segmented } from "./V2Controls";
 import { tone, AT_COLUMNS } from "./V2BacktestView";
 import { SLIPPAGE_DEFAULT, useBacktest, useLiveRefresh } from "./V2BuyOnGap";
 import V2PnlChart from "./V2PnlChart";
+import CappedPanel from "./V2Capped";
 import { DayLog, LotCards, lotColumns, lotMoney, netBoth, usePaperChart, Panel, PositionsTable } from "./V2PaperView";
 import DisasterStop from "./V2Disaster";
 
@@ -179,6 +180,8 @@ export default function V2PaperXsmr({ params }) {
     { h: "Net", cell: (t) => (t.net_pct == null ? "—" : `${t.net_pct.toFixed(2)}%`), style: (t) => ({ color: tone(t.net_pct) }) },
     lot.value,
     lot.margin,
+    lot.slip,
+    lot.paperNet,
     lot.result,
   ];
   const today = data?.days.find((d) => d.day === data.today);
@@ -216,6 +219,7 @@ export default function V2PaperXsmr({ params }) {
             )}
             <PositionsTable rows={today?.picks || []} columns={[chart.column, ...columns]} minWidth={1000} empty="No positions today." />
           </Panel>
+          <CappedPanel cap={data.capped} />
           <Panel title="Paper log" right="a row a day · click for its positions">
             <DayLog
               days={data.days}

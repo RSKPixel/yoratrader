@@ -17,7 +17,11 @@ rupees and as % of that margin; the summary the capital required (the peak day's
 totals in rupees and as % of it. The % fields above stay for the backtest-style view.
 """
 
+from datetime import date
+
+import capped
 import gapwatch
+import realfill
 import v2common
 import v2margin
 import v2meta
@@ -38,10 +42,29 @@ def _times(day, rows):
     return rows
 
 
+def _slipped(r):
+    """The trade book's slippage view of a sized row: the slippage rate on each side (the model's + a thin
+    future's extra; a capped fill's entry is its real price, so none there), the prices after it, the rupees it
+    cost, and the net at the paper price (charges only) next to the net after slippage (net_rs)."""
+    if "slip_model_pct" not in r or not r.get("lot"):
+        return
+    sign = 1 if r["side"] == "long" else -1
+    s_in = (r["slip_model_pct"] + (r.get("slip_in_pct") or 0)) / 100
+    s_out = (r["slip_model_pct"] + (r.get("slip_out_pct") or 0)) / 100
+    entry, exit_px = r["entry"], r.get("exit")
+    slip_rs = r["lot"] * (entry * s_in + (exit_px * s_out if exit_px else 0))
+    r.update(slip_rate_in_pct=round(100 * s_in, 3), slip_rate_out_pct=round(100 * s_out, 3) if exit_px else None,
+             entry_slipped=round(entry * (1 + sign * s_in), 2), exit_slipped=round(exit_px * (1 - sign * s_out), 2) if exit_px else None,
+             slip_rs=round(slip_rs, 2), net_paper_rs=round(r["net_rs"] + slip_rs, 2) if r.get("net_rs") is not None else None)
+    r["net_paper_value_pct"] = v2margin.margin_pct(r["net_paper_rs"], r.get("contract_rs"))
+
+
 def _lots(rows, lots, cps):
     """Add one-lot sizing to a day's rows; returns the day's rupee totals."""
     for r in rows:
-        r.update(v2margin.size(lots, r["symbol"], r["side"], r["entry"], r.get("exit"), cps))
+        r.update(v2margin.size(lots, r["symbol"], r["side"], r["entry"], r.get("exit"), cps,
+                               (r.get("slip_in_pct") or 0) / 100, (r.get("slip_out_pct") or 0) / 100))
+        _slipped(r)
         r["net_margin_pct"] = v2margin.margin_pct(r["net_rs"], r["margin_rs"])
         r["net_value_pct"] = v2margin.margin_pct(r["net_rs"], r["contract_rs"])
     margin = sum(r["margin_rs"] or 0 for r in rows)
@@ -86,6 +109,84 @@ def _ranges(ds, picks):
     return {**out, **fut} if fut else out
 
 
+def apply_row(r, fills, cps):
+    """A row's costs: charges + the model's slippage on both sides (cps), plus the extra slippage its
+    recorded order book showed (realfill), as slip_in_pct / slip_out_pct (each % of that side's price);
+    then its net. Expects _k (the fills keys), _w (book weight), _ret (gross return, a fraction)."""
+    k_in, k_out = r.pop("_k", (None, None))
+    w, ret = r.pop("_w"), r.pop("_ret")
+    x_in = r.pop("_x_in") if "_x_in" in r else fills.extra(k_in) if k_in is not None else 0.0
+    x_out = fills.extra(k_out) if k_out is not None else 0.0
+    m_in = fills.measured(k_in) if k_in is not None else None
+    m_out = fills.measured(k_out) if k_out is not None else None
+    ratio = r["exit"] / r["entry"] if r.get("exit") and r.get("entry") else 1
+    cost = (1 + ratio) * cps + x_in + x_out * ratio
+    r.update({"slip_in_pct": round(100 * x_in, 3), "slip_out_pct": round(100 * x_out, 3), "slip_model_pct": round(100 * fills.slip, 4),
+              "book_in_pct": round(100 * m_in, 3) if m_in is not None else None,
+              "book_out_pct": round(100 * m_out, 3) if m_out is not None else None,
+              "thin": bool(x_in or x_out),
+              "ret_pct": round(100 * ret, 3) if ret is not None else None,
+              "net_pct": round(100 * (ret - cost), 3) if ret is not None else None,
+              "book_net_pct": round(100 * w * (ret - cost), 4) if ret is not None else 0.0,
+              "book_cost_pct": round(100 * w * cost, 4)})
+    return r
+
+
+def _capped_prepare(model, inputs, fills, slippage):
+    """The capped-limit version's days from each day's ranked rows (before the costs are applied).
+    inputs: [(day, rows in rank order, {group: slots}, group of a row)]."""
+    out, misses = [], []
+    for day, rows, slots, group in inputs:
+        d = date.fromisoformat(str(day))
+        cands = [{"symbol": r["symbol"], "side": r["side"], "entry": r["entry"], "group": group(r), "row": dict(r)} for r in rows]
+        res = capped.open_entries(d, cands, slots, capped.CAP[model])
+        if res is None:  # no tick log that day (before 19 Nov 2026)
+            continue
+        got, missed = res
+        picks = []
+        for c, ts, px in got:
+            r = dict(c["row"])
+            sign = 1 if r["side"] == "long" else -1
+            r.update(paper_entry=r["entry"], entry=round(px, 2), filled_at=ts.strftime("%H:%M:%S"), entry_at=f"{day} {ts:%H:%M:%S}",
+                     _ret=sign * (r["exit"] / px - 1) if r.get("exit") else None,
+                     _k=(None, r["_k"][1]), _x_in=-slippage)  # the fill is the real price: charges only on the way in
+            picks.append(r)
+        out.append({"day": str(day), "status": "closed" if all(r["closed"] for r in picks) else "open", "picks": picks})
+        misses += [{"day": str(day), "symbol": c["symbol"], "side": c["side"], "rank": c["row"].get("rank"), "open": c["entry"],
+                    "reason": why, "_row": dict(c["row"])} for c, why in missed]
+    return out, misses
+
+
+def _capped_finish(model, days, misses, fills, cps, lots, market_days):
+    """Costs on the capped days, what each missed pick made in the market version, and the market version's
+    totals over the same days (a fair side by side)."""
+    _apply_fills(days, fills, cps, lots)
+    for m in misses:
+        r = apply_row(m.pop("_row"), fills, cps)
+        sized = v2margin.size(lots, r["symbol"], r["side"], r["entry"], r.get("exit"), cps,
+                              (r.get("slip_in_pct") or 0) / 100, (r.get("slip_out_pct") or 0) / 100)
+        m.update(closed=r["closed"], market_net_pct=r["net_pct"], market_net_rs=sized["net_rs"], exit=r.get("exit"))
+    same = {d["day"] for d in days}
+    market = [d for d in market_days if d["day"] in same]
+    def totals(ds):
+        open_days = [d for d in ds if d["status"] == "open"]
+        return {**_summary(ds), **_lot_summary(ds, lots), "open_net_rs": round(sum(d["net_rs"] for d in open_days), 2),
+                "open_trades": sum(len(d["picks"]) for d in open_days)}
+    closed_misses = [m for m in misses if m["closed"] and m["market_net_rs"] is not None]
+    return {"days": days, "summary": totals(days), "market_same_days": totals(market),
+            "missed_net_rs": round(sum(m["market_net_rs"] for m in closed_misses), 2),
+            "missed_winners": sum(m["market_net_rs"] > 0 for m in closed_misses), "missed_closed": len(closed_misses),
+            "misses": misses, "cap_pct": round(100 * capped.CAP[model], 2), "wait_s": capped.WAIT,
+            "from": min(same) if same else None}
+
+
+def _apply_fills(days, fills, cps, lots):
+    for d in days:
+        for r in d["picks"]:
+            apply_row(r, fills, cps)
+        d.update(net_pct=round(sum(r["book_net_pct"] for r in d["picks"]), 4), **_lots(d["picks"], lots, cps))
+
+
 def _summary(days):
     closed = [d for d in days if d["status"] == "closed"]
     nets = [d["net_pct"] for d in closed]
@@ -106,6 +207,8 @@ def gap(side="long", stop="none", max_open=5, slippage=0.0002, disaster="off"):
     lots = v2margin.table()
     dpct = ds.PCT if disaster == "on" else None  # the 10% disaster stop (switch on the page)
     ranges = _ranges(ds, data["picks"])
+    fills = realfill.Fills(slippage)
+    cap_in = []
     by_day = {}
     for p in data["picks"]:
         if side == "long" and p["side"] != "long":
@@ -114,10 +217,10 @@ def gap(side="long", stop="none", max_open=5, slippage=0.0002, disaster="off"):
     days = []
     for day, picks in sorted(by_day.items(), reverse=True):
         picks.sort(key=lambda p: -abs(p["gap_pct"]))
-        picks = picks[: (max_open or TOP)]
-        w = 1.0 / max_open if max_open else 1.0 / len(picks)
+        n = max_open or TOP
+        w = 1.0 / max_open if max_open else 1.0 / len(picks[:n])
         rows = []
-        for i, p in enumerate(picks):
+        for i, p in enumerate(picks):  # every candidate (the capped version's replacements come from the rest)
             closed = p["status"] == "closed"
             exit_px = (p.get("exit_stop") if stop == "1sd" else p.get("exit")) if closed else p.get("ltp")
             reason = (p.get("exit_reason_stop") if stop == "1sd" else p.get("exit_reason")) if closed else ("live" if exit_px else "open")
@@ -127,25 +230,30 @@ def gap(side="long", stop="none", max_open=5, slippage=0.0002, disaster="off"):
                 exit_px, reason = level, "disaster stop"
             sign = 1 if p["side"] == "long" else -1
             ret = sign * (exit_px / p["entry"] - 1) if exit_px else None
-            cost = (1 + (exit_px / p["entry"] if exit_px else 1)) * cps
+            d = date.fromisoformat(day)
+            k_in = fills.want(d, p["symbol"], "buy" if sign == 1 else "sell", realfill.at_open(d), p["entry"]) if p.get("fut") else None
+            k_out = (fills.want(d, p["symbol"], "sell" if sign == 1 else "buy", realfill.at_close(d), exit_px)
+                     if p.get("fut") and closed and "stop" not in str(reason) else None)
             rows.append({"symbol": p["symbol"], "fut": p.get("fut"), "side": p["side"], "rank": i + 1, "gap_pct": p["gap_pct"],
+                         "_k": (k_in, k_out),
                          "sigma_pct": p.get("sigma_pct"), "entry": p["entry"], "entry_live": p.get("entry_live"),
                          "live_at": p.get("live_at"), "stop": p["stop"], "exit": exit_px, "reason": reason, "closed": closed,
-                         "weight_pct": round(100 * w, 3), "ret_pct": round(100 * ret, 3) if ret is not None else None,
-                         "net_pct": round(100 * (ret - cost), 3) if ret is not None else None,
-                         "book_net_pct": round(100 * w * (ret - cost), 4) if ret is not None else 0.0,
-                         "book_cost_pct": round(100 * w * cost, 4)})
-        status = "closed" if all(r["closed"] for r in rows) else "open"
+                         "weight_pct": round(100 * w, 3), "_w": w, "_ret": ret})
         _times(day, rows)
-        days.append({"day": day, "status": status, "picks": rows,
-                     "net_pct": round(sum(r["book_net_pct"] for r in rows), 4), **_lots(rows, lots, cps)})
+        cap_in.append((day, rows, {"all": n}, lambda r: "all"))
+        rows = rows[:n]
+        status = "closed" if all(r["closed"] for r in rows) else "open"
+        days.append({"day": day, "status": status, "picks": rows})
+    cap_days, cap_miss = _capped_prepare("gap", cap_in, fills, slippage)
+    _apply_fills(days, fills.load(), cps, lots)
+    cap = _capped_finish("gap", cap_days, cap_miss, fills, cps, lots, days)
     watch = data["watchlist"]
     if side == "long":
         watch = [z for z in watch if z.get("buy_below")]
     return {"now": data["now"], "today": data["today"], "session": data["session"], "market_open": data["market_open"],
             "today_recorded": data["today_recorded"], "last_recorded": data["last_recorded"], "ltp_at": data["ltp_at"],
             "daily_as_of": data["daily_as_of"], "watchlist": watch, "days": days, "summary": {**_summary(days), **_lot_summary(days, lots)},
-            "cost_per_side_bps": round(10000 * cps, 2), "disaster_stop_pct": dpct}
+            "cost_per_side_bps": round(10000 * cps, 2), "disaster_stop_pct": dpct, "capped": cap}
 
 
 def _meta(data, days, cps):
@@ -181,12 +289,13 @@ def xsmr_(pairs=5, stop="none", max_open=10, slippage=0.0002, disaster="off"):
     dpct = ds.PCT if disaster == "on" else None  # the 10% disaster stop (switch on the page)
     ranges = _ranges(ds, data["positions"])
     lots = v2margin.table()
+    fills = realfill.Fills(slippage)
     k = max(1, min(int(pairs or 1), xsmrwatch.PER_SIDE, (max_open // 2) if max_open else xsmrwatch.PER_SIDE))
     w = 1.0 / max_open if max_open else xsmrwatch.WEIGHT
+    cap_in = []
     by_day = {}
     for p in data["positions"]:
-        if p["rank"] <= k:
-            by_day.setdefault(p["day"], []).append(p)
+        by_day.setdefault(p["day"], []).append(p)  # every recorded rank (the capped version's replacements)
     days = []
     for day, picks in sorted(by_day.items(), reverse=True):
         rows = []
@@ -200,20 +309,26 @@ def xsmr_(pairs=5, stop="none", max_open=10, slippage=0.0002, disaster="off"):
             if hit:
                 exit_px, reason = level, "disaster stop"
                 ret = round(100 * (1 if p["side"] == "long" else -1) * (level / p["entry"] - 1), 3)
-            cost = (1 + (exit_px / p["entry"] if exit_px else 1)) * cps
+            sign = 1 if p["side"] == "long" else -1
+            d = date.fromisoformat(day) if isinstance(day, str) else day
+            k_in = fills.want(d, p["symbol"], "buy" if sign == 1 else "sell", realfill.at_open(d), p["entry"]) if p.get("fut") else None
+            k_out = (fills.want(d, p["symbol"], "sell" if sign == 1 else "buy", realfill.at_close(d), exit_px)
+                     if p.get("fut") and closed and "stop" not in str(reason) else None)
             rows.append({"symbol": p["symbol"], "fut": p.get("fut"), "side": p["side"], "rank": p["rank"], "signal_pct": p.get("signal_pct"),
+                         "_k": (k_in, k_out), "_w": w, "_ret": ret / 100 if ret is not None else None,
                          "entry": p["entry"], "entry_live": p.get("entry_live"), "live_at": p.get("live_at"), "stop": p.get("stop"),
                          "exit": exit_px, "reason": reason,
-                         "closed": p["status"] == "closed", "weight_pct": round(100 * w, 3),
-                         "ret_pct": ret, "net_pct": round(ret - 100 * cost, 3) if ret is not None else None,
-                         "book_net_pct": round(w * (ret - 100 * cost), 4) if ret is not None else 0.0,
-                         "book_cost_pct": round(100 * w * cost, 4)})
+                         "closed": p["status"] == "closed", "weight_pct": round(100 * w, 3)})
         rows.sort(key=lambda r: (r["side"] != "long", r["rank"]))
         _times(day, rows)
-        days.append({"day": day, "status": "closed" if all(r["closed"] for r in rows) else "open", "picks": rows,
-                     "net_pct": round(sum(r["book_net_pct"] for r in rows), 4), **_lots(rows, lots, cps)})
+        cap_in.append((day, rows, {"long": k, "short": k}, lambda r: r["side"]))
+        rows = [r for r in rows if r["rank"] <= k]
+        days.append({"day": day, "status": "closed" if all(r["closed"] for r in rows) else "open", "picks": rows})
+    cap_days, cap_miss = _capped_prepare("xsmr", cap_in, fills, slippage)
+    _apply_fills(days, fills.load(), cps, lots)
+    cap = _capped_finish("xsmr", cap_days, cap_miss, fills, cps, lots, days)
     meta = _meta(data, days, cps)
     return {"now": data["now"], "today": data["today"], "market_open": data["market_open"], "meta": meta,
             "today_recorded": data["today_recorded"], "ltp_at": data["ltp_at"], "days": days, "summary": {**_summary(days), **_lot_summary(days, lots)},
             "per_side": k, "recorded_per_side": xsmrwatch.PER_SIDE, "backtest": data["backtest"],
-            "cost_per_side_bps": round(10000 * cps, 2), "disaster_stop_pct": dpct}
+            "cost_per_side_bps": round(10000 * cps, 2), "disaster_stop_pct": dpct, "capped": cap}

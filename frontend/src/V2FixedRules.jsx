@@ -109,6 +109,8 @@ export default function FixedRules({ id, paper = false, label = "" }) {
              ["Side", "long only"]];
   const slip = { "buy-on-gap": "gap", "xs-mean-reversion": "xsmr", oops: "oops", "short-term-reversion": "connors", "cumulative-rsi": "connors", "turn-of-month": "tom" }[id];
   if (paper && slip) rules = [...rules, ["Slippage", `${SLIPPAGE_DEFAULT[slip]}% a side (fixed; measured from the paper fills over time)`]];
+  if (paper && (slip === "gap" || slip === "xsmr" || slip === "oops"))
+    rules = [...rules, ["Thin futures", "where the recorded order book was worse: a buy pays the ask, a sell gets the bid (median of the next 10 seconds at the open, the 15:15 exit or the Oops fill), and anything beyond the fixed slippage is added to that trade's costs (marked THIN)"]];
   if (paper && (id === "short-term-reversion" || id === "cumulative-rsi")) // these paper books buy at the 15:15 run
     rules = rules.map(([k, v]) => (k === "Entry" ? [k, "at the close: 15:15 (the paper run)"] : [k, v]));
   return (

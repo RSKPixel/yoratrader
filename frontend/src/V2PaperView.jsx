@@ -109,14 +109,47 @@ export function lotColumns(money) {
     qty: { h: "Qty", cell: (t) => (t.qty == null ? "—" : t.qty.toLocaleString("en-IN")), title: (t) => (t.qty == null ? "No F&O lot size for this stock" : `1 lot = ${t.qty}`) },
     value: { h: "Value", cell: (t) => formatRs(t.contract_rs), title: (t) => (t.qty ? `Contract value: ${t.qty} × ${t.entry ?? t.buy ?? t.fut_buy}` : undefined) },
     margin: { h: "Margin", cell: (t) => formatRs(t.margin_rs), style: () => ({ color: "var(--muted)" }), title: () => "Futures margin (SPAN + exposure) for one lot, from Kite" },
-    result: {
-      h: "Net result",
-      cell: (t) => <span className="font-medium">{money(t.net_rs, t.net_value_pct)}</span>,
-      style: (t) => ({ color: tone(t.net_rs) }),
+    slip: {
+      h: "Slippage in / out",
+      cell: (t) =>
+        t.slip_rate_in_pct == null ? "—" : (
+          <span style={{ color: t.thin ? "var(--warning)" : "var(--muted)" }}>
+            {t.slip_rate_in_pct}% / {t.slip_rate_out_pct == null ? "—" : `${t.slip_rate_out_pct}%`}
+          </span>
+        ),
       title: (t) =>
-        t.net_rs == null
+        t.slip_rate_in_pct == null
           ? undefined
-          : `P&L ${formatRs(t.pnl_rs)} − costs ${formatRs(t.cost_rs)} = ${formatRs(t.net_rs)} · ${t.net_value_pct}% of the value ${formatRs(t.contract_rs)} · ${t.net_margin_pct}% of the margin ${formatRs(t.margin_rs)}`,
+          : `Prices after slippage: in ${t.entry_slipped} (paper ${t.entry})${t.exit_slipped == null ? "" : `, out ${t.exit_slipped} (paper ${t.exit})`} · slippage ${formatRs(t.slip_rs)}` +
+            (t.thin ? " · a thin future: the recorded order book's cost, above the model's fixed slippage" : " · the model's fixed slippage") +
+            (t.slip_rate_in_pct === 0 ? " · in: a capped fill at its real price" : ""),
+    },
+    paperNet: {
+      h: "Net @ paper price",
+      cell: (t) => money(t.net_paper_rs, t.net_paper_value_pct),
+      style: (t) => ({ color: tone(t.net_paper_rs) }),
+      title: () => "At the paper prices: charges only, no slippage",
+    },
+    result: {
+      h: "Net after slippage",
+      cell: (t) => (
+        <span className="font-medium">
+          {money(t.net_rs, t.net_value_pct)}
+          {t.thin && (
+            <span className="ml-1.5 rounded px-1 text-[0.625rem] font-semibold uppercase" style={{ color: "var(--warning)", border: "1px solid var(--warning)" }}>
+              thin
+            </span>
+          )}
+        </span>
+      ),
+      style: (t) => ({ color: tone(t.net_rs) }),
+      title: (t) => {
+        if (t.net_rs == null) return undefined;
+        const thin = t.thin
+          ? ` · costs include extra slippage from the recorded order book (a thin future): ${t.slip_in_pct}% at entry, ${t.slip_out_pct}% at exit`
+          : "";
+        return `P&L ${formatRs(t.pnl_rs)} − costs ${formatRs(t.cost_rs)} = ${formatRs(t.net_rs)} · ${t.net_value_pct}% of the value ${formatRs(t.contract_rs)} · ${t.net_margin_pct}% of the margin ${formatRs(t.margin_rs)}${thin}`;
+      },
     },
   };
 }
