@@ -17,7 +17,7 @@ export function Status({ d, nextAt }) {
   const kite = d?.kite?.connected;
   const dot = (color) => <span className="h-2 w-2 rounded-full" style={{ background: color }} aria-hidden="true" />;
   return (
-    <div className="mb-4 flex flex-col gap-3">
+    <div className="flex flex-col gap-3">
       <div className="flex items-start justify-between gap-3">
         <div className="flex flex-col gap-1.5">
           <a href="/mobile" onClick={link("/mobile")} className="text-2xl font-bold leading-none tracking-[0.18em]" aria-label="YoraTrader home">

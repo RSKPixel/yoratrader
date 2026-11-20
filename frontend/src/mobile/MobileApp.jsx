@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { LiveItems, TomCard, useDashboard } from "../V2Dashboard";
 import { systemTheme, useSetting } from "../settings";
 import MobileBook from "./MobileBook";
@@ -22,6 +22,16 @@ export default function MobileApp() {
   const [theme, setTheme] = useSetting("theme", systemTheme());
   const route = useRoute();
   const { d, error, nextAt } = useDashboard();
+  const [scrolled, setScrolled] = useState(false); // the header's shadow while the screen is scrolled under it
+  const [below, setBelow] = useState(false); // the bottom bar's shadow while there's more of the screen under it
+  const edges = (el) => {
+    setScrolled(el.scrollTop > 2);
+    setBelow(el.scrollHeight - el.scrollTop - el.clientHeight > 2);
+  };
+  useEffect(() => {
+    const el = document.getElementById("mobile-main");
+    if (el) edges(el);
+  });
   const tab = route[0] === "paper" ? "home" : TABS.some((t) => t.id === route[0]) ? route[0] : "home";
   useEffect(() => {
     document.title = `${TABS.find((t) => t.id === tab).label} · YoraTrader`;
@@ -39,14 +49,18 @@ export default function MobileApp() {
 
   return (
     <div className="v2 flex h-full flex-col overflow-hidden" data-theme={theme}>
-      <main id="mobile-main" className="min-h-0 flex-1 overflow-auto px-4 pt-4 pb-24" style={{ paddingTop: "max(1rem, env(safe-area-inset-top))" }}>
+      <header className="z-10 shrink-0 px-4 pt-4 pb-3 transition-shadow"
+        style={{ paddingTop: "max(1rem, env(safe-area-inset-top))", background: "var(--surface)", boxShadow: scrolled ? "var(--bar-shadow)" : "none",
+          borderBottom: "1px solid var(--border)" }}>
         <Status d={d} nextAt={nextAt} />
+      </header>
+      <main id="mobile-main" className="min-h-0 flex-1 overflow-auto px-4 pt-4 pb-24" onScroll={(e) => edges(e.currentTarget)}>
         {needsData && error && d && <p className="mb-2 text-xs" style={{ color: "var(--warning)" }}>{error} · showing the last data</p>}
         {screen}
       </main>
       <nav
         className="fixed inset-x-0 bottom-0 z-20 grid grid-cols-4 border-t"
-        style={{ borderColor: "var(--border)", background: "var(--surface)", paddingBottom: "env(safe-area-inset-bottom)" }}
+        style={{ borderColor: "var(--border)", background: "var(--surface)", paddingBottom: "env(safe-area-inset-bottom)", boxShadow: below ? "var(--bar-shadow-up)" : "none" }}
         aria-label="Sections"
       >
         {TABS.map((t) => {
