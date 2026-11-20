@@ -20,6 +20,7 @@ const PAGES = [
   { id: "backtesting", label: "Backtesting" },
   { id: "paper", label: "Paper trading" },
   { id: "trade", label: "Live trading" },
+  { id: "manual", label: "Manual trading" },
   { id: "live", label: "Live" },
   { id: "reports", label: "Reports" },
   { id: "data", label: "Data" },
@@ -296,7 +297,11 @@ export default function AppV2() {
         </main>
       ) : page === "trade" ? (
         <main className="min-h-0 flex-1 overflow-auto px-4 py-6 md:px-6">
-          {tradeSub === "turn-of-month" ? <V2Trade /> : tradeSub === "books-gold" ? <V2TradeMix /> : <V2TradeLanding />}
+          {tradeSub === "books-gold" ? <V2TradeMix /> : <V2TradeLanding />}
+        </main>
+      ) : page === "manual" ? (
+        <main className="min-h-0 flex-1 overflow-auto px-4 py-6 md:px-6">
+          <V2Trade />
         </main>
       ) : page === "live" ? (
         <main className="min-h-0 flex-1 overflow-auto px-4 py-6 md:px-6">

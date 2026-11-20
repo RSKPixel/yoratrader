@@ -27,7 +27,7 @@ function useEsc(onClose) {
   }, [onClose]);
 }
 
-function Modal({ title, sub, onClose, children, footer, wide = false }) {
+function Modal({ title, heading, sub, onClose, children, footer, wide = false }) {
   useEsc(onClose);
   return (
     <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
@@ -35,7 +35,7 @@ function Modal({ title, sub, onClose, children, footer, wide = false }) {
         style={{ borderColor: "var(--border)", background: "var(--surface)" }} onClick={(e) => e.stopPropagation()}>
         <div className="flex items-start justify-between gap-3 border-b px-4 py-3" style={{ borderColor: "var(--border)" }}>
           <div className="min-w-0">
-            <h2 className="text-base font-semibold">{title}</h2>
+            {heading || <h2 className="text-base font-semibold">{title}</h2>}
             {sub && <p className="text-xs" style={{ color: "var(--muted)" }}>{sub}</p>}
           </div>
           <button type="button" onClick={onClose} className="rounded-md border px-3 py-1 text-sm" style={{ borderColor: "var(--border)" }}>Close</button>
@@ -167,22 +167,25 @@ function Param({ f, value, locked, onChange }) {
 
 // The model's signals now, on the item's setup and instrument: every F&O stock above its 200-day average by its
 // RSI, the signals first, and what the item would do with each (held, buy into a free slot, no slot). Every minute.
-function ItemSignals({ item }) {
+function ItemSignals({ item, settings }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
   const [all, setAll] = useState(false);
+  const on = JSON.stringify(settings || item.settings); // the settings on screen (saved or not)
   useEffect(() => {
     let alive = true;
-    const load = () => call(`/api/v2/live/items/${item.id}/signals`).then((p) => { if (alive) { setData(p); setError(""); } }).catch((e) => alive && setError(e.message));
+    setData(null);
+    const load = () => call(`/api/v2/live/items/${item.id}/signals?settings=${encodeURIComponent(on)}`).then((p) => { if (alive) { setData(p); setError(""); } }).catch((e) => alive && setError(e.message));
     load();
     const t = setInterval(load, 60000);
     return () => {
       alive = false;
       clearInterval(t);
     };
-  }, [item.id]);
+  }, [item.id, on]);
   if (item.orders !== "engine") return <p className="text-sm" style={{ color: "var(--muted)" }}>No signals for this model here yet.</p>;
   if (!data) return <p className="text-xs" style={{ color: error ? "var(--negative)" : "var(--faint)" }}>{error || "Working out the signals…"}</p>;
+  if (data.tom) return <TomSignals data={data} error={error} />;
   const tone = { buy: "var(--positive)", held: "var(--accent)", "queued to sell": "var(--warning)", "signal, no slot": "var(--muted)" };
   const shown = all ? data.stocks : data.stocks.filter((x) => x.status !== "watch");
   const num = (v, d = 1) => (v == null ? "—" : Number(v).toFixed(d));
@@ -225,6 +228,60 @@ function ItemSignals({ item }) {
   );
 }
 
+// Turn of the month: this cycle's buy and sale days, what it holds, and what the buy day's run would buy now
+function TomSignals({ data, error }) {
+  const day = (d) => (d ? new Date(`${d}T00:00:00`).toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" }) : "—");
+  const n = (v) => (v == null ? "—" : Number(v).toLocaleString("en-IN", { maximumFractionDigits: 2 }));
+  const p = data.pick;
+  const row = (k, v, color) => (
+    <div className="flex justify-between gap-4 border-t py-1.5" style={{ borderColor: "var(--border)" }}>
+      <dt style={{ color: "var(--muted)" }}>{k}</dt>
+      <dd className="text-right font-medium tabular-nums" style={{ color }}>{v}</dd>
+    </div>
+  );
+  return (
+    <div className="flex flex-col gap-3 text-sm">
+      {error && <p className="text-xs" style={{ color: "var(--negative)" }}>{error}</p>}
+      <dl>
+        {row("Now", data.state, data.state.startsWith("buy") || data.state.startsWith("sell") ? "var(--positive)" : undefined)}
+        {row("Buy", `${day(data.buy)} · 15:15${data.days_to_buy ? ` · in ${data.days_to_buy} trading day${data.days_to_buy > 1 ? "s" : ""}` : ""}`)}
+        {row("Sell", `${day(data.sell)} · 15:15`)}
+      </dl>
+      {data.held.length > 0 ? (
+        <div className="flex flex-col gap-1">
+          <span className="text-xs font-medium" style={{ color: "var(--muted)" }}>Held</span>
+          {data.held.map((h) => (
+            <dl key={h.tradingsymbol} className="rounded-md border px-3" style={{ borderColor: "var(--border)" }}>
+              {row("Contract", h.tradingsymbol)}
+              {row("Quantity", `${h.qty} @ ${n(h.buy_price)} (${day(h.buy_day)})`)}
+              {row("Now", n(h.last))}
+              {h.last != null && row("P&L (gross)", `${h.last >= h.buy_price ? "+" : ""}${n((h.last - h.buy_price) * h.qty)}`, h.last >= h.buy_price ? "var(--positive)" : "var(--negative)")}
+              {row("Sold", `${day(h.sell_plan)} · 15:15`)}
+              {row("State", h.state, h.state === "held" ? undefined : "var(--warning)")}
+            </dl>
+          ))}
+        </div>
+      ) : p ? (
+        <div className="flex flex-col gap-1">
+          <span className="text-xs font-medium" style={{ color: "var(--muted)" }}>On the buy day it buys (prices now, at {data.at}: the pick can change by 15:15)</span>
+          <dl className="rounded-md border px-3" style={{ borderColor: "var(--border)" }}>
+            {row("Contract", p.tradingsymbol)}
+            {row("Instrument", p.instrument === "call" ? `ITM Nifty call · strike ${n(p.strike)}` : "Nifty future")}
+            {row("Expiry", day(p.expiry))}
+            {row("Quantity", p.qty)}
+            {row("Bid / offer / last", `${n(p.bid)} / ${n(p.ask)} / ${n(p.last)}`)}
+            {row(p.instrument === "call" ? "Cost (premium)" : "Value (exposure)", `₹${n(p.value)}`)}
+            {row("Margin required", p.margin ? `₹${n(p.margin)}` : p.margin_error ? "couldn't get it" : "—", "var(--accent)")}
+          </dl>
+        </div>
+      ) : (
+        <p className="text-xs" style={{ color: "var(--negative)" }}>Couldn't work out the contract now: {data.pick_error}</p>
+      )}
+      <p className="text-xs" style={{ color: "var(--faint)" }}>Dates from NSE's holidays ({data.holidays}).</p>
+    </div>
+  );
+}
+
 // An item's dry-run book: what it holds (taken as filled) and every order the engine built, as the broker's API
 // would get it (nothing is sent)
 function ItemLog({ item }) {
@@ -258,7 +315,7 @@ function ItemLog({ item }) {
   return (
     <div className="flex flex-col gap-3">
       <div>
-        <div className="mb-1 text-xs font-medium" style={{ color: "var(--muted)" }}>Holdings{item.real ? " (real: fills from the broker)" : " (dry run: orders taken as filled)"} · {open.length} open</div>
+        <div className="mb-1 text-xs font-medium" style={{ color: "var(--muted)" }}>Holdings{item.real ? " (live: fills from the broker)" : " (dry run: orders taken as filled)"} · {open.length} open</div>
         {data.positions.length === 0 ? (
           <p className="text-xs" style={{ color: "var(--faint)" }}>Nothing bought yet.</p>
         ) : (
@@ -303,7 +360,7 @@ function ItemLog({ item }) {
         )}
       </div>
       <div>
-        <div className="mb-1 text-xs font-medium" style={{ color: "var(--muted)" }}>Order log · {item.real ? "real orders: SENT lines went to the broker (order id in the JSON line)" : "nothing sent: each order as the broker's API would get it"}{data.log.length ? " (click a line for its JSON)" : ""}</div>
+        <div className="mb-1 text-xs font-medium" style={{ color: "var(--muted)" }}>Order log · {item.real ? "live orders: SENT lines went to the broker (order id in the JSON line)" : "nothing sent: each order as the broker's API would get it"}{data.log.length ? " (click a line for its JSON)" : ""}</div>
         {data.log.length === 0 ? (
           <p className="text-xs" style={{ color: "var(--faint)" }}>Nothing logged yet: the engine runs at 15:15 on trading days while the item is enabled, and at the pre-open for sales queued to the next open.</p>
         ) : (
@@ -336,16 +393,145 @@ function LogLine({ r }) {
 }
 
 // An item: its name, account and settings (editable while disabled), and Enable / Disable
+// An item at a glance (one view, no scrolling): its state, account, results, funds, today's orders, holdings, last log line. Every minute.
+function ItemSummary({ item, fields, acctLabel }) {
+  const [sum, setSum] = useState(null);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    let alive = true;
+    const load = () => call("/api/v2/live/summary")
+      .then((a) => { if (alive) { setSum(a.items.find((x) => x.id === item.id) || null); setError(""); } })
+      .catch((e) => alive && setError(e.message));
+    load();
+    const t = setInterval(load, 60000);
+    return () => {
+      alive = false;
+      clearInterval(t);
+    };
+  }, [item.id, item.orders]);
+  if (!sum) return <p className="text-xs" style={{ color: error ? "var(--negative)" : "var(--faint)" }}>{error || "Loading…"}</p>;
+  const n = (v, d = 2) => (v == null ? "—" : Number(v).toLocaleString("en-IN", { maximumFractionDigits: d }));
+  const rs = (v) => (v == null ? "—" : `${v > 0 ? "+" : ""}${formatRs(v)}`);
+  const color = (v) => (v > 0 ? "var(--positive)" : v < 0 ? "var(--negative)" : undefined);
+  const tile = (k, v, c) => (
+    <div key={k} className="rounded-md border px-3 py-2" style={{ borderColor: "var(--border)" }}>
+      <div className="text-[0.6875rem]" style={{ color: "var(--muted)" }}>{k}</div>
+      <div className="mt-0.5 truncate text-base font-semibold tabular-nums" style={{ color: c }}>{v}</div>
+    </div>
+  );
+  const badge = (t, c) => <span className="rounded-full px-2 py-0.5 text-[0.625rem] font-semibold uppercase tracking-[0.08em]" style={{ background: "var(--surface-2)", color: c }}>{t}</span>;
+  const bad = sum.last?.status === "rejected" || sum.last?.event === "error";
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex flex-wrap items-center gap-1.5">
+        {badge(item.enabled ? "Enabled" : "Disabled", item.enabled ? "var(--positive)" : "var(--faint)")}
+        {item.orders === "engine" && badge(item.real ? "Live orders" : "Dry run", item.real ? "var(--negative)" : "var(--accent)")}
+        {badge(item.locked ? "Locked" : "Unlocked", item.locked ? "var(--warning)" : "var(--faint)")}
+        <span className="ml-auto truncate text-xs" style={{ color: "var(--muted)" }}>{acctLabel}</span>
+      </div>
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+        {tile("Realized", rs(sum.realized_rs), color(sum.realized_rs))}
+        {tile("Unrealized", rs(sum.unrealized_rs), color(sum.unrealized_rs))}
+        {tile("Sold today", rs(sum.sold_today_rs), color(sum.sold_today_rs))}
+        {tile("Holding", `${sum.open.length}${item.settings.max_open != null ? ` / ${item.settings.max_open}` : ""} · ${formatRs(sum.invested_rs)}`)}
+        {(() => { const x = fundsOf(item.settings, sum.funds, sum.need_rs); return tile(x.label, x.error ? "—" : formatRs(x.value ?? 0), x.short ? "var(--negative)" : undefined); })()}
+        {tile("Today's orders", `${item.real ? `${sum.today.sent} sent` : `${sum.today.dry} logged`}${sum.today.problems ? ` · ${sum.today.problems} ✕` : ""}`, sum.today.problems ? "var(--negative)" : undefined)}
+      </div>
+      {sum.open.length > 0 && (
+        <table className="w-full whitespace-nowrap text-xs tabular-nums">
+          <thead className="text-left" style={{ color: "var(--faint)" }}>
+            <tr>{["Holding", "Qty", "Buy", "Now", "P&L", "State"].map((c) => <th key={c} className="py-1 pr-2 font-medium">{c}</th>)}</tr>
+          </thead>
+          <tbody>
+            {sum.open.map((p) => (
+              <tr key={`${p.symbol}-${p.buy_day}`} className="border-t" style={{ borderColor: "var(--border)" }}>
+                <td className="py-1 pr-2 font-semibold">{p.symbol}</td>
+                <td className="py-1 pr-2">{p.qty}</td>
+                <td className="py-1 pr-2">{n(p.buy_price)}</td>
+                <td className="py-1 pr-2">{n(p.last)}</td>
+                <td className="py-1 pr-2 font-medium" style={{ color: color(p.pnl_rs) }}>{rs(p.pnl_rs)}</td>
+                <td className="py-1" style={{ color: p.state === "held" ? "var(--muted)" : "var(--warning)" }}>{p.state}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      {sum.last && (
+        <p className="truncate text-xs" style={{ color: bad ? "var(--negative)" : "var(--muted)" }} title={sum.last.note || undefined}>
+          Last: {sum.last.at} · {sum.last.event}{sum.last.symbol ? ` ${sum.last.symbol}` : ""}{sum.last.note ? ` · ${sum.last.note}` : ""}
+        </p>
+      )}
+    </div>
+  );
+}
+
+// Every item card's rows, the same ones in the same order whatever the model (cards read side by side)
+// a lot and what it needs: "1 lot (₹1,89,701 margin)" / "(₹58,422 premium)"
+export function lotsText(s, need) {
+  const lots = s.lots ?? 1;
+  const what = s.instrument === "future" ? "margin" : "premium";
+  return `${lots} lot${lots > 1 ? "s" : ""}${need ? ` (${formatRs(need)} ${what})` : ""}`;
+}
+
+function cardRows(it, fields, need) {
+  const s = it.settings || {};
+  const f = (k) => fields.find((x) => x.key === k);
+  const val = (k) => (f(k) ? shown(f(k), s[k]) : null);
+  const tom = it.model === "turn-of-month";
+  return [
+    ["Instrument", tom ? val("instrument") : val("price") ?? "—"],
+    ["Setup", tom ? "Turn of the month" : val("setup") ?? "—"],
+    ["Size", tom ? lotsText(s, need) : s.price === "futures" ? `1 lot each · max ${s.max_open ?? "—"} open` : `${val("capital") ?? "—"} · max ${s.max_open ?? "—"} open`],
+    ["Entry", tom ? "15:15 · 5th-last trading day" : "15:15 · signal day"],
+    ["Exit", tom ? "15:15 · 3rd trading day" : `${val("exit") ?? "—"} · ${val("trade_at") ?? "—"}`],
+    ["Orders", val("orders") ?? (it.orders === "engine" ? "Dry run" : "By hand")],
+  ];
+}
+
+// The funds that matter for an item: futures use margin (what's available for new orders, pledged holdings
+// counted); spot shares and options are paid for in cash. need: the item's capital (spot), red when under it.
+export function fundsOf(settings = {}, f, needRs = null) {
+  const fut = settings.price === "futures" || settings.instrument === "future";
+  const v = f && !f.error ? (fut ? f.available : f.cash) : null;
+  const need = needRs ?? (settings.price === "spot" ? settings.capital : null);
+  return { label: fut ? "Margin available" : "Cash available", value: v, short: v != null && need != null && v < need, error: !f || f.error };
+}
+
+export function FundsRow({ f, settings, need }) {
+  const x = fundsOf(settings, f, need);
+  return (
+    <div className="flex justify-between gap-3" title={x.label.startsWith("Margin") ? "Futures: the account's margin available for new orders (pledged holdings counted)" : "Spot shares and options are paid in cash: the cash in the account"}>
+      <dt style={{ color: "var(--muted)" }}>{x.label}</dt>
+      <dd className="truncate text-right tabular-nums" style={{ color: x.error ? "var(--faint)" : x.short ? "var(--negative)" : undefined }}>
+        {x.error ? (f?.error && f.error !== "—" ? `— (${f.error})` : "—") : formatRs(x.value ?? 0)}
+      </dd>
+    </div>
+  );
+}
+
+// a padlock: closed (locked) or open (unlocked)
+function LockIcon({ open }) {
+  return (
+    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="block">
+      <rect x="5" y="11" width="14" height="10" rx="2" />
+      <path d={open ? "M8 11V7a4 4 0 0 1 7.5-2" : "M8 11V7a4 4 0 0 1 8 0v4"} />
+    </svg>
+  );
+}
+
 function ItemModal({ item, fields, accounts, onClose, onSaved, onDeleted }) {
-  const [name, setName] = useState(item.name);
+  const [name, setName] = useState(null); // null: the name shown; a string: being renamed (the header)
   const [account, setAccount] = useState(item.account);
   const [settings, setSettings] = useState(item.settings);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [confirm, setConfirm] = useState(false);
-  const [tab, setTab] = useState("settings");
+  const [askLive, setAskLive] = useState(false); // Orders switched to Live orders: asked in a window first
+  const [tab, setTab] = useState("summary");
+  const [code, setCode] = useState(null); // null: no code box; a string: unlocking
   const locked = item.enabled;
-  const dirty = name !== item.name || account !== item.account || JSON.stringify(settings) !== JSON.stringify(item.settings);
+  const shut = item.locked; // the lock: no changes until unlocked with the authenticator code
+  const dirty = account !== item.account || JSON.stringify(settings) !== JSON.stringify(item.settings);
   const run = async (fn) => {
     setBusy(true);
     setError("");
@@ -356,9 +542,9 @@ function ItemModal({ item, fields, accounts, onClose, onSaved, onDeleted }) {
     }
     setBusy(false);
   };
-  const save = () => run(async () => onSaved((await call(`/api/v2/live/items/${item.id}`, "PUT", locked ? { name, settings } : { name, account, settings })).item));
+  const save = () => run(async () => onSaved((await call(`/api/v2/live/items/${item.id}`, "PUT", locked ? { settings } : { account, settings })).item));
   const toggle = (on) => run(async () => {
-    if (dirty && !locked) await call(`/api/v2/live/items/${item.id}`, "PUT", { name, account, settings });
+    if (dirty && !locked) await call(`/api/v2/live/items/${item.id}`, "PUT", { account, settings });
     onSaved((await call(`/api/v2/live/items/${item.id}/enabled`, "POST", { enabled: on })).item);
     setConfirm(false);
   });
@@ -366,24 +552,75 @@ function ItemModal({ item, fields, accounts, onClose, onSaved, onDeleted }) {
     await call(`/api/v2/live/items/${item.id}`, "DELETE");
     onDeleted(item.id);
   });
+  const lock = () => run(async () => onSaved((await call(`/api/v2/live/items/${item.id}/locked`, "POST", { locked: true })).item));
+  const unlock = () => run(async () => {
+    onSaved((await call(`/api/v2/live/items/${item.id}/locked`, "POST", { locked: false, code })).item);
+    setCode(null);
+  });
+  const rename = () => {
+    const n = (name || "").trim();
+    if (!n || n === item.name) return setName(null);
+    run(async () => {
+      onSaved((await call(`/api/v2/live/items/${item.id}`, "PUT", { name: n })).item);
+      setName(null);
+    });
+  };
+  const heading = name == null ? (
+    <div className="flex min-w-0 items-center gap-1.5">
+      <h2 className="truncate text-base font-semibold">{item.name}</h2>
+      {!shut && (
+        <button type="button" onClick={() => setName(item.name)} className="shrink-0 rounded p-1 transition-colors hover:bg-[var(--surface-2)]" style={{ color: "var(--muted)" }}
+          aria-label="Rename" title="Rename">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="block">
+            <path d="M12 20h9" />
+            <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
+          </svg>
+        </button>
+      )}
+    </div>
+  ) : (
+    <form className="flex items-center gap-2" onSubmit={(e) => { e.preventDefault(); rename(); }}>
+      <input className={`${input} py-1 text-base font-semibold`} style={inputStyle} value={name} maxLength={80} autoFocus aria-label="Name"
+        onChange={(e) => setName(e.target.value)} onBlur={rename}
+        onKeyDown={(e) => { if (e.key === "Escape") { e.nativeEvent.stopPropagation(); e.preventDefault(); setName(null); } }} />
+    </form>
+  );
   const acct = accounts.find((a) => a.id === account);
   return (
-    <Modal wide title={item.name} sub={`${item.model_label} · ${item.enabled ? "enabled: real money" : "disabled"}`} onClose={onClose}
+    <Modal wide title={item.name} heading={heading} sub={`${item.model_label} · ${item.enabled ? "enabled: real money" : "disabled"}`} onClose={confirm || askLive ? () => {} : onClose}
       footer={<>
-        {!item.enabled && <button type="button" onClick={remove} disabled={busy} className={`${button} mr-auto`} style={{ borderColor: "var(--border)", color: "var(--negative)" }}>Delete</button>}
-        <button type="button" onClick={save} disabled={busy || !dirty} className={button} style={{ borderColor: "var(--border)" }}>Save</button>
+        <div className="mr-auto flex flex-wrap items-center gap-2">
+          {shut ? (
+            code == null ? (
+              <button type="button" onClick={() => setCode("")} disabled={busy} className={button} style={{ borderColor: "var(--warning)", color: "var(--warning)" }}
+                title="Locked: click to unlock with your authenticator code" aria-label="Unlock"><LockIcon open={false} /></button>
+            ) : (
+              <form className="flex items-center gap-2" onSubmit={(e) => { e.preventDefault(); unlock(); }}>
+                <input className={`${input} w-28 text-center tracking-[0.2em]`} style={inputStyle} value={code} autoFocus inputMode="numeric" autoComplete="one-time-code"
+                  maxLength={6} placeholder="000000" aria-label="Authenticator code" onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))} />
+                <button type="submit" disabled={busy || code.length !== 6} className={button} style={{ borderColor: "var(--accent)", color: "var(--accent)" }}>Unlock</button>
+                <button type="button" onClick={() => setCode(null)} className={button} style={{ borderColor: "var(--border)" }}>Cancel</button>
+              </form>
+            )
+          ) : (
+            <button type="button" onClick={lock} disabled={busy || dirty} className={button} style={{ borderColor: "var(--border)" }}
+              title={dirty ? "Save or undo the changes first" : "Unlocked: click to lock the settings (unlocking needs your authenticator code)"} aria-label="Lock"><LockIcon open /></button>
+          )}
+          {!item.enabled && <button type="button" onClick={remove} disabled={busy || shut} className={button} style={{ borderColor: "var(--border)", color: "var(--negative)" }}>Delete</button>}
+        </div>
+        <button type="button" onClick={save} disabled={busy || !dirty || shut} className={button} style={{ borderColor: "var(--border)" }}>Save</button>
         {item.enabled ? (
           <button type="button" onClick={() => toggle(false)} disabled={busy} className={button} style={{ borderColor: "var(--negative)", color: "var(--negative)" }}>Disable</button>
         ) : (
-          <button type="button" onClick={() => setConfirm(true)} disabled={busy || !acct?.connected} className={button}
+          <button type="button" onClick={() => setConfirm(true)} disabled={busy || !acct?.connected || shut} className={button}
             style={{ borderColor: "var(--positive)", background: "var(--positive)", color: "var(--surface)" }} title={acct?.connected ? "Trade this item with real money" : "Its account isn't connected"}>
             Enable
           </button>
         )}
       </>}>
       <div className="flex flex-col gap-4">
-        <div className="-mt-1 flex gap-1 border-b" role="tablist" aria-label="Item sections" style={{ borderColor: "var(--border)" }}>
-          {[["settings", "Settings"], ["signals", "Signals"], ["log", "Log"]].map(([id, label]) => (
+        <div className="sticky -top-4 z-10 -mx-4 -mt-4 flex gap-1 border-b px-4 pt-3" role="tablist" aria-label="Item sections" style={{ borderColor: "var(--border)", background: "var(--surface)" }}>
+          {[["summary", "Summary"], ["settings", "Settings"], ["signals", "Signals"], ["log", "Log"]].map(([id, label]) => (
             <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={() => setTab(id)}
               className="-mb-px border-b-2 px-3 py-1.5 text-sm font-medium"
               style={{ borderColor: tab === id ? "var(--accent)" : "transparent", color: tab === id ? "var(--text)" : "var(--muted)" }}>
@@ -391,15 +628,14 @@ function ItemModal({ item, fields, accounts, onClose, onSaved, onDeleted }) {
             </button>
           ))}
         </div>
-        {tab === "signals" ? (
-          <ItemSignals item={item} />
+        {tab === "summary" ? (
+          <ItemSummary item={item} fields={fields[item.model] || []} acctLabel={acct?.label || item.account} />
+        ) : tab === "signals" ? (
+          <ItemSignals item={item} settings={settings} />
         ) : tab === "log" ? (
           item.orders === "engine" ? <ItemLog item={item} /> : <p className="text-sm" style={{ color: "var(--muted)" }}>No order log: {item.orders_note}.</p>
         ) : (<>
-        <label className="flex flex-col gap-1">
-          <span className="text-xs font-medium" style={{ color: "var(--muted)" }}>Name</span>
-          <input className={input} style={inputStyle} value={name} maxLength={80} onChange={(e) => setName(e.target.value)} />
-        </label>
+        <fieldset disabled={shut} className={`flex flex-col gap-4 ${shut ? "opacity-60" : ""}`}>
         <label className="flex flex-col gap-1">
           <span className="text-xs font-medium" style={{ color: "var(--muted)" }}>Trading account{locked ? " · disable the item to change it" : ""}</span>
           <select className={input} style={inputStyle} value={account || ""} disabled={locked} onChange={(e) => setAccount(e.target.value)}>
@@ -412,7 +648,7 @@ function ItemModal({ item, fields, accounts, onClose, onSaved, onDeleted }) {
           <div className="flex flex-wrap items-end gap-x-6 gap-y-3 rounded-md border p-3" style={{ borderColor: "var(--border)" }}>
             {(fields[item.model] || []).filter((f) => applies(f, settings)).map((f) => (
               <Param key={f.key} f={f} value={settings[f.key]} locked={false}
-                onChange={(v) => (f.key === "orders" && v === "real" && !window.confirm("Real orders: this item's orders will be SENT to the account (real money) when it is enabled. Continue?") ? null : setSettings({ ...settings, [f.key]: v }))} />
+                onChange={(v) => (f.key === "orders" && v === "real" && settings.orders !== "real" ? setAskLive(true) : setSettings({ ...settings, [f.key]: v }))} />
             ))}
           </div>
         </div>
@@ -420,17 +656,45 @@ function ItemModal({ item, fields, accounts, onClose, onSaved, onDeleted }) {
           Orders: {item.orders_note}
           {item.page && <> · <a href={item.page} onClick={go(item.page)} className="font-medium hover:underline" style={{ color: "var(--accent)" }}>Open its trading page →</a></>}
         </p>
+        </fieldset>
         </>)}
+        {askLive && (
+          <Modal title="Switch to Live orders?" sub={item.name} onClose={() => setAskLive(false)}
+            footer={<>
+              <button type="button" onClick={() => setAskLive(false)} className={button} style={{ borderColor: "var(--border)" }}>Cancel</button>
+              <button type="button" onClick={() => { setSettings({ ...settings, orders: "real" }); setAskLive(false); }} className={button}
+                style={{ borderColor: "var(--negative)", background: "var(--negative)", color: "var(--surface)" }}>
+                Yes, live orders
+              </button>
+            </>}>
+            <div className="flex flex-col gap-2 text-sm">
+              <p className="font-semibold" style={{ color: "var(--negative)" }}>Real money.</p>
+              <p>When this item is enabled, its orders are sent to {acct?.label || "its account"} at its times, and fills are checked with the broker every minute.</p>
+              <p style={{ color: "var(--muted)" }}>The change applies after you press Save.</p>
+            </div>
+          </Modal>
+        )}
         {confirm && (
-          <div className="flex flex-col gap-2 rounded-md border p-3 text-sm" style={{ borderColor: "var(--warning)" }}>
-            <p><span className="font-semibold">Real money.</span> {item.name} will trade on {acct?.label} with the settings above.</p>
-            <div className="flex justify-end gap-2">
-              <button type="button" onClick={() => setConfirm(false)} className={button} style={{ borderColor: "var(--border)" }}>Cancel</button>
+          <Modal title={`Enable ${item.name}?`} sub={item.model_label} onClose={() => { setConfirm(false); setError(""); }}
+            footer={<>
+              <button type="button" onClick={() => { setConfirm(false); setError(""); }} className={button} style={{ borderColor: "var(--border)" }}>Cancel</button>
               <button type="button" onClick={() => toggle(true)} disabled={busy} className={button} style={{ borderColor: "var(--positive)", background: "var(--positive)", color: "var(--surface)" }}>
                 Yes, enable
               </button>
+            </>}>
+            <div className="flex flex-col gap-3 text-sm">
+              <p className="font-semibold" style={{ color: settings.orders === "real" ? "var(--negative)" : "var(--text)" }}>
+                {item.orders !== "engine" ? "Real money: traded by hand." : settings.orders === "real" ? "Real money: its orders will be sent to the account at its times." : "Dry run: its orders are built and logged, nothing is sent."}
+              </p>
+              <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 tabular-nums">
+                <dt style={{ color: "var(--muted)" }}>Account</dt><dd>{acct?.label || account}</dd>
+                {settings.capital != null && <><dt style={{ color: "var(--muted)" }}>Capital</dt><dd>{formatRs(settings.capital)}</dd></>}
+                {settings.max_open != null && <><dt style={{ color: "var(--muted)" }}>Max open</dt><dd>{settings.max_open}</dd></>}
+                {item.orders === "engine" && <><dt style={{ color: "var(--muted)" }}>Orders</dt><dd>{settings.orders === "real" ? "Live orders" : "Dry run"}</dd></>}
+              </dl>
+              {error && <p style={{ color: "var(--negative)" }}>{error}</p>}
             </div>
-          </div>
+          </Modal>
         )}
         {error && <p className="text-sm" style={{ color: "var(--negative)" }}>{error}</p>}
       </div>
@@ -499,17 +763,18 @@ export default function V2TradeLanding() {
                     <dt style={{ color: "var(--muted)" }}>Account</dt>
                     <dd className="truncate text-right">{acct?.label || it.account || "—"}</dd>
                   </div>
-                  {fields.filter((f) => f.kind !== "fixed" && applies(f, it.settings)).map((f) => (
-                    <div key={f.key} className="flex justify-between gap-3">
-                      <dt style={{ color: "var(--muted)" }}>{f.label}</dt>
-                      <dd className="truncate text-right">{shown(f, it.settings[f.key])}</dd>
+                  <FundsRow f={data.funds?.[it.account]} settings={it.settings} need={data.needs?.[it.id]} />
+                  {cardRows(it, fields, data.needs?.[it.id]).map(([k, v]) => (
+                    <div key={k} className="flex justify-between gap-3">
+                      <dt style={{ color: "var(--muted)" }}>{k}</dt>
+                      <dd className="truncate text-right">{v}</dd>
                     </div>
                   ))}
                 </dl>
-                {it.orders === "none" && <p className="text-[0.6875rem]" style={{ color: "var(--warning)" }}>Order engine not built yet: nothing is sent</p>}
+                {it.orders === "none" && <p className="mt-auto text-[0.6875rem]" style={{ color: "var(--warning)" }}>Order engine not built yet: nothing is sent</p>}
                 {it.orders === "engine" && (it.real
-                  ? <p className="text-[0.6875rem] font-semibold" style={{ color: "var(--negative)" }}>REAL ORDERS{it.enabled ? ": sent to the account at its times" : " (when enabled)"}</p>
-                  : <p className="text-[0.6875rem]" style={{ color: "var(--accent)" }}>Order engine: dry run (orders logged, nothing sent)</p>)}
+                  ? <p className="mt-auto text-[0.6875rem] font-semibold" style={{ color: "var(--negative)" }}>LIVE ORDERS{it.enabled ? ": sent to the account at its times" : " (when enabled)"}</p>
+                  : <p className="mt-auto text-[0.6875rem]" style={{ color: "var(--accent)" }}>Order engine: dry run (orders logged, nothing sent)</p>)}
               </button>
             );
           })}
@@ -521,5 +786,26 @@ export default function V2TradeLanding() {
           onSaved={put} onDeleted={(id) => { setData((d) => ({ ...d, items: d.items.filter((x) => x.id !== id) })); setOpen(null); }} />
       )}
     </div>
+  );
+}
+
+// One item's modal on its own (the dashboard's live cards): loads the items, opens this one; onChange after a save / delete
+export function LiveItemModal({ id, onClose, onChange }) {
+  const [data, setData] = useState(null);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    call("/api/v2/live/items").then(setData).catch((e) => setError(e.message));
+  }, []);
+  const item = data?.items.find((x) => x.id === id);
+  if (error) return <Modal title="Live trading" onClose={onClose}><p className="text-sm" style={{ color: "var(--negative)" }}>{error}</p></Modal>;
+  if (!data) return null;
+  if (!item) return <Modal title="Live trading" onClose={onClose}><p className="text-sm" style={{ color: "var(--muted)" }}>This item no longer exists.</p></Modal>;
+  const put = (it) => {
+    setData((d) => ({ ...d, items: d.items.map((x) => (x.id === it.id ? it : x)) }));
+    onChange?.();
+  };
+  return (
+    <ItemModal key={`${item.id}-${item.enabled}`} item={item} fields={data.fields} accounts={data.accounts} onClose={onClose}
+      onSaved={put} onDeleted={() => { onChange?.(); onClose(); }} />
   );
 }

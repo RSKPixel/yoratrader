@@ -11,7 +11,7 @@ LOGS it (live_order_log). Nothing is sent: this module never calls a broker's or
 as filled at the price then (the open's auction price for a pre-open order), so the item's holdings (live_positions)
 move on as they would.
 
-Built: short-term mean reversion (both setups). Other models log nothing yet.
+Built: short-term mean reversion (both setups) and turn of the month. Other models log nothing yet.
 
 Short-term mean reversion, as its paper book (connorswatch.py) but on the item's settings:
   15:15  the item's disaster stops (the day's low reached the stop: the stop order would have sold it), the
@@ -95,6 +95,8 @@ def _ensure(cursor):
         ALTER TABLE live_positions ADD COLUMN IF NOT EXISTS sell_filled INTEGER NOT NULL DEFAULT 0;
         ALTER TABLE live_positions ADD COLUMN IF NOT EXISTS sell_value DOUBLE PRECISION NOT NULL DEFAULT 0;
         ALTER TABLE live_order_log ADD COLUMN IF NOT EXISTS order_id TEXT;
+        ALTER TABLE live_positions ADD COLUMN IF NOT EXISTS strike DOUBLE PRECISION;
+        ALTER TABLE live_positions ADD COLUMN IF NOT EXISTS sell_plan DATE;
         """
     )
 
@@ -138,8 +140,10 @@ def _angel_tokens(today):
             seg = r.get("exch_seg")
             if seg == "NSE" and str(r.get("symbol", "")).endswith("-EQ"):
                 out[("NSE", r["name"])] = (r["symbol"], r["token"])
-            elif seg == "NFO" and r.get("instrumenttype") == "FUTSTK":
+            elif seg == "NFO" and r.get("instrumenttype") in ("FUTSTK", "FUTIDX"):
                 out[("NFO", r["name"], datetime.strptime(r["expiry"], "%d%b%Y").date())] = (r["symbol"], r["token"])
+            elif seg == "NFO" and r.get("instrumenttype") == "OPTIDX" and r.get("name") == "NIFTY" and str(r.get("symbol", "")).endswith("CE"):
+                out[("NFO", "NIFTY", datetime.strptime(r["expiry"], "%d%b%Y").date(), int(round(float(r["strike"]) / 100)), "CE")] = (r["symbol"], r["token"])
         _cache.update(angel_day=today, angel=out)
     return _cache["angel"]
 
@@ -149,7 +153,7 @@ def _angel_tokens(today):
 def _payloads(broker, item_id, side, pos, price, today, kind="order"):
     """The request for one order. pos: {symbol, instrument, exchange, tradingsymbol, qty, expiry}. kind: "order"
     (a DAY LIMIT order) or "stop" (a GTT: trigger at price, a LIMIT sell STOP_LIMIT_BELOW under it)."""
-    fut = pos["instrument"] == "futures"
+    fut = pos["exchange"] == "NFO"  # futures and options: carried overnight (NRML / CARRYFORWARD)
     tag = f"ytlive{item_id}"[:20]
     if broker == "kite":
         product = "NRML" if fut else "CNC"
@@ -165,7 +169,8 @@ def _payloads(broker, item_id, side, pos, price, today, kind="order"):
     # Angel One SmartAPI: strings, its own symbols and tokens (scrip master)
     try:
         toks = _angel_tokens(today)
-        key = ("NFO", pos["symbol"], pos["expiry"]) if fut else ("NSE", pos["symbol"])
+        key = (("NFO", pos["symbol"], pos["expiry"], int(round(pos["strike"])), "CE") if pos["instrument"] == "call"
+               else ("NFO", pos["symbol"], pos["expiry"]) if fut else ("NSE", pos["symbol"]))
         a_sym, a_tok = toks[key]
     except Exception as error:
         a_sym, a_tok = None, None
@@ -173,7 +178,7 @@ def _payloads(broker, item_id, side, pos, price, today, kind="order"):
     product = "CARRYFORWARD" if fut else "DELIVERY"
     if kind == "stop":
         if fut:
-            return {"api": "angel.gtt.createRule", "unsupported": "Angel One GTT is for cash (NSE / BSE) only: no stop on a future"}
+            return {"api": "angel.gtt.createRule", "unsupported": "Angel One GTT is for cash (NSE / BSE) only: no stop on a future or option"}
         limit = _on_tick(price * (1 - STOP_LIMIT_BELOW), pos["tick"], False)
         return {"api": "angel.gtt.createRule", "tradingsymbol": a_sym, "symboltoken": a_tok, "exchange": "NSE", "transactiontype": "SELL",
                 "producttype": product, "price": str(limit), "qty": str(pos["qty"]), "triggerprice": str(price), "disclosedqty": "0",
@@ -307,10 +312,10 @@ def _fut_quotes(kite, symbols):
 
 def _held(cursor, item_id):
     cursor.execute("SELECT id, symbol, instrument, exchange, tradingsymbol, expiry, qty, buy_day, buy_price, stop, sell_queued, sell_reason, "
-                   "real, buy_order, buy_status, buy_placed_at, sell_order, sell_status, sell_session, sell_filled, sell_value "
+                   "real, buy_order, buy_status, buy_placed_at, sell_order, sell_status, sell_session, sell_filled, sell_value, strike, sell_plan "
                    "FROM live_positions WHERE item_id = %s AND sell_day IS NULL ORDER BY buy_day, id", (item_id,))
     cols = ("id", "symbol", "instrument", "exchange", "tradingsymbol", "expiry", "qty", "buy_day", "buy_price", "stop", "sell_queued", "sell_reason",
-            "real", "buy_order", "buy_status", "buy_placed_at", "sell_order", "sell_status", "sell_session", "sell_filled", "sell_value")
+            "real", "buy_order", "buy_status", "buy_placed_at", "sell_order", "sell_status", "sell_session", "sell_filled", "sell_value", "strike", "sell_plan")
     return [dict(zip(cols, r)) for r in cursor.fetchall()]
 
 
@@ -325,12 +330,13 @@ def _sr_close(item, kite, today, now, market, preview=False):
     inst = _instruments(kite, today)
     with connect() as conn, conn.cursor() as cursor:
         _ensure(cursor)
+        conn.commit()  # the tables first, on their own (a preview rolls its run back)
         if not _once(cursor, item["id"], today, "close") and not preview:
             return None
         real = _real(item, preview)
         if real:
             if s.get("disaster") == "on":
-                _log(cursor, item, "error", note="the disaster stop isn't built for real orders yet: turn it off, or Orders to Dry run")
+                _log(cursor, item, "error", note="the disaster stop isn't built for live orders yet: turn it off, or Orders to Dry run")
                 conn.commit()
                 return None
             conn.commit()  # the run claimed before any order goes out: a crash can't send twice
@@ -481,7 +487,7 @@ def _sr_preopen(item, kite, today):
             if p["real"]:
                 if not _real(item):
                     _log(cursor, item, "error", p["symbol"], p["sell_reason"], payload,
-                         note="a real holding, but real orders are off here (Orders setting, or not production): sell it by hand")
+                         note="a live holding, but live orders are off here (Orders setting, or not production): sell it by hand")
                     continue
                 oid, err = _send(item, payload)
                 _log(cursor, item, "sell", p["symbol"], f"{p['sell_reason']} (pre-open)", payload, status="sent" if oid else "rejected", order_id=oid, note=err)
@@ -513,6 +519,132 @@ def _sr_open_fill(item, kite, today, now):
             done.append(p["symbol"])
         conn.commit()
     return {"item": item["id"], "filled": done} if done else None
+
+
+# ---- turn of the month ---------------------------------------------------------------------------------------
+# As its paper book (tomwatch.py) and the backtest: bought at 15:15 on the month's 5th-last trading day, sold at
+# 15:15 on the next month's 3rd trading day (v2tom's calendar, NSE's holidays). On the item's settings: the
+# instrument (an in-the-money Nifty call of the next month's expiry, v2tom's pick: 2-3.5% in the money, the
+# tightest spread; or the nearest Nifty future expiring after the sale day, as the paper book) and the lots.
+# A buy's LIMIT: the best offer (or the last price) + 0.5%, a sale's: the best bid (or the last) - 0.5%, both on
+# the tick and inside the band. No stop (the book has none).
+
+def _tom_pick(kite, today, plan, s, inst):
+    """What the buy day's run buys: a position dict (with "last", "quote") or (None, why)."""
+    import tomwatch
+    import v2tom
+    lots = int(s.get("lots", 1))
+    buy = datetime.fromisoformat(plan["buy"]).date()
+    sell = datetime.fromisoformat(plan["sell"]).date()
+    if s.get("instrument", "call") == "future":
+        fut, expiry, lot = tomwatch._contract(kite, sell)
+        pos = {"symbol": "NIFTY", "instrument": "futures", "exchange": "NFO", "tradingsymbol": fut, "expiry": expiry, "strike": None}
+    else:
+        exp = v2tom._nifty_option_expiry(kite, (buy.year, buy.month))
+        fut = v2tom._plan_cache.get("futures", {}).get(exp) if exp else None
+        if not exp or not fut:
+            return None, "no Nifty option expiry / future for next month"
+        best, _ = v2tom._best_call(kite, float(kite.ltp([f"NFO:{fut}"])[f"NFO:{fut}"]["last_price"]), exp)
+        if not best:
+            return None, "no in-the-money call 2-3.5% under the future with a bid and an offer"
+        lot = best["lot"]
+        pos = {"symbol": "NIFTY", "instrument": "call", "exchange": "NFO", "tradingsymbol": best["symbol"], "expiry": exp, "strike": best["strike"]}
+    k = f"NFO:{pos['tradingsymbol']}"
+    q = kite.quote([k]).get(k) or {}
+    pos.update(qty=int(lot) * lots, tick=inst.get(("NFO", pos["tradingsymbol"]), (1, 0.05))[1], last=q.get("last_price"), quote=q, sell_plan=sell)
+    return pos, None
+
+
+def _best(q, side):
+    d = ((q.get("depth") or {}).get("sell" if side == "BUY" else "buy") or [{}])[0]
+    return d.get("price") or q.get("last_price")
+
+
+def _tom_close(item, kite, today, now, preview=False, force_buy=False):
+    import v2tom
+    s = item["settings"]
+    holidays, _ = v2tom._holidays(today)
+    if today in holidays and not preview:
+        return None
+    plan = v2tom.plan(today, live=False)
+    inst = _instruments(kite, today)
+    with connect() as conn, conn.cursor() as cursor:
+        _ensure(cursor)
+        conn.commit()  # the tables first, on their own (a preview rolls its run back)
+        if not _once(cursor, item["id"], today, "close") and not preview:
+            return None
+        real = _real(item, preview)
+        if real:
+            conn.commit()  # the run claimed before any order goes out: a crash can't send twice
+        held = _held(cursor, item["id"])
+        sold, bought = [], []
+        for p in held:  # the sale: on its own sale day (a missed one: the next run)
+            if p["sell_order"] or p["buy_status"] == "pending" or not p["sell_plan"] or today < p["sell_plan"]:
+                continue
+            k = f"{p['exchange']}:{p['tradingsymbol']}"
+            q = kite.quote([k]).get(k) or {}
+            px = _best(q, "SELL")
+            if not px:
+                _log(cursor, item, "skip", p["tradingsymbol"], "sale day", note="no price now: not sold")
+                continue
+            pos = {**p, "tick": inst.get((p["exchange"], p["tradingsymbol"]), (1, 0.05))[1]}
+            limit = _in_band(px * (1 - SELL_BELOW), q, pos["tick"], False)
+            payload = _payloads(item["account"], item["id"], "SELL", pos, limit, today)
+            if p["real"]:
+                if not real:
+                    _log(cursor, item, "error", p["tradingsymbol"], "sale day", payload,
+                         note="a live holding, but live orders are off here (Orders setting, or not production): sell it by hand")
+                    continue
+                oid, err = _send(item, payload)
+                _log(cursor, item, "sell", p["tradingsymbol"], "sale day (3rd trading day)", payload, status="sent" if oid else "rejected", order_id=oid, note=err)
+                if oid:
+                    cursor.execute("UPDATE live_positions SET sell_order = %s, sell_status = 'pending', sell_session = 'close', sell_reason = 'tom', "
+                                   "sell_queued = %s WHERE id = %s", (oid, today, p["id"]))
+                    sold.append(p["tradingsymbol"])
+                conn.commit()
+                continue
+            _log(cursor, item, "sell", p["tradingsymbol"], "sale day (3rd trading day)", payload)
+            cursor.execute("UPDATE live_positions SET sell_day = %s, sell_at = %s, sell_price = %s, sell_reason = 'tom' WHERE id = %s",
+                           (today, now, q.get("last_price") or px, p["id"]))
+            sold.append(p["tradingsymbol"])
+        still = [p for p in held if p["tradingsymbol"] not in sold]
+        is_buy_day = plan["buy"] == today.isoformat() or force_buy
+        if is_buy_day and not still:
+            pos, why = _tom_pick(kite, today, plan, s, inst)
+            if not pos:
+                _log(cursor, item, "error", "NIFTY", "buy day", note=f"not bought: {why}")
+            else:
+                px = _best(pos["quote"], "BUY")
+                if not px:
+                    _log(cursor, item, "error", pos["tradingsymbol"], "buy day", note="not bought: no price")
+                else:
+                    limit = _in_band(px * (1 + BUY_ABOVE), pos["quote"], pos["tick"], True)
+                    what = "call" if pos["instrument"] == "call" else "future"
+                    why = f"buy day (5th-last trading day): {s.get('lots', 1)} lot{'s' if int(s.get('lots', 1)) > 1 else ''} of the {what}, sold {pos['sell_plan']}"
+                    payload = _payloads(item["account"], item["id"], "BUY", pos, limit, today)
+                    cols = ("INSERT INTO live_positions (item_id, symbol, instrument, exchange, tradingsymbol, expiry, strike, qty, buy_day, buy_at, buy_price, "
+                            "sell_plan, real, buy_order, buy_status, buy_placed_at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)")
+                    if real:
+                        oid, err = _send(item, payload)
+                        _log(cursor, item, "buy", pos["tradingsymbol"], why, payload, status="sent" if oid else "rejected", order_id=oid, note=err)
+                        if oid:
+                            cursor.execute(cols, (item["id"], "NIFTY", pos["instrument"], "NFO", pos["tradingsymbol"], pos["expiry"], pos["strike"], pos["qty"],
+                                                  today, now, limit, pos["sell_plan"], True, oid, "pending", now))
+                            bought.append(pos["tradingsymbol"])
+                        conn.commit()
+                    else:
+                        _log(cursor, item, "buy", pos["tradingsymbol"], why, payload)
+                        cursor.execute(cols, (item["id"], "NIFTY", pos["instrument"], "NFO", pos["tradingsymbol"], pos["expiry"], pos["strike"], pos["qty"],
+                                              today, now, pos["last"] or px, pos["sell_plan"], False, None, None, None))
+                        bought.append(pos["tradingsymbol"])
+        if not sold and not bought:
+            _log(cursor, item, "run", reason="15:15", note=(f"holding {', '.join(p['tradingsymbol'] for p in still)}: sold {still[0]['sell_plan']}" if still
+                 else f"nothing to do: next buy {plan['buy']}, sold {plan['sell']}"))
+        if preview:
+            conn.rollback()
+        else:
+            conn.commit()
+    return {"item": item["id"], "sold": sold, "bought": bought}
 
 
 # ---- real orders: fills from the broker's order book ---------------------------------------------------------
@@ -608,7 +740,8 @@ def reconcile(item, kite, now):
 
 # ---- the scheduler's call ------------------------------------------------------------------------------------
 
-ENGINES = ("short-term-reversion", "cumulative-rsi")
+ENGINES = ("short-term-reversion", "cumulative-rsi", "turn-of-month")
+SR = ("short-term-reversion", "cumulative-rsi")
 
 
 _tick_lock = threading.Lock()
@@ -642,6 +775,10 @@ def _tick():
                 r = reconcile(item, kite, now)
                 if r:
                     out.append(r)
+            if item["model"] == "turn-of-month":
+                if CLOSE_AT <= t < CLOSE_UNTIL:
+                    out.append(_tom_close(item, kite, today, now))
+                continue
             if CLOSE_AT <= t < CLOSE_UNTIL:
                 market = market or _sr_market(kite, today)
                 if market is None:
@@ -700,6 +837,15 @@ def preview(item_id):
         raise ValueError("Kite isn't connected: the prices and signals come from Kite")
     kite = kite_auth.trading_client()
     now = gapwatch._now()
+    if item["model"] == "turn-of-month":  # as if today were the buy day (or its sale day for what it holds)
+        with _preview_lock:
+            _local.capture = []
+            try:
+                _tom_close(item, kite, now.date(), now, preview=True, force_buy=True)
+                lines = _local.capture
+            finally:
+                _local.capture = None
+        return {"at": now.strftime("%Y-%m-%d %H:%M:%S"), "lines": lines}
     with _preview_lock:
         market = _sr_market(kite, now.date())
         if market is None:
@@ -716,8 +862,8 @@ def preview(item_id):
 _sig_cache = {}
 
 
-def signals(item_id):
-    """The model's signals now for an item, on the item's setup and instrument: every F&O stock above its
+def signals(item_id, settings=None):
+    """settings: the settings on screen, not saved yet (shown on them). The model's signals now for an item, on the item's setup and instrument: every F&O stock above its
     200-day average with its 2-day RSI and cumulative RSI (the price now as today's close, as the 15:15 run
     computes them), whether it signals, and what the item would do with it (held / buy into a free slot /
     signal, no slot). Cached 30 s."""
@@ -728,8 +874,12 @@ def signals(item_id):
         raise ValueError("No such item")
     if item["model"] not in ENGINES:
         raise ValueError("No signals for this model yet")
+    if settings:
+        item = {**item, "settings": {**item["settings"], **liveitems._clean(item["model"], settings, strict=False)}}
     if not kite_auth.status().get("connected"):
         raise ValueError("Kite isn't connected: the prices and signals come from Kite")
+    if item["model"] == "turn-of-month":
+        return _tom_signals(item)
     s = item["settings"]
     pr, setup = s.get("price", "spot"), s.get("setup", "rsi2")
     now = gapwatch._now()
@@ -798,6 +948,65 @@ def signals(item_id):
             "sells": sum(bool(r.get("sell")) for r in rows), "stocks": rows}
 
 
+_funds_cache = {}
+_need_cache = {}
+
+
+def tom_need(settings):
+    """What a turn of the month buy needs now, on these settings: the call's premium (cash) or the future's margin
+    (Kite's calculator), for the lots. Cached 5 minutes. None when it can't be worked out."""
+    import time
+    import v2tom
+    key = (settings.get("instrument", "call"), int(settings.get("lots", 1)))
+    hit = _need_cache.get(key)
+    if hit and time.time() - hit[0] < 300:
+        return hit[1]
+    out = None
+    try:
+        if kite_auth.status().get("connected"):
+            kite = kite_auth.trading_client()
+            today = gapwatch._now().date()
+            pos, _ = _tom_pick(kite, today, v2tom.plan(today, live=False), settings, _instruments(kite, today))
+            if pos:
+                px = _best(pos["quote"], "BUY") or pos["last"]
+                m = kite.order_margins([{"exchange": "NFO", "tradingsymbol": pos["tradingsymbol"], "transaction_type": "BUY", "variety": "regular",
+                                         "product": "NRML", "order_type": "LIMIT", "quantity": pos["qty"], "price": px}])[0]
+                out = round(float(m.get("total") or 0)) or None
+    except Exception as error:
+        print("Live engine: turn of the month need:", error)
+    _need_cache[key] = (time.time(), out)
+    return out
+
+
+def funds():
+    """{account: {"available", "cash", "used"} or {"error"}}: each trading account's funds now (Kite: equity
+    segment; Angel One: its RMS limits). "available": what can be used for new orders. Cached 60 s."""
+    import time
+    if _funds_cache.get("at") and time.time() - _funds_cache["at"] < 60:
+        return _funds_cache["data"]
+    out = {}
+    f = lambda v: round(float(v), 2) if v not in (None, "") else None
+    if kite_auth.status().get("connected"):
+        try:
+            e = kite_auth.trading_client().margins().get("equity") or {}
+            a, u = e.get("available") or {}, e.get("utilised") or {}
+            out["kite"] = {"available": f(e.get("net")), "cash": f(a.get("live_balance", a.get("cash"))), "used": f(u.get("debits"))}
+        except Exception as error:
+            out["kite"] = {"error": str(error)}
+    else:
+        out["kite"] = {"error": "not connected"}
+    try:
+        if any(a["id"] == "angel" for a in liveitems.accounts()):
+            b = _angel("GET", "/rest/secure/angelbroking/user/v1/getRMS")
+            d = b.get("data") or {}
+            out["angel"] = ({"available": f(d.get("net")), "cash": f(d.get("availablecash")), "used": f(d.get("utiliseddebits"))}
+                            if b.get("status") else {"error": b.get("message") or "refused"})
+    except Exception as error:
+        out["angel"] = {"error": str(error)}
+    _funds_cache.update(at=time.time(), data=out)
+    return out
+
+
 def summary():
     """Every live item for the dashboard: its state, holdings marked now (Kite's last prices), realized and
     unrealized (gross: before charges), today's orders and its last log line."""
@@ -835,7 +1044,7 @@ def summary():
             if p["sell_day"]:
                 continue
             now = ltp.get(f"{p['exchange']}:{p['tradingsymbol']}")
-            open_.append({"symbol": p["symbol"], "instrument": p["instrument"], "qty": p["qty"], "buy_day": p["buy_day"].isoformat(),
+            open_.append({"symbol": p["tradingsymbol"] if p["symbol"] == "NIFTY" else p["symbol"], "instrument": p["instrument"], "qty": p["qty"], "buy_day": p["buy_day"].isoformat(),
                           "buy_price": p["buy_price"], "last": now, "pnl_rs": round((now - p["buy_price"]) * p["qty"], 2) if now else None,
                           "state": "buy order in" if p["buy_status"] == "pending" else "sale order in" if p["sell_status"] == "pending"
                           else "sell at next open" if p["sell_queued"] else "sell by hand" if p["sell_status"] == "manual" else "held"})
@@ -848,4 +1057,54 @@ def summary():
                     "realized_rs": round(sum((p["sell_price"] - p["buy_price"]) * p["qty"] for p in closed), 2), "trades": len(closed),
                     "sold_today_rs": round(sum((p["sell_price"] - p["buy_price"]) * p["qty"] for p in closed if p["sell_day"] == today), 2),
                     "today": {"sent": sent, "dry": dry, "problems": bad}, "last": last.get(it["id"])})
-    return {"items": out, "real_allowed": real_orders_allowed()}
+    try:
+        fx = funds()
+    except Exception as error:
+        fx = {}
+        print("Live summary: funds failed:", error)
+    for o, it in zip(out, items["items"]):
+        o["funds"] = fx.get(it["account"])
+        if it["model"] == "turn-of-month":
+            o["need_rs"] = tom_need(it["settings"])
+    return {"items": out, "real_allowed": real_orders_allowed(), "funds": fx}
+
+
+def _tom_signals(item):
+    """Turn of the month's "signal": this cycle's buy and sale days, what it holds, and what the buy day's run
+    would buy on the prices now."""
+    import v2tom
+    now = gapwatch._now()
+    today = now.date()
+    kite = kite_auth.trading_client()
+    plan = v2tom.plan(today, live=False)
+    with connect() as conn, conn.cursor() as cursor:
+        _ensure(cursor)
+        conn.commit()
+        held = _held(cursor, item["id"])
+    out = {"tom": True, "at": now.strftime("%H:%M:%S"), "buy": plan["buy"], "sell": plan["sell"], "state": plan["state"],
+           "days_to_buy": plan.get("days_to_buy"), "holidays": plan.get("holidays_source"), "held": [], "pick": None}
+    for p in held:
+        k = f"{p['exchange']}:{p['tradingsymbol']}"
+        last = (kite.ltp([k]).get(k) or {}).get("last_price")
+        out["held"].append({"tradingsymbol": p["tradingsymbol"], "qty": p["qty"], "buy_day": p["buy_day"].isoformat(), "buy_price": p["buy_price"],
+                            "last": last, "sell_plan": p["sell_plan"].isoformat() if p["sell_plan"] else None,
+                            "state": "buy order in" if p["buy_status"] == "pending" else "sale order in" if p["sell_status"] == "pending" else "held"})
+    if not held:
+        try:
+            pos, why = _tom_pick(kite, today, plan, item["settings"], _instruments(kite, today))
+        except Exception as error:
+            pos, why = None, str(error)
+        if pos:
+            q = pos["quote"]
+            out["pick"] = {"tradingsymbol": pos["tradingsymbol"], "instrument": pos["instrument"], "strike": pos["strike"],
+                           "expiry": pos["expiry"].isoformat(), "qty": pos["qty"], "last": pos["last"], "ask": _best(q, "BUY"),
+                           "bid": _best(q, "SELL"), "value": round((pos["last"] or 0) * pos["qty"])}
+            try:  # what the account needs for the buy (Kite's margin calculator; a call: its premium)
+                m = kite.order_margins([{"exchange": "NFO", "tradingsymbol": pos["tradingsymbol"], "transaction_type": "BUY", "variety": "regular",
+                                         "product": "NRML", "order_type": "LIMIT", "quantity": pos["qty"], "price": _best(q, "BUY") or pos["last"]}])[0]
+                out["pick"]["margin"] = round(float(m.get("total") or 0)) or None
+            except Exception as error:
+                out["pick"]["margin_error"] = str(error)
+        else:
+            out["pick_error"] = why
+    return out

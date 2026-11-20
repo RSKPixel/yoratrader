@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { TomCard, useDashboard } from "../V2Dashboard";
+import { LiveItems, useDashboard } from "../V2Dashboard";
 import { systemTheme, useSetting } from "../settings";
 import MobileBook from "./MobileBook";
 import MobileHome from "./MobileHome";
@@ -34,7 +34,7 @@ export default function MobileApp() {
   else if (tab === "more") screen = <MobileMore theme={theme} onTheme={setTheme} />;
   else if (error && !d) screen = <p className="text-sm" style={{ color: "var(--negative)" }}>{error}</p>;
   else if (!d) screen = <p className="text-sm" style={{ color: "var(--faint)" }}>Loading…</p>;
-  else if (tab === "live") screen = <TomCard tm={d.paper.tom} />;
+  else if (tab === "live") screen = <div className="flex flex-col gap-3"><LiveItems /></div>;
   else if (tab === "schedule") screen = <MobileSchedule d={d} />;
   else screen = <MobileHome d={d} nextAt={nextAt} />;
 

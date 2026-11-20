@@ -3,8 +3,8 @@
 whether it is enabled (real money). An item starts disabled.
 
 Enabling an item only marks it on: the orders come from each model's live order engine, built one model at
-a time (ENGINES). A model without one sends nothing, and the page says so. Turn of the month is traded by
-hand from its own page (livetrade.py).
+a time (ENGINES). A model without one sends nothing, and the page says so. Turn of the month has one too (it used
+to be traded by hand from its page, livetrade.py, which stays).
 """
 
 import json
@@ -19,6 +19,9 @@ from db import connect, schema_once
 _DISASTER = ("disaster", "Disaster stop 10%", "choice", [("on", "On"), ("off", "Off")],
              "Out 10% from the entry if the day's low (long) or high (short) reaches it. Chan: a stop usually costs a "
              "mean-reversion model a little, but caps the loss if it stops working (a regime change, a black swan).")
+_ORDERS = ("orders", "Orders", "choice", [("dry", "Dry run"), ("real", "Live orders")],
+           "Dry run: each order built and logged, nothing sent. Live orders: sent to the account (from the live server only), "
+           "fills checked with the broker every minute.")
 _MAX_OPEN = ("max_open", "Max open", "stepper", (1, 10), "Positions held at once: the free slots fill at the next run")
 
 
@@ -40,9 +43,9 @@ def _connors():
         _DISASTER,
         ("exit", "Exit", "choice", [("hold", "5 days"), ("strength", "Exit on strength")],
          "Sold on the 5th trading day, or on strength (the first 15:15 the 2-day RSI is above 65, the 5th day at the latest)"),
-        ("orders", "Orders", "choice", [("dry", "Dry run"), ("real", "Real orders")],
-         "Dry run: each order built and logged, nothing sent. Real orders: sent to the account (from the live server only), "
-         "fills checked with the broker every minute. The disaster stop isn't built for real orders yet."),
+        ("orders", "Orders", "choice", [("dry", "Dry run"), ("real", "Live orders")],
+         "Dry run: each order built and logged, nothing sent. Live orders: sent to the account (from the live server only), "
+         "fills checked with the broker every minute. The disaster stop isn't built for live orders yet."),
     ]
 
 
@@ -67,8 +70,14 @@ SPECS = {
         _DISASTER,
     ],
     "turn-of-month": [
-        ("lots", "Lots", "choice", [(n, str(n)) for n in range(1, 6)], "Nifty call lots bought"),
-        ("stop", "Stop loss", "choice", [("off", "Off"), ("on", "On")], "A Kite GTT on the held call, set from its trading page"),
+        ("instrument", "Instrument", "choice", [("call", "ITM Nifty call"), ("future", "Nifty future")],
+         "ITM Nifty call: next month's expiry, 2-3.5% in the money (the tightest bid-ask spread), the loss capped at what it cost. "
+         "Nifty future: the nearest one expiring after the sale day, as the paper book (margin; no cap on the loss)."),
+        ("lots", "Lots", "choice", [(n, str(n)) for n in range(1, 6)], "Lots bought (the lot size is the exchange's: Nifty 65 now)"),
+        ("buy_at", "Buy", "fixed", "15:15 · 5th-last trading day", "Bought at 15:15 on the month's 5th-last trading day (NSE's holidays skipped)"),
+        ("sell_at", "Sell", "fixed", "15:15 · 3rd trading day", "Sold at 15:15 on the next month's 3rd trading day (NSE's holidays skipped)"),
+        ("stop", "Stop", "fixed", "None", "As the book: no stop"),
+        _ORDERS,
     ],
     "books-gold": [
         ("capital", "Capital", "capital", (10000, 100000000), "What the portfolio is sized on"),
@@ -79,9 +88,9 @@ LABELS = {
     "oops": "Oops gap reversal", "buy-on-gap": "Buy/Sell on gap", "xs-mean-reversion": "Cross-sectional mean reversion",
     "turn-of-month": "Turn of the month", "books-gold": "Books + gold",
 }
-PAGES = {"turn-of-month": "/v2/trade/turn-of-month", "books-gold": "/v2/trade/books-gold"}  # traded by hand from these
-ENGINES = ("short-term-reversion", "cumulative-rsi")  # models with a live order engine (liveengine.py: dry run, logged)
-HAND = {"turn-of-month": "You place its orders from its trading page", "books-gold": "You place its orders by hand from its page"}
+PAGES = {"books-gold": "/v2/trade/books-gold"}  # traded by hand from these
+ENGINES = ("short-term-reversion", "cumulative-rsi", "turn-of-month")  # models with a live order engine (liveengine.py)
+HAND = {"books-gold": "You place its orders by hand from its page"}
 
 
 def _paper_settings(model):
@@ -101,7 +110,7 @@ def _paper_settings(model):
             return {"max_open": cfg["gap_open"], "side": cfg["gap_side"], "disaster": cfg["gap_disaster"]}
         return {"pairs": cfg["xs_k"], "disaster": cfg["xs_disaster"]}
     if model == "turn-of-month":
-        return {"lots": 1, "stop": "off"}
+        return {"orders": "dry", "instrument": "call", "lots": 1}
     if model == "books-gold":
         import livetrade
         return {"capital": livetrade.mix_capital()}
@@ -146,6 +155,9 @@ def _ensure(cursor):
         );
         """
     )
+    # locked: no change to its settings, account, name, no Enable, no delete (Disable still works) until unlocked
+    # with the authenticator code
+    cursor.execute("ALTER TABLE live_items ADD COLUMN IF NOT EXISTS locked BOOLEAN NOT NULL DEFAULT false")
 
 
 def accounts():
@@ -198,13 +210,13 @@ def models():
 
 
 def _row(r):
-    i, model, name, account, settings, enabled, created_at, enabled_at = r
-    return {"id": i, "model": model, "model_label": LABELS.get(model, model), "name": name, "account": account,
+    i, model, name, account, settings, enabled, created_at, enabled_at, locked = r
+    return {"id": i, "locked": locked, "model": model, "model_label": LABELS.get(model, model), "name": name, "account": account,
             "settings": settings or {}, "enabled": enabled, "created_at": created_at.isoformat(),
             "enabled_at": enabled_at.isoformat() if enabled_at else None, "page": PAGES.get(model),
             "orders": "engine" if model in ENGINES else "hand" if model in HAND else "none",
             "real": (settings or {}).get("orders") == "real",
-            "orders_note": (("REAL ORDERS: when enabled, its orders are sent to the account at its times in the live market (from the live server), fills checked every minute"
+            "orders_note": (("LIVE ORDERS: when enabled, its orders are sent to the account at its times in the live market (from the live server), fills checked every minute"
                              if (settings or {}).get("orders") == "real" else
                              "Order engine on, DRY RUN: when enabled, its orders are built and logged at its times in the live market, nothing is sent") if model in ENGINES else HAND.get(model)
                             or "Its order engine isn't built yet: enabled or not, nothing is sent")}
@@ -214,7 +226,7 @@ def items():
     with connect() as conn, conn.cursor() as cursor:
         _ensure(cursor)
         conn.commit()
-        cursor.execute("SELECT id, model, name, account, settings, enabled, created_at, enabled_at FROM live_items ORDER BY id")
+        cursor.execute("SELECT id, model, name, account, settings, enabled, created_at, enabled_at, locked FROM live_items ORDER BY id")
         rows = [_row(r) for r in cursor.fetchall()]
     fields = {m: [{"key": x[0], "label": x[1], "kind": x[2], "rule": x[3], "hint": x[4], "when": x[5] if len(x) > 5 else None}
                   for x in f] for m, f in SPECS.items()}
@@ -222,7 +234,7 @@ def items():
 
 
 def _one(cursor, item_id):
-    cursor.execute("SELECT id, model, name, account, settings, enabled, created_at, enabled_at FROM live_items WHERE id = %s", (item_id,))
+    cursor.execute("SELECT id, model, name, account, settings, enabled, created_at, enabled_at, locked FROM live_items WHERE id = %s", (item_id,))
     r = cursor.fetchone()
     if not r:
         raise ValueError("No such item")
@@ -257,6 +269,7 @@ def update(item_id, name=None, account=None, settings=None, user=None):
     with connect() as conn, conn.cursor() as cursor:
         _ensure(cursor)
         it = _one(cursor, item_id)
+        _unlocked(it)
         if it["enabled"] and account is not None and account != it["account"]:
             raise ValueError("Disable the item before changing its account")
         if name is not None:
@@ -267,11 +280,28 @@ def update(item_id, name=None, account=None, settings=None, user=None):
             raise ValueError("Not one of the trading accounts in Settings")
         new = {**it["settings"], **_clean(it["model"], settings)} if settings is not None else it["settings"]
         if new.get("orders") == "real" and new.get("disaster") == "on":
-            raise ValueError("Real orders: the disaster stop isn't built for them yet. Turn the disaster stop off, or keep Dry run")
+            raise ValueError("Live orders: the disaster stop isn't built for them yet. Turn the disaster stop off, or keep Dry run")
         cursor.execute("UPDATE live_items SET name = COALESCE(%s, name), account = COALESCE(%s, account), settings = %s, "
                        "updated_at = now(), updated_by = %s WHERE id = %s", (name, account, json.dumps(new), user, item_id))
         out = _one(cursor, item_id)
         conn.commit()
+    return out
+
+
+def _unlocked(it):
+    if it.get("locked"):
+        raise ValueError("Locked: unlock it with your authenticator code first")
+
+
+def set_locked(item_id, locked, user=None):
+    """Lock an item's settings, or unlock them (the caller checks the authenticator code first)."""
+    with connect() as conn, conn.cursor() as cursor:
+        _ensure(cursor)
+        _one(cursor, item_id)
+        cursor.execute("UPDATE live_items SET locked = %s, updated_at = now(), updated_by = %s WHERE id = %s", (bool(locked), user, item_id))
+        out = _one(cursor, item_id)
+        conn.commit()
+    print(f"Live item {item_id} {'locked' if locked else 'unlocked'} by {user}")
     return out
 
 
@@ -281,6 +311,7 @@ def set_enabled(item_id, enabled, user=None):
         _ensure(cursor)
         it = _one(cursor, item_id)
         if enabled:
+            _unlocked(it)
             acct = next((a for a in accounts() if a["id"] == it["account"]), None)
             if not acct or not acct["connected"]:
                 raise ValueError("Its trading account isn't connected: log in to Kite from Settings, or pick the account again")
@@ -296,6 +327,7 @@ def delete(item_id):
     with connect() as conn, conn.cursor() as cursor:
         _ensure(cursor)
         it = _one(cursor, item_id)
+        _unlocked(it)
         if it["enabled"]:
             raise ValueError("Disable the item before deleting it")
         cursor.execute("DELETE FROM live_items WHERE id = %s", (item_id,))

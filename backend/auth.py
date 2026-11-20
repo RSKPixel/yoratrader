@@ -261,6 +261,25 @@ def verify_totp(challenge, code):
     return _new_session(user_id)
 
 
+def check_code(user_id, code):
+    """A signed-in user's 6-digit authenticator code (to unlock something): True / False. Same rules as sign-in:
+    the current 30-second step or one either side, never a step already used, locked after repeated failures."""
+    key = f"totp:{user_id}"
+    _locked(key)
+    row = _query("SELECT totp_secret, totp_last_step FROM users WHERE id = %s", (user_id,), fetch="one")
+    if not row or not row[0]:
+        raise PermissionError("No authenticator set up for this user")
+    code = "".join(ch for ch in (code or "") if ch.isdigit())
+    totp, now = pyotp.TOTP(row[0]), time.time()
+    step = next((int(now // 30) + d for d in (0, -1, 1) if len(code) == 6 and hmac.compare_digest(totp.at(now + 30 * d), code)), None)
+    if step is None or step <= row[1]:
+        _fail(key)
+        return False
+    _failures.pop(key, None)
+    _query("UPDATE users SET totp_last_step = %s WHERE id = %s", (step, user_id))
+    return True
+
+
 def _new_session(user_id):
     jti = secrets.token_urlsafe(24)
     expires = next_expiry()

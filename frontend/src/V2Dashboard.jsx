@@ -9,6 +9,7 @@ import V2PaperCurve from "./V2PaperCurve";
 import { InstrumentTag } from "./V2SideNav";
 import { useResume } from "./resume";
 import { usePaperChart } from "./V2PaperView";
+import { FundsRow, LiveItemModal, lotsText } from "./V2TradeLanding";
 
 // v2 Dashboard: today at a glance. Refreshes every minute while the market is open (every 5 outside).
 
@@ -339,8 +340,9 @@ function openNow(p) {
 
 // The live trading items (the Live trading page), each a card: on / off, real or dry run, its holdings marked now,
 // realized and unrealized (gross, before charges), today's orders and its last log line. Every minute.
-export function LiveItems() {
+function useLiveSummary() {
   const [data, setData] = useState(null);
+  const [n, setN] = useState(0);
   const resumed = useResume();
   useEffect(() => {
     let alive = true;
@@ -351,24 +353,82 @@ export function LiveItems() {
       alive = false;
       clearInterval(t);
     };
-  }, [resumed]);
+  }, [resumed, n]);
+  return [data, () => setN((x) => x + 1)];
+}
+
+// a live card's click: that item's modal (settings, signals, log) over the dashboard
+function useItemModal(reload) {
+  const [open, setOpen] = useState(null);
+  const click = (id) => (e) => {
+    e.preventDefault();
+    setOpen(id);
+  };
+  const modal = open != null && <LiveItemModal id={open} onClose={() => setOpen(null)} onChange={reload} />;
+  return [click, modal];
+}
+
+// The dashboard's summary cards for the live trading items: one small card each (realized, today's arrow, unrealized
+// now), and all of them together. Gross: before charges. Nothing when there are no items.
+function LiveRow() {
+  const [data, reload] = useLiveSummary();
+  const [click, modal] = useItemModal(reload);
+  if (!data || data.status !== "success" || !data.items.length) return null;
+  const items = data.items;
+  const add = (k) => items.reduce((a, it) => a + (it[k] || 0), 0);
+  const unreal = items.some((it) => it.unrealized_rs != null) ? add("unrealized_rs") : null;
+  const badge = (it) => (
+    <span className="shrink-0 text-[0.625rem] font-semibold uppercase tracking-[0.08em]" style={{ color: !it.enabled ? "var(--faint)" : it.real ? "var(--negative)" : "var(--accent)" }}>
+      {!it.enabled ? "Off" : !it.engine ? "By hand" : it.real ? "Live" : "Dry run"}
+    </span>
+  );
+  return (
+    <section className="flex flex-col gap-2">
+      <h2 className="text-xs font-semibold uppercase tracking-[0.14em]" style={{ color: "var(--faint)" }}>Live trading</h2>
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 xl:grid-cols-7">
+        {items.map((it) => (
+          <a key={it.id} href="/v2/trade" onClick={click(it.id)} className="rounded-lg border px-3 py-2.5 transition-colors hover:bg-[var(--surface-2)]"
+            style={{ borderColor: it.enabled && it.real ? "var(--negative)" : "var(--border)", background: "var(--surface)" }}
+            title={`${it.name}: ${it.model} · ${it.account}. Realized (the arrow: sold today) and unrealized now, before charges. Click: its settings`}>
+            <div className="flex items-center justify-between gap-2 text-xs" style={{ color: "var(--muted)" }}><span className="truncate">{it.name}</span>{badge(it)}</div>
+            <div className="mt-0.5 text-lg font-semibold tabular-nums" style={{ color: tone(it.realized_rs) }}>{signedRs(it.realized_rs ?? 0)}</div>
+            <div className="flex flex-wrap items-baseline gap-x-2 text-[0.6875rem] tabular-nums">
+              <Delta v={it.sold_today_rs} className="text-[0.6875rem]" />
+              <span style={{ color: "var(--muted)" }}>open {it.open.length}{it.unrealized_rs != null ? <span style={{ color: tone(it.unrealized_rs) }}> {signedRs(it.unrealized_rs)}</span> : ""}</span>
+            </div>
+          </a>
+        ))}
+        {items.length > 1 && (
+          <div className="rounded-lg border px-3 py-2.5" style={{ borderColor: "var(--accent)", background: "var(--surface)" }} title="Every live trading item together: realized (the arrow: sold today) and unrealized now, before charges">
+            <div className="truncate text-xs font-medium" style={{ color: "var(--text)" }}>All live items</div>
+            <div className="mt-0.5 text-lg font-semibold tabular-nums" style={{ color: tone(add("realized_rs")) }}>{signedRs(add("realized_rs"))}</div>
+            <div className="flex flex-wrap items-baseline gap-x-2 text-[0.6875rem] tabular-nums">
+              <Delta v={add("sold_today_rs")} className="text-[0.6875rem]" />
+              <span style={{ color: "var(--muted)" }}>open {items.reduce((a, it) => a + it.open.length, 0)}{unreal != null ? <span style={{ color: tone(unreal) }}> {signedRs(unreal)}</span> : ""}</span>
+            </div>
+          </div>
+        )}
+      </div>
+      {modal}
+    </section>
+  );
+}
+
+export function LiveItems() {
+  const [data, reload] = useLiveSummary();
+  const [click, modal] = useItemModal(reload);
   if (!data) return null;
   if (data.status !== "success") return <p className="text-sm" style={{ color: "var(--negative)" }}>{data.message || data.detail}</p>;
-  const open = (e) => {
-    e.preventDefault();
-    window.history.pushState(null, "", "/v2/trade");
-    window.dispatchEvent(new PopStateEvent("popstate"));
-  };
   const signed = (v) => (v == null ? "—" : `${v > 0 ? "+" : ""}${formatRs(v)}`);
-  return data.items.map((it) => {
+  return <>{data.items.map((it) => {
     const s = it.settings || {};
     return (
-      <a key={it.id} href="/v2/trade" onClick={open} className="flex flex-col gap-3 rounded-lg border p-4 transition-colors hover:bg-[var(--surface-2)]"
+      <a key={it.id} href="/v2/trade" onClick={click(it.id)} className="flex flex-col gap-3 rounded-lg border p-4 transition-colors hover:bg-[var(--surface-2)]"
         style={{ borderColor: it.enabled && it.real ? "var(--negative)" : it.enabled ? "var(--positive)" : "var(--border)", background: "var(--surface)" }}>
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
             <h3 className="truncate text-sm font-semibold">{it.name}</h3>
-            <p className="truncate text-xs" style={{ color: "var(--muted)" }}>{it.model} · {it.account}</p>
+            <p className="truncate text-xs" style={{ color: "var(--muted)" }}>{it.model}</p>
           </div>
           <div className="flex shrink-0 gap-1">
             <span className="rounded-full px-2 py-0.5 text-[0.625rem] font-semibold uppercase tracking-[0.08em]" style={{ background: "var(--surface-2)", color: it.enabled ? "var(--positive)" : "var(--faint)" }}>
@@ -376,18 +436,20 @@ export function LiveItems() {
             </span>
             {it.engine && (
               <span className="rounded-full px-2 py-0.5 text-[0.625rem] font-semibold uppercase tracking-[0.08em]" style={{ background: "var(--surface-2)", color: it.real ? "var(--negative)" : "var(--accent)" }}>
-                {it.real ? "Real" : "Dry run"}
+                {it.real ? "Live" : "Dry run"}
               </span>
             )}
           </div>
         </div>
         <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs tabular-nums">
+          <div className="col-span-2 flex justify-between gap-2"><dt style={{ color: "var(--muted)" }}>Account</dt><dd className="truncate text-right">{it.account}</dd></div>
           <div className="flex justify-between gap-2"><dt style={{ color: "var(--muted)" }}>Realized</dt><dd style={{ color: tone(it.realized_rs) }}>{signed(it.realized_rs)}</dd></div>
           <div className="flex justify-between gap-2"><dt style={{ color: "var(--muted)" }}>Unrealized</dt><dd style={{ color: tone(it.unrealized_rs) }}>{signed(it.unrealized_rs)}</dd></div>
-          <div className="flex justify-between gap-2"><dt style={{ color: "var(--muted)" }}>Holding</dt><dd>{it.open.length} / {s.max_open ?? "—"}</dd></div>
+          <div className="flex justify-between gap-2"><dt style={{ color: "var(--muted)" }}>Holding</dt><dd>{it.open.length}{s.max_open != null ? ` / ${s.max_open}` : ""}</dd></div>
           <div className="flex justify-between gap-2"><dt style={{ color: "var(--muted)" }}>Invested</dt><dd>{formatRs(it.invested_rs)}</dd></div>
-          {s.capital != null && <div className="flex justify-between gap-2"><dt style={{ color: "var(--muted)" }}>Capital</dt><dd>{formatRs(s.capital)}</dd></div>}
+          <div className="flex justify-between gap-2"><dt style={{ color: "var(--muted)" }}>Size</dt><dd className="truncate">{s.capital != null && s.price !== "futures" ? formatRs(s.capital) : s.lots != null ? lotsText(s, it.need_rs) : "1 lot each"}</dd></div>
           <div className="flex justify-between gap-2"><dt style={{ color: "var(--muted)" }}>Trades closed</dt><dd>{it.trades}</dd></div>
+          <div className="col-span-2"><FundsRow f={it.funds} settings={s} need={it.need_rs} /></div>
           <div className="col-span-2 flex justify-between gap-2">
             <dt style={{ color: "var(--muted)" }}>Today's orders</dt>
             <dd>{it.real ? `${it.today.sent} sent` : `${it.today.dry} logged`}{it.today.problems ? <span style={{ color: "var(--negative)" }}> · {it.today.problems} problems</span> : ""}</dd>
@@ -408,12 +470,9 @@ export function LiveItems() {
             </tbody>
           </table>
         )}
-        <p className="text-[0.6875rem]" style={{ color: it.last?.status === "rejected" || it.last?.event === "error" ? "var(--negative)" : "var(--faint)" }}>
-          {it.last ? `Last: ${it.last.at} · ${it.last.event}${it.last.symbol ? ` ${it.last.symbol}` : ""}${it.last.note ? ` · ${it.last.note}` : ""}` : it.engine ? "Nothing logged yet: first run at 15:15 on a trading day" : "No order engine: traded by hand"}
-        </p>
       </a>
     );
-  });
+  })}{modal}</>;
 }
 
 // Turn of the month is traded by hand with real money (Live trading), not paper traded: its own card
@@ -422,7 +481,7 @@ export function TomCard({ tm = {} }) {
   return (
       <PaperCard
         title="Turn of the month · manual"
-        href="/v2/trade/turn-of-month"
+        href="/v2/manual"
         style="Positional"
         error={tm.error}
         lines={[
@@ -1207,7 +1266,6 @@ export default function V2Dashboard() {
         )}
         {tab === "live" && (
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-            <TomCard tm={d.paper.tom} />
             <LiveItems />
           </div>
         )}
@@ -1347,6 +1405,7 @@ function WidePaper({ p, today }) {
     <div className="flex flex-col gap-3">
       <PaperTotals p={p} realized={false} />
       <ModelRow p={p} field="realized" />
+      <LiveRow />
       <Paper p={p} today={today} />
     </div>
   );

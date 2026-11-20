@@ -765,6 +765,11 @@ class LiveItemEnable(BaseModel):
     enabled: bool
 
 
+class LiveItemLock(BaseModel):
+    locked: bool
+    code: str = ""
+
+
 def _live(fn):
     try:
         return {"status": "success", **fn()}
@@ -775,8 +780,19 @@ def _live(fn):
 @app.get("/api/v2/live/items")
 def v2_live_items():
     """The Live trading page's items, each model's settings fields and the trading accounts."""
+    import liveengine
     import liveitems
-    return _live(liveitems.items)
+
+    def both():
+        out = liveitems.items()
+        try:
+            out["funds"] = liveengine.funds()
+        except Exception as error:
+            out["funds"] = {}
+            print("Live items: funds failed:", error)
+        out["needs"] = {i["id"]: liveengine.tom_need(i["settings"]) for i in out["items"] if i["model"] == "turn-of-month"}
+        return out
+    return _live(both)
 
 
 @app.get("/api/v2/live/models")
@@ -804,6 +820,21 @@ def v2_live_enable(item_id: int, req: LiveItemEnable, request: Request):
     return _live(lambda: {"item": liveitems.set_enabled(item_id, req.enabled, request.state.user.get("username"))})
 
 
+@app.post("/api/v2/live/items/{item_id}/locked")
+def v2_live_lock(item_id: int, req: LiveItemLock, request: Request):
+    """Lock an item's settings, or unlock them with the user's authenticator code."""
+    import liveitems
+    user = request.state.user
+    if not req.locked:
+        try:
+            ok = auth.check_code(user["id"], req.code)
+        except (auth.LoginLocked, PermissionError) as exc:
+            raise HTTPException(status_code=403, detail=str(exc))
+        if not ok:
+            raise HTTPException(status_code=403, detail="Wrong or used code: wait for the next one")
+    return _live(lambda: {"item": liveitems.set_locked(item_id, req.locked, user.get("username"))})
+
+
 @app.get("/api/v2/live/summary")
 def v2_live_summary():
     """Every live item for the dashboard: state, holdings marked now, realized / unrealized, today's orders."""
@@ -826,10 +857,16 @@ def v2_live_preview(item_id: int):
 
 
 @app.get("/api/v2/live/items/{item_id}/signals")
-def v2_live_signals(item_id: int):
-    """The model's signals now on the item's setup and instrument, and what the item would do with each."""
+def v2_live_signals(item_id: int, settings: str = ""):
+    """The model's signals now on the item's setup and instrument, and what the item would do with each.
+    settings: the settings on screen (JSON), not saved yet."""
+    import json
     import liveengine
-    return _live(lambda: liveengine.signals(item_id))
+    try:
+        override = json.loads(settings) if settings else None
+    except ValueError:
+        override = None
+    return _live(lambda: liveengine.signals(item_id, override if isinstance(override, dict) else None))
 
 
 @app.delete("/api/v2/live/items/{item_id}")

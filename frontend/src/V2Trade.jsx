@@ -347,7 +347,7 @@ export default function V2Trade() {
     <div className="flex flex-col gap-4">
       <div>
         <p className="text-xs font-medium uppercase tracking-[0.14em]" style={{ color: "var(--faint)" }}>
-          Live trading · real money · Larry Williams · Long-Term Secrets to Short-Term Trading
+          Manual trading · real money · Larry Williams · Long-Term Secrets to Short-Term Trading
         </p>
         <div className="mt-1 flex flex-wrap items-center gap-3">
           <h1 className="text-xl font-semibold tracking-tight">Turn of the month</h1>
