@@ -19,9 +19,11 @@ const PAGES = [
   { id: "backtesting", label: "Backtesting" },
   { id: "paper", label: "Paper trading" },
   { id: "trade", label: "Live trading" },
-  { id: "manual", label: "Manual trading" },
   { id: "reports", label: "Reports" },
 ];
+// pages reached from the dashboard, not the top nav: Manual trading (its Manual trading tab's cards open them)
+const HIDDEN = [{ id: "manual", label: "Manual trading" }];
+const ALL = [...PAGES, ...HIDDEN];
 
 function GearIcon() {
   return (
@@ -39,7 +41,7 @@ function pathParts() {
 function pageFromPath() {
   const id = pathParts()[0];
   // Settings is a dialog over the page, not a page of its own
-  return id !== "settings" && PAGES.some((p) => p.id === id) ? id : "dashboard";
+  return id !== "settings" && ALL.some((p) => p.id === id) ? id : "dashboard";
 }
 
 function backtestFromPath() {
@@ -111,7 +113,7 @@ export default function AppV2() {
 
   useEffect(() => {
     const sub = page === "backtesting" && backtest ? `${findBacktest(backtest)?.label} · ` : page === "paper" && paper ? `${findPaper(paper)?.label} · ` : "";
-    document.title = `${sub}${PAGES.find((p) => p.id === page)?.label} · YoraTrader`;
+    document.title = `${sub}${ALL.find((p) => p.id === page)?.label} · YoraTrader`;
   }, [page, backtest, paper]);
 
   const selectPaper = (id) => {
@@ -143,7 +145,7 @@ export default function AppV2() {
     setPage(id);
   };
 
-  const current = PAGES.find((p) => p.id === page);
+  const current = ALL.find((p) => p.id === page);
 
   // every page a plain link: each model is reached from its page's landing (no menus)
   const link = (p) => <NavLink key={p.id} page={p} active={p.id === page} onSelect={select} />;

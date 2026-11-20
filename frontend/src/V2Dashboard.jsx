@@ -1237,7 +1237,7 @@ export default function V2Dashboard() {
             role="tab"
             aria-selected={tab === t.id}
             onClick={() => setTab(t.id)}
-            className="-mb-px border-b-2 px-3 py-2.5 text-sm font-medium whitespace-nowrap"
+            className="-mb-px cursor-pointer border-b-2 px-3 py-2.5 text-sm font-medium whitespace-nowrap transition-colors hover:text-[var(--text)]"
             style={tab === t.id ? { borderColor: "var(--accent)", color: "var(--text)" } : { borderColor: "transparent", color: "var(--muted)" }}
           >
             {t.label}
