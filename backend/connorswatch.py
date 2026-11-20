@@ -696,7 +696,7 @@ def watchlist(book="rsi2"):
         conn.commit()
         cursor.execute(f"SELECT symbol FROM {b['trades']} WHERE sell_day IS NULL")
         out["held"] = [r[0] for r in cursor.fetchall()]
-    if cum:  # what the held positions' RSI is now: above EXIT_RSI = sold on strength at 15:15
+    if cum or exit_mode(book) == "strength":  # what the held positions' RSI is now: above EXIT_RSI = sold on strength
         out["held_rsi"] = {s: round(float(v), 1) for s, v in live.get("rsi_all", {}).items() if s in out["held"]}
     out["free_slots"] = max(0, max_open(book) - len(out["held"]))
     _watch[book] = (time.time(), out)

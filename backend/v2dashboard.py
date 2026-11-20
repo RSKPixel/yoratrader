@@ -474,6 +474,60 @@ def _closes(kite, key, since, fetched):
     return out
 
 
+def _session_after(day, n=1):
+    """The n-th trading session after a day (weekends and NSE holidays skipped)."""
+    from datetime import date as ddate
+    holidays, _ = v2tom._holidays(gapwatch._now().date())
+    d = ddate.fromisoformat(day) if isinstance(day, str) else day
+    while n > 0:
+        d += timedelta(days=1)
+        if d.weekday() < 5 and d not in holidays:
+            n -= 1
+    return d
+
+
+def _when(d):
+    """A date as the schedule shows it: Today, Tomorrow, or Mon 23 Nov."""
+    today = gapwatch._now().date()
+    return "today" if d == today else "tomorrow" if d == today + timedelta(days=1) else f"{d:%a} {d.day} {d:%b}"
+
+
+def _connors_plans(book):
+    """Each open position's exit schedule in a short-term mean reversion book: {(symbol, buy_day): [(when, what)]}."""
+    b = connorswatch._book(book)
+    mode, ex = connorswatch.trade_at(book), connorswatch.exit_mode(book)
+    with connect() as conn, conn.cursor() as cursor:
+        cursor.execute(f"SELECT symbol, buy_day, reason, day FROM {b['trades']}_orders WHERE done_day IS NULL AND action = 'sell'")
+        pending = {(s_, d.isoformat()): (r, on) for s_, d, r, on in cursor.fetchall()}
+    try:
+        rsi_now = connorswatch.watchlist(book).get("held_rsi") or {}
+    except Exception:
+        rsi_now = {}
+    at_open = mode in ("closeopen", "nextopen")
+    sale = "the open (pre-open auction, 09:00-09:08)" if at_open else "15:15"
+    plans = {}
+    for t in connorswatch.paper(SL["connors"], book=book)["open"]:
+        steps = []
+        last = _session_after(t["buy_day"], connorswatch.MAX_DAYS - 1)  # day 1 is the buy day
+        why = {"strength": "exit on strength (RSI(2) above 65)", "time": f"day {connorswatch.MAX_DAYS}: the time exit"}
+        if (t["symbol"], t["buy_day"]) in pending:
+            r, on = pending[(t["symbol"], t["buy_day"])]  # placed on a day: done at the next session's open
+            steps.append(("Sell order placed", f"{_when(_session_after(on))} at {sale} · {why.get(r, r)}"))
+        else:
+            if ex == "strength":
+                rsi = rsi_now.get(t["symbol"])
+                decide = "15:15" if mode != "nextopen" else "after the close"
+                steps.append(("Each day", f"checked at {decide}: sold when RSI(2) is above 65"
+                              + (f" · now {rsi:.1f}" if rsi is not None else "")
+                              + (f" (next {'open' if at_open else 'decision'} if it stays there)" if rsi is not None and rsi > 65 else "")))
+            final = _session_after(last) if at_open else last
+            steps.append(("At the latest", f"{_when(final)} at {sale} · day {connorswatch.MAX_DAYS} of {connorswatch.MAX_DAYS} (time exit)"))
+        if t.get("stop"):
+            steps.append(("Disaster stop", f"₹{t['stop']:,} · sold the day the low reaches it"))
+        plans[(t["symbol"], t["buy_day"])] = steps
+    return plans
+
+
 def open_positions(gap_max_open=5, xsmr_max_open=10):
     """Every paper book's open positions with their price path since they were bought (the paper landing
     page's charts): a position held by more than one book is shown once, with each book named. Prices
@@ -481,7 +535,7 @@ def open_positions(gap_max_open=5, xsmr_max_open=10):
     pairs = min(5, xsmr_max_open // 2) if xsmr_max_open else 5
     found, errors = [], {}
 
-    def intraday(label, href, build, fut=False, disaster="off"):
+    def intraday(label, href, build, fut=False, disaster="off", overnight=False):
         def stop_of(p):  # the stop the book really uses: the 10% disaster stop if it's on (no 1σ stop in paper)
             if disaster != "on" or not p.get("entry"):
                 return None
@@ -495,18 +549,27 @@ def open_positions(gap_max_open=5, xsmr_max_open=10):
                     if p.get("closed"):
                         continue
                     key = f"NFO:{p['fut']}" if fut and p.get("fut") else f"NSE:{p['symbol']}"
+                    stop = stop_of(p)
+                    if overnight:  # Oops: held to the next session's open
+                        plan = [("Sells", f"{_when(_session_after(d['day']))} at the open (pre-open auction, 09:00-09:08)")]
+                    else:
+                        plan = [("Sells", f"{_when(datetime.fromisoformat(d['day']).date())} at 15:15 (the time exit)")]
+                    if stop:
+                        plan.append(("Disaster stop", f"₹{stop:,} · sold the moment the price reaches it"))
                     found.append({"book": label, "href": href, "symbol": p["symbol"], "key": key, "side": p.get("side", "long"),
-                                  "since": d["day"], "entry_at": p.get("entry_at"), "entry": p.get("entry"), "stop": stop_of(p),
-                                  "last": p.get("exit"), "net_rs": p.get("net_rs"), "net_pct": p.get("net_value_pct")})
+                                  "since": d["day"], "entry_at": p.get("entry_at"), "entry": p.get("entry"), "stop": stop,
+                                  "last": p.get("exit"), "net_rs": p.get("net_rs"), "net_pct": p.get("net_value_pct"),
+                                  "qty": p.get("qty") or p.get("lot"), "plan": plan})
         except Exception as error:
             errors[label] = str(error)
 
-    intraday("Oops gap reversal", "/v2/paper/oops", lambda: oopswatch.paper(SL["oops"]), fut=True, disaster="on" if oopswatch.stop_mode() == "on" else "off")
+    intraday("Oops gap reversal", "/v2/paper/oops", lambda: oopswatch.paper(SL["oops"]), fut=True, disaster="on" if oopswatch.stop_mode() == "on" else "off", overnight=True)
     intraday("Buy/Sell on gap", "/v2/paper/buy-on-gap", lambda: v2paper.gap(_cfg()["gap_side"], "none", gap_max_open, SL["gap"], _cfg()["gap_disaster"]), fut=True, disaster=_cfg()["gap_disaster"])
     intraday("Cross-sectional mean reversion", "/v2/paper/xs-mean-reversion", lambda: v2paper.xsmr_(pairs, "none", xsmr_max_open, SL["xsmr"], _cfg()["xs_disaster"]), fut=True, disaster=_cfg()["xs_disaster"])
     for label, href, book in (("Short-term mean reversion (RSI)", "/v2/paper/short-term-reversion", "rsi2"),
                               ("Short-term mean reversion (C-RSI)", "/v2/paper/cumulative-rsi", "cum")):
         try:
+            plans = _connors_plans(book)
             for t in connorswatch.paper(SL["connors"], book=book)["open"]:
                 fut = t.get("priced") == "futures" and bool(t.get("fut"))
                 key = f"NFO:{t['fut']}" if fut else f"NSE:{t['symbol']}"
@@ -515,7 +578,8 @@ def open_positions(gap_max_open=5, xsmr_max_open=10):
                               "last": t.get("fut_ltp") if fut else t.get("ltp"),
                               "net_rs": t.get("fut_net_rs") if fut else t.get("stock_net_rs"),
                               "net_pct": t.get("fut_net_value_pct") if fut else t.get("stock_net_value_pct"),
-                              "day_of_hold": t.get("day_of_hold")})
+                              "day_of_hold": t.get("day_of_hold"), "qty": t.get("book_qty"),
+                              "plan": plans.get((t["symbol"], t["buy_day"]), [])})
         except Exception as error:
             errors[label] = str(error)
     try:
@@ -523,14 +587,16 @@ def open_positions(gap_max_open=5, xsmr_max_open=10):
         for t in tomwatch.paper(SL["tom"])["open"]:
             found.append({"book": "Turn of the month", "href": "/v2/paper/turn-of-month", "symbol": "NIFTY", "key": f"NFO:{t['fut']}",
                           "side": "long", "since": t["buy_day"], "entry_at": t["entry_at"], "entry": t["buy"], "stop": None,
-                          "last": t.get("ltp"), "net_rs": t["net_rs"], "net_pct": t["net_pct"]})
+                          "last": t.get("ltp"), "net_rs": t["net_rs"], "net_pct": t["net_pct"], "qty": t.get("lot"),
+                          "plan": [("Sells", f"{_when(datetime.fromisoformat(t['sell_plan']).date())} at the close (planned sale)")]})
     except Exception as error:
         errors["Turn of the month"] = str(error)
     merged = {}
     for p in found:
         k = (p["key"], p["since"], p["entry"])
         own = {"label": p["book"], "href": p["href"], "net_rs": p["net_rs"], "net_pct": p["net_pct"], "entry": p["entry"],
-               "entry_at": p["entry_at"], "stop": p["stop"], "side": p["side"], "day_of_hold": p.get("day_of_hold")}  # each book its own lot
+               "entry_at": p["entry_at"], "stop": p["stop"], "side": p["side"], "day_of_hold": p.get("day_of_hold"),
+               "qty": p.get("qty"), "plan": p.get("plan") or []}  # each book its own lot
         if k in merged:
             merged[k]["books"].append(own)
         else:

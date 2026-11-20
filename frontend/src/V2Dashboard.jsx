@@ -8,6 +8,7 @@ import { findPaper, paperDefaults } from "./V2Paper";
 import V2PaperCurve from "./V2PaperCurve";
 import { InstrumentTag } from "./V2SideNav";
 import { useResume } from "./resume";
+import { usePaperChart } from "./V2PaperView";
 
 // v2 Dashboard: today at a glance. Refreshes every minute while the market is open (every 5 outside).
 
@@ -226,7 +227,8 @@ function BookPositionsModal({ title, query, onClose }) {
     return () => controller.abort();
   }, [query]);
   useEffect(() => {
-    const onKey = (e) => e.key === "Escape" && onClose();
+    // Esc with a candle chart open on top closes only the chart
+    const onKey = (e) => e.key === "Escape" && document.querySelectorAll("[role=dialog]").length < 2 && onClose();
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
@@ -235,7 +237,7 @@ function BookPositionsModal({ title, query, onClose }) {
   const total = rows.reduce((a, p) => a + (p.net_rs || 0), 0);
   return (
     <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
-      <div role="dialog" aria-modal="true" aria-label={`${title}: open positions`} className="flex max-h-[85vh] w-full max-w-5xl flex-col overflow-hidden rounded-lg border"
+      <div role="dialog" aria-modal="true" aria-label={`${title}: open positions`} className="flex max-h-[90vh] w-full max-w-5xl flex-col overflow-hidden rounded-lg border"
         style={{ borderColor: "var(--border)", background: "var(--surface)" }} onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between border-b px-4 py-3" style={{ borderColor: "var(--border)" }}>
           <div>
@@ -254,13 +256,68 @@ function BookPositionsModal({ title, query, onClose }) {
           ) : data && rows.length === 0 ? (
             <p className="text-sm" style={{ color: "var(--muted)" }}>Nothing open in this book right now.</p>
           ) : (
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {rows.map((p) => <PositionChart key={`${p.key}-${p.since}-${p.entry}`} p={p} />)}
-            </div>
+            <>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {rows.map((p) => <PositionChart key={`${p.key}-${p.since}-${p.entry}`} p={p} />)}
+              </div>
+              {rows.length > 0 && <PositionsSchedule rows={rows} />}
+            </>
           )}
           {data?.chart_error && <p className="mt-2 text-xs" style={{ color: "var(--warning)" }}>{data.chart_error}</p>}
         </div>
       </div>
+    </div>
+  );
+}
+
+// A book's open positions under its charts: each trade's details and its exit schedule, one row a position
+function PositionsSchedule({ rows }) {
+  // the script's candlestick button: the 15-minute candles of what the book trades (the future's contract, or the share)
+  const chart = usePaperChart({ days: 5 });
+  const asRow = (p) => {
+    const fut = p.key?.startsWith("NFO:") ? p.key.split(":")[1] : null;
+    return { symbol: p.symbol, side: p.side, stop: p.stop, entry: p.entry, ...(fut ? { fut, fut_buy: p.entry, fut_ltp: p.last } : { exit: p.last }) };
+  };
+  const px = (v) => (v == null ? "—" : Number(v).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+  const cols = ["Script", "Instrument", "Side", "Qty", "Bought", "Entry", "Now", "Value", "Held", "Net P&L", "Schedule"];
+  const color = (when) => (when === "Sell order placed" ? "var(--warning)" : when === "Disaster stop" ? "var(--negative)" : undefined);
+  return (
+    <div className="mt-4 overflow-x-auto rounded-lg border" style={{ borderColor: "var(--border)" }}>
+      <table className="w-full whitespace-nowrap text-xs tabular-nums">
+        <thead className="text-left" style={{ background: "var(--surface-2)", color: "var(--faint)" }}>
+          <tr>{cols.map((c) => <th key={c} className="px-3 py-2 font-medium">{c}</th>)}</tr>
+        </thead>
+        <tbody>
+          {rows.map((p) => {
+            const fut = p.key?.startsWith("NFO:");
+            return (
+              <tr key={`${p.key}-${p.since}-${p.entry}`} className="border-t align-top" style={{ borderColor: "var(--border)" }}>
+                <td className="px-3 py-2 font-semibold">
+                  <span className="flex items-center gap-2">{chart.column.cell(asRow(p))}{p.symbol}</span>
+                </td>
+                <td className="px-3 py-2" title={p.key?.split(":")[1]}>{fut ? "Futures" : "Spot"}</td>
+                <td className="px-3 py-2" style={{ color: p.side === "short" ? "var(--negative)" : "var(--positive)" }}>{p.side === "short" ? "Short" : "Long"}</td>
+                <td className="px-3 py-2">{p.qty ?? "—"}</td>
+                <td className="px-3 py-2">{p.entry_at || p.since}</td>
+                <td className="px-3 py-2">{px(p.entry)}</td>
+                <td className="px-3 py-2">{px(p.last)}</td>
+                <td className="px-3 py-2">{p.qty && p.last ? formatRs(p.qty * p.last) : "—"}</td>
+                <td className="px-3 py-2">{p.day_of_hold ? `day ${p.day_of_hold}` : p.since === new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" }) ? "today" : `since ${p.since}`}</td>
+                <td className="px-3 py-2 font-semibold" style={{ color: tone(p.net_rs) }}>{p.net_rs == null ? "—" : signedRs(p.net_rs)}</td>
+                <td className="px-3 py-2">
+                  {(p.plan || []).map(([when, what]) => (
+                    <div key={when}>
+                      <span className="font-medium" style={{ color: color(when) }}>{when}</span>
+                      <span style={{ color: "var(--muted)" }}> · {what}</span>
+                    </div>
+                  ))}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      {chart.dialog}
     </div>
   );
 }
