@@ -1,9 +1,9 @@
+import { useState } from "react";
 import { tone } from "../V2BacktestView";
-import { Countdown, dashboardQuery, OpenPositions, PaperHero, paperTotals, signedRs } from "../V2Dashboard";
+import { Countdown, dashboardQuery, Delta, NoPaperLinks, OpenPositions, OpenPositionsModal, PaperHero, paperTotals, pct, signedRs } from "../V2Dashboard";
 import V2PaperCurve from "../V2PaperCurve";
 import { statusOf, useModelStatuses } from "../modelStatus";
 import { useSettings } from "../settings";
-import { link } from "./route";
 
 // The phone app's home: the time and status, every paper book's result today, then each book (tap to open),
 // the open positions' charts and the net P&L by day.
@@ -38,23 +38,31 @@ export function Status({ d, nextAt }) {
   );
 }
 
-function Row({ title, href, sub, value, valueLabel, total, error }) {
+// a book: its total realized big (the arrow: since yesterday), today's net (and %) and the unrealized below
+function Row({ title, sub, value, valuePct, open, total, delta, error }) {
   return (
-    <a href={href} onClick={link(href)} className="flex items-center gap-3 border-t px-4 py-3 first:border-t-0 active:bg-[var(--surface-2)]" style={{ borderColor: "var(--border)" }}>
+    <div className="flex items-center gap-3 border-t px-4 py-3 first:border-t-0" style={{ borderColor: "var(--border)" }}>
       <div className="min-w-0 flex-1">
         <div className="truncate text-sm font-medium">{title}</div>
         <div className="truncate text-xs" style={{ color: error ? "var(--negative)" : "var(--muted)" }}>{error || sub}</div>
       </div>
       {!error && (
         <div className="text-right tabular-nums">
-          <div className="text-sm font-semibold" style={{ color: tone(value) }}>{signedRs(value)}</div>
-          <div className="text-[0.6875rem]" style={{ color: "var(--faint)" }}>
-            {valueLabel} · realized <span style={{ color: tone(total) }}>{signedRs(total)}</span>
+          <div className="flex items-baseline justify-end gap-1.5">
+            <Delta v={delta} className="text-[0.625rem]" />
+            <span className="text-sm font-semibold" style={{ color: tone(total) }}>{signedRs(total)}</span>
           </div>
+          <div className="text-[0.6875rem]" style={{ color: "var(--faint)" }}>
+            today <span style={{ color: tone(value) }}>{signedRs(value)}{valuePct != null ? ` · ${pct(valuePct)}` : ""}</span>
+          </div>
+          {open != null && (
+            <div className="text-[0.6875rem]" style={{ color: "var(--faint)" }}>
+              unrealized <span style={{ color: tone(open) }}>{signedRs(open)}</span>
+            </div>
+          )}
         </div>
       )}
-      <span style={{ color: "var(--faint)" }} aria-hidden="true">›</span>
-    </a>
+    </div>
   );
 }
 
@@ -68,22 +76,28 @@ export default function MobileHome({ d, nextAt }) {
   const intraday = (b, word, none) => (b.today_status ? `${b.today_positions} ${word} · ${b.today_status === "open" ? "live" : "closed"}` : none);
   const held = (b) => `${b.open ?? 0} / ${b.max_open ?? 3} open${b.open_symbols?.length ? ` · ${b.open_symbols.join(", ")}` : ""}`;
   const rows = [
-    ["oops", { title: "Oops gap reversal", sub: intraday(op, "bought", `${op.watched ?? 0} watched, no buys yet`), value: op.today_net_rs, total: op.total_net_rs, error: op.error }],
-    ["buy-on-gap", { title: "Buy/Sell on gap", sub: intraday(g, "positions", "no picks yet"), value: g.today_net_rs, total: g.total_net_rs, error: g.error }],
-    ["xs-mean-reversion", { title: "Cross-sectional mean reversion", sub: intraday(x, "positions", "not recorded yet"), value: x.today_net_rs, total: x.total_net_rs, error: x.error }],
-    ["short-term-reversion", { title: "Short-term mean reversion", sub: held(c), value: c.today_net_rs, total: c.fut_net_rs, error: c.error }],
-    ["cumulative-rsi", { title: "Cumulative RSI(2)", sub: held(cc), value: cc.today_net_rs, total: cc.fut_net_rs, error: cc.error }],
-    ["turn-of-month", { title: "Turn of the month", sub: tp.open ? `holding ${tp.fut}` : `buy ${tp.buy ?? "—"} · sell ${tp.sell ?? "—"}`, value: tp.today_net_rs, total: tp.total_net_rs, error: tp.error }],
+    ["oops", { title: "Oops gap reversal", sub: intraday(op, "bought", `${op.watched ?? 0} watched, no buys yet`), value: op.today_net_rs, valuePct: op.today_value_pct, open: op.open_net_rs, total: op.total_net_rs, delta: op.sold_today_rs, error: op.error }],
+    ["buy-on-gap", { title: "Buy/Sell on gap", sub: intraday(g, "positions", "no picks yet"), value: g.today_net_rs, valuePct: g.today_margin_pct, open: g.open_net_rs, total: g.total_net_rs, delta: g.sold_today_rs, error: g.error }],
+    ["xs-mean-reversion", { title: "Cross-sectional mean reversion", sub: intraday(x, "positions", "not recorded yet"), value: x.today_net_rs, valuePct: x.today_margin_pct, open: x.open_net_rs, total: x.total_net_rs, delta: x.sold_today_rs, error: x.error }],
+    ["short-term-reversion", { title: "Short-term mean reversion (RSI)", sub: held(c), value: c.today_net_rs, valuePct: c.today_value_pct, open: c.open_fut_net_rs, total: c.fut_net_rs, delta: c.sold_today_rs, error: c.error }],
+    ["cumulative-rsi", { title: "Short-term mean reversion (C-RSI)", sub: held(cc), value: cc.today_net_rs, valuePct: cc.today_value_pct, open: cc.open_fut_net_rs, total: cc.fut_net_rs, delta: cc.sold_today_rs, error: cc.error }],
+    ["turn-of-month", { title: "Turn of the month", sub: tp.open ? `holding ${tp.fut}` : `buy ${tp.buy ?? "—"} · sell ${tp.sell ?? "—"}`, value: tp.today_net_rs, open: tp.open_net_rs, total: tp.total_net_rs, delta: tp.sold_today_rs, error: tp.error }],
   ].filter(([id]) => shown(id));
   const box = { borderColor: "var(--border)", background: "var(--surface)" };
+  const [showOpen, setShowOpen] = useState(false);
   return (
     <div className="flex flex-col gap-4">
       <Status d={d} nextAt={nextAt} />
-      <PaperHero t={t} />
+      <PaperHero t={t} onPositions={() => setShowOpen(true)} />
+      {showOpen && (
+        <NoPaperLinks.Provider value={true}>
+          <OpenPositionsModal query={query} onClose={() => setShowOpen(false)} />
+        </NoPaperLinks.Provider>
+      )}
       <div className="overflow-hidden rounded-xl border" style={box}>
-        {rows.map(([id, r]) => <Row key={id} href={`/mobile/paper/${id}`} valueLabel="today" {...r} />)}
+        {rows.map(([id, r]) => <Row key={id} {...r} />)}
       </div>
-      <p className="text-[0.6875rem]" style={{ color: "var(--faint)" }}>One lot a position. SR and CR each trade on its own prices (spot or futures). Tap a book to open it.</p>
+      <p className="text-[0.6875rem]" style={{ color: "var(--faint)" }}>One lot a position. SR and CR each trade on its own prices (spot or futures).</p>
       <section className="flex flex-col gap-2">
         <h2 className="text-sm font-semibold">Open positions</h2>
         <OpenPositions query={query} />

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useState } from "react";
 import { Card, Panel, tone } from "./V2BacktestView";
 import { formatRs, Segmented } from "./V2Controls";
 import { savedParams } from "./V2BacktestParams";
@@ -26,6 +26,14 @@ const go = (href) => (e) => {
   window.history.pushState(null, "", href);
   window.dispatchEvent(new PopStateEvent("popstate"));
 };
+
+// The dashboard shows the paper books without linking to their pages (the paper landing page keeps the links)
+export const NoPaperLinks = createContext(false);
+function PaperLink({ href, className, children, ...rest }) {
+  const off = useContext(NoPaperLinks) && href?.startsWith("/v2/paper");
+  if (off) return <div className={className?.replace(/hover:\S+/g, "")} {...rest}>{children}</div>;
+  return <a href={href} onClick={go(href)} className={className} {...rest}>{children}</a>;
+}
 
 function Pill({ color, children, title }) {
   return (
@@ -147,9 +155,8 @@ function PaperCard({ title, href, style, lines, error, price, headline, side }) 
   // side: [label, value, color]: shown to the right of the headline (unrealized)
   // headline: [label, value, color]: the card's big number (the paper books: realized net)
   return (
-    <a
+    <PaperLink
       href={href}
-      onClick={go(href)}
       className="block rounded-lg border p-4 transition-colors hover:bg-[var(--surface-2)]"
       style={{ borderColor: "var(--border)", background: "var(--surface)" }}
     >
@@ -195,7 +202,7 @@ function PaperCard({ title, href, style, lines, error, price, headline, side }) 
         </dl>
         </>
       )}
-    </a>
+    </PaperLink>
   );
 }
 
@@ -304,7 +311,7 @@ function Paper({ p, today, openOnly = false }) {
       )}
       {shown("short-term-reversion") && (
       <PaperCard
-        title="Short-term mean reversion"
+        title="Short-term mean reversion (RSI)"
         href="/v2/paper/short-term-reversion"
         style="Positional"
         price={c.price}
@@ -314,14 +321,14 @@ function Paper({ p, today, openOnly = false }) {
         lines={[
           ["Open", `${c.open ?? 0} / ${c.max_open ?? 3}${c.open_symbols?.length ? ` · ${c.open_symbols.join(", ")}` : ""}`],
           ["Closed trades", c.closed ?? 0],
-          ["Today's net", rs(c.today_net_rs), tone(c.today_net_rs)],
+          ["Today's net", rs(c.today_net_rs, c.today_value_pct), tone(c.today_net_rs)],
           ["Capital required", c.capital_rs ? formatRs(c.capital_rs) : "—"],
         ]}
       />
       )}
       {shown("cumulative-rsi") && (
       <PaperCard
-        title="Cumulative RSI(2)"
+        title="Short-term mean reversion (C-RSI)"
         href="/v2/paper/cumulative-rsi"
         style="Positional"
         price={cc.price}
@@ -331,7 +338,7 @@ function Paper({ p, today, openOnly = false }) {
         lines={[
           ["Open", `${cc.open ?? 0} / ${cc.max_open ?? 3}${cc.open_symbols?.length ? ` · ${cc.open_symbols.join(", ")}` : ""}`],
           ["Closed trades", cc.closed ?? 0],
-          ["Today's net", rs(cc.today_net_rs), tone(cc.today_net_rs)],
+          ["Today's net", rs(cc.today_net_rs, cc.today_value_pct), tone(cc.today_net_rs)],
           ["Capital required", cc.capital_rs ? formatRs(cc.capital_rs) : "—"],
         ]}
       />
@@ -537,38 +544,46 @@ export function paperTotals(p, statuses) {
     ["short-term-reversion", c.open_today_rs], ["cumulative-rsi", cc.open_today_rs], ["turn-of-month", tp.open_today_rs]]);
   const soldToday = sum([["buy-on-gap", g.sold_today_rs], ["xs-mean-reversion", x.sold_today_rs], ["oops", op.sold_today_rs],
     ["short-term-reversion", c.sold_today_rs], ["cumulative-rsi", cc.sold_today_rs], ["turn-of-month", tp.sold_today_rs]]);
-  return { openBooks: ids.filter((id) => open[id]).length, books: ids.length, positions, today, total, openRs, openToday, soldToday };
+  // capital each book needs (its own setting): SR / CR on spot are cash (delivery), the futures books margin (their biggest day / slots)
+  const spot = (b) => b.price === "spot";
+  const caps = [["buy-on-gap", g, false], ["xs-mean-reversion", x, false], ["oops", op, false],
+    ["short-term-reversion", c, spot(c)], ["cumulative-rsi", cc, spot(cc)], ["turn-of-month", tp, false]].filter(([id, b]) => on(id) && b.capital_rs);
+  const cash = caps.filter(([, , isCash]) => isCash).reduce((a, [, b]) => a + b.capital_rs, 0);
+  const margin = caps.filter(([, , isCash]) => !isCash).reduce((a, [, b]) => a + b.capital_rs, 0);
+  return { openBooks: ids.filter((id) => open[id]).length, books: ids.length, positions, today, total, openRs, openToday, soldToday, cash, margin };
 }
 
 function PaperTotals({ p, realized = true }) {
   // realized false: the dashboard, whose realized total ends the Realized net by model row
-  const { openBooks, books, positions, today, total, openRs, openToday, soldToday } = paperTotals(p, useModelStatuses());
+  const { openBooks, books, positions, today, total, openRs, openToday, soldToday, cash, margin } = paperTotals(p, useModelStatuses());
   const query = dashboardQuery(useSettings().values);
   const [showOpen, setShowOpen] = useState(false);
   const signed = (v) => `${v > 0 ? "+" : ""}${formatRs(v)}`;
   return (
-    <div className={`grid grid-cols-2 gap-3 sm:grid-cols-3 ${realized ? "lg:grid-cols-6" : "lg:grid-cols-5"}`}>
-      <Card label="Today's realized" value={signed(soldToday)} color={tone(soldToday)} hint="Trades sold today, every paper book, one lot each, after charges and slippage: each sale's whole result (Oops: yesterday's buys sold at today's open too). What's still held is in Open today and Unrealized" />
+    <div className={`grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6`}>
+      <div className="rounded-lg border px-3 py-2.5" style={{ borderColor: "var(--border)", background: "var(--surface)" }} title="Trades already sold, every paper book since it started, one lot each, after charges and slippage. The arrow: how much it moved today (the trades sold today)">
+        <p className="text-[0.6875rem] font-semibold uppercase tracking-[0.12em]" style={{ color: "var(--faint)" }}>Total realized</p>
+        <p className="mt-1 text-lg font-semibold tabular-nums" style={{ color: tone(total) }}>{signed(total)}</p>
+        <Delta v={soldToday} className="text-[0.6875rem]" />
+      </div>
+      <Card label="Today's realized" value={signed(soldToday)} color={tone(soldToday)} hint="Trades sold today, every paper book, one lot each, after charges and slippage: each sale's whole result (Oops: yesterday's buys sold at today's open too)" />
+      <Card label="Total unrealized" value={signed(openRs)} color={tone(openRs)} hint="Every position still held, all paper books, one lot each, marked now: its whole result since it was bought, after charges and slippage" />
       <Card label="Books with open trades" value={`${openBooks} / ${books}`} hint="Paper books holding something now" />
-      <button type="button" onClick={() => setShowOpen(true)} className="text-left transition-opacity hover:opacity-80" aria-label="Open positions: show the details">
+      <button type="button" onClick={() => setShowOpen(true)} className="h-full text-left transition-opacity hover:opacity-80 [&>div]:h-full" aria-label="Open positions: show the details">
         <Card label="Open positions" value={positions} hint="Every position held now, all paper books: click for the details" />
       </button>
+      <div className="rounded-lg border px-3 py-2.5" style={{ borderColor: "var(--border)", background: "var(--surface)" }} title="What every active paper book needs, one lot a position, each at its own settings: cash for the books bought on spot (delivery: SR / CR when on spot), margin for the futures books (their biggest day's margin, or slots × a lot's margin)">
+        <p className="text-[0.6875rem] font-semibold uppercase tracking-[0.12em]" style={{ color: "var(--faint)" }}>Capital required</p>
+        <p className="mt-1 text-lg font-semibold tabular-nums">{formatRs(cash + margin)}</p>
+        <p className="text-[0.6875rem] tabular-nums" style={{ color: "var(--muted)" }}>cash {formatRs(cash)} · margin {formatRs(margin)}</p>
+      </div>
       {showOpen && <OpenPositionsModal query={query} onClose={() => setShowOpen(false)} />}
-      <Card label="Open today" value={signed(openToday)} color={tone(openToday)} hint="Today's move on the positions still held: bought today, their whole result; held from before (SR, CR, TOM), since yesterday's close. Today's realized + this = today's net" />
-      <Card label="Unrealized" value={signed(openRs)} color={tone(openRs)} hint="Every position still held, all paper books, one lot each, marked now: its whole result since it was bought, after charges and slippage" />
-      {realized && (
-        <div className="rounded-lg border px-3 py-2.5" style={{ borderColor: "var(--border)", background: "var(--surface)" }} title="Trades already sold, every paper book since it started, one lot each, after charges and slippage">
-          <p className="text-[0.6875rem] font-semibold uppercase tracking-[0.12em]" style={{ color: "var(--faint)" }}>Realized net</p>
-          <p className="mt-1 text-lg font-semibold tabular-nums" style={{ color: tone(total) }}>{signed(total)}</p>
-          <Delta v={soldToday} className="text-[0.6875rem]" />
-        </div>
-      )}
     </div>
   );
 }
 
 // Every open paper position in one table (the Open positions card's click): script, model, side, entry, now, P&L
-function OpenPositionsModal({ query, onClose }) {
+export function OpenPositionsModal({ query, onClose }) {
   const [data, setData] = useState(null);
   useEffect(() => {
     const controller = new AbortController();
@@ -609,7 +624,7 @@ function OpenPositionsModal({ query, onClose }) {
           ) : data && rows.length === 0 ? (
             <p className="p-4 text-sm" style={{ color: "var(--muted)" }}>No paper book holds anything right now.</p>
           ) : (
-            <table className="w-full text-xs tabular-nums" style={{ minWidth: 900 }}>
+            <table className="w-full whitespace-nowrap text-xs tabular-nums" style={{ minWidth: 900 }}>
               <thead className="sticky top-0 text-left" style={{ background: "var(--surface)", color: "var(--faint)" }}>
                 <tr>{cols.map((c) => <th key={c} className="px-3 py-2 font-medium">{c}</th>)}</tr>
               </thead>
@@ -620,7 +635,7 @@ function OpenPositionsModal({ query, onClose }) {
                     <tr key={`${p.key}-${p.since}-${p.entry}-${p.book.label}`} className="border-t" style={{ borderColor: "var(--border)" }}>
                       <td className="px-3 py-2 font-semibold">{p.symbol}</td>
                       <td className="px-3 py-2">
-                        <a href={p.book.href} className="underline-offset-2 hover:underline">{p.book.label}</a>
+                        <PaperLink href={p.book.href} className="underline-offset-2 hover:underline">{p.book.label}</PaperLink>
                       </td>
                       <td className="px-3 py-2" title={p.key?.split(":")[1]}>{fut ? "Futures" : "Spot"}</td>
                       <td className="px-3 py-2" style={{ color: p.side === "short" ? "var(--negative)" : "var(--positive)" }}>{p.side === "short" ? "Short" : "Long"}</td>
@@ -744,7 +759,7 @@ function PositionChart({ p }) {
   const short = p.side === "short";
   const days = closes.length ? new Set(closes.map((c) => new Date(c[0] * 1000).toISOString().slice(0, 10))).size : 0;
   return (
-    <a href={p.books[0].href} onClick={go(p.books[0].href)} className="flex flex-col gap-2 rounded-lg border p-3 transition-colors hover:bg-[var(--surface-2)]" style={{ borderColor: "var(--border)", background: "var(--surface)" }}>
+    <PaperLink href={p.books[0].href} className="flex flex-col gap-2 rounded-lg border p-3 transition-colors hover:bg-[var(--surface-2)]" style={{ borderColor: "var(--border)", background: "var(--surface)" }}>
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <div className="flex items-center gap-1.5 text-sm font-semibold">
@@ -778,7 +793,7 @@ function PositionChart({ p }) {
           now {num(p.last)} · {p.day_of_hold ? `day ${p.day_of_hold}` : days > 1 ? `${days} days` : "today"}
         </span>
       </div>
-    </a>
+    </PaperLink>
   );
 }
 
@@ -822,9 +837,9 @@ function PaperCheck({ query }) {
           {data.rows.map((r) => (
             <tr key={r.key} className="border-t" style={{ borderColor: "var(--border)" }}>
               <td className="px-3 py-2">
-                <a href={r.link} onClick={go(r.link)} className="font-medium hover:underline">
+                <PaperLink href={r.link} className="font-medium hover:underline">
                   {r.label}
-                </a>
+                </PaperLink>
               </td>
               {r.error ? (
                 <td colSpan={8} className="px-3 py-2 text-xs" style={{ color: "var(--negative)" }}>
@@ -899,7 +914,11 @@ export default function V2Dashboard() {
         ))}
       </div>
       <div role="tabpanel">
-        {tab === "paper" && <WidePaper p={d.paper} today={d.today} />}
+        {tab === "paper" && (
+          <NoPaperLinks.Provider value={true}>
+            <WidePaper p={d.paper} today={d.today} />
+          </NoPaperLinks.Provider>
+        )}
         {tab === "live" && (
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
             <TomCard tm={d.paper.tom} />
@@ -934,7 +953,7 @@ export default function V2Dashboard() {
 
 export const signedRs = (v) => (v == null ? "—" : `${v > 0 ? "+" : ""}${formatRs(v)}`);
 
-export function PaperHero({ t, wide = false }) {
+export function PaperHero({ t, wide = false, onPositions }) {
   const stat = (label, v, hint) => (
     <div title={hint}>
       <div className="text-xs" style={{ color: "var(--muted)" }}>{label}</div>
@@ -942,8 +961,7 @@ export function PaperHero({ t, wide = false }) {
     </div>
   );
   const realized = stat("Realized net", t.total, "Trades already sold, every paper book since it started, one lot each, after charges and slippage");
-  const open = stat("Unrealized", t.openRs, "Every position still held, all paper books, one lot each, marked now: its whole result since it was bought, after costs: not locked in");
-  const openToday = stat("Open today", t.openToday, "Today's move on the positions still held (held from before: since yesterday's close)");
+  const open = stat("Total unrealized", t.openRs, "Every position still held, all paper books, one lot each, marked now: its whole result since it was bought, after costs: not locked in");
   const count = `${t.positions} positions open · ${t.openBooks} of ${t.books} books`;
   if (wide)
     return (
@@ -952,25 +970,33 @@ export function PaperHero({ t, wide = false }) {
           <div className="text-xs" style={{ color: "var(--muted)" }}>Today's net · all paper books</div>
           <div className="mt-1 text-3xl font-semibold tabular-nums tracking-tight" style={{ color: tone(t.today) }}>{signedRs(t.today)}</div>
         </div>
-        <div className="flex gap-10 tabular-nums">{realized}{open}{openToday}</div>
+        <div className="flex gap-10 tabular-nums">{realized}{open}</div>
         <div className="ml-auto self-center text-xs" style={{ color: "var(--muted)" }}>{count} · after costs</div>
       </div>
     );
-  // the phone: realized net big, today's net with the open ones below
+  // the phone: total realized big (the arrow: since yesterday), today's realized and the unrealized below, the capital
+  // required, and the open positions count (tap: the table of every open lot)
   const todayNet = stat("Today's realized", t.soldToday, "Trades sold today, every paper book, one lot each, after charges and slippage");
   return (
     <div className="rounded-xl border p-4" style={{ borderColor: "var(--border)", background: "var(--surface)" }}>
-      <div className="text-xs" style={{ color: "var(--muted)" }}>Realized net · all paper books</div>
+      <div className="text-xs" style={{ color: "var(--muted)" }}>Total realized · all paper books</div>
       <div className="mt-1 flex flex-wrap items-baseline gap-x-3">
         <span className="text-3xl font-semibold tabular-nums tracking-tight" style={{ color: tone(t.total) }}>{signedRs(t.total)}</span>
         <Delta v={t.soldToday} className="text-sm" />
       </div>
-      <div className="mt-3 grid grid-cols-3 gap-3 border-t pt-3 text-sm tabular-nums" style={{ borderColor: "var(--border)" }}>
+      <div className="mt-3 grid grid-cols-2 gap-3 border-t pt-3 text-sm tabular-nums" style={{ borderColor: "var(--border)" }}>
         {todayNet}
-        {openToday}
         {open}
       </div>
-      <div className="mt-2 text-xs" style={{ color: "var(--muted)" }}>{count}</div>
+      <div className="mt-3 border-t pt-3 text-sm tabular-nums" style={{ borderColor: "var(--border)" }} title="What every active paper book needs, one lot a position, each at its own settings: cash for the spot books, margin for the futures books">
+        <div className="text-xs" style={{ color: "var(--muted)" }}>Capital required</div>
+        <div className="font-semibold">{formatRs(t.cash + t.margin)}</div>
+        <div className="text-[0.6875rem]" style={{ color: "var(--muted)" }}>cash {formatRs(t.cash)} · margin {formatRs(t.margin)}</div>
+      </div>
+      <button type="button" onClick={onPositions} className="mt-3 flex w-full items-center justify-between rounded-lg border px-3 py-2 text-left text-xs" style={{ borderColor: "var(--border)", color: "var(--muted)" }}>
+        <span>{count}</span>
+        <span style={{ color: "var(--accent)" }}>Details ›</span>
+      </button>
     </div>
   );
 }
@@ -990,8 +1016,8 @@ function ModelRow({ p, field }) {
     ["oops", "Oops", "oops"],
     ["buy-on-gap", "Buy/Sell on gap", "gap"],
     ["xs-mean-reversion", "Cross-sectional", "xsmr"],
-    ["short-term-reversion", "Short-term MR", "connors"],
-    ["cumulative-rsi", "Cumulative RSI(2)", "connors_cum"],
+    ["short-term-reversion", "Short-term MR (RSI)", "connors"],
+    ["cumulative-rsi", "Short-term MR (C-RSI)", "connors_cum"],
     ["turn-of-month", "Turn of the month", "tom_paper"],
   ].filter(([id]) => statusOf(statuses, id) !== "archived");
   return (
@@ -1002,11 +1028,11 @@ function ModelRow({ p, field }) {
           const b = p[key] || {};
           const v = b[f.pick[key]];
           return (
-            <a key={id} href={`/v2/paper/${id}`} onClick={go(`/v2/paper/${id}`)} className="rounded-lg border px-3 py-2.5 transition-colors hover:bg-[var(--surface-2)]" style={{ borderColor: "var(--border)", background: "var(--surface)" }} title={f.hint}>
+            <PaperLink key={id} href={`/v2/paper/${id}`} className="rounded-lg border px-3 py-2.5 transition-colors hover:bg-[var(--surface-2)]" style={{ borderColor: "var(--border)", background: "var(--surface)" }} title={f.hint}>
               <div className="truncate text-xs" style={{ color: "var(--muted)" }}>{label}</div>
               <div className="mt-0.5 text-lg font-semibold tabular-nums" style={{ color: b.error ? "var(--negative)" : tone(v) }}>{b.error ? "error" : signedRs(v ?? 0)}</div>
               {field === "realized" && !b.error && <Delta v={b.sold_today_rs} className="text-[0.6875rem]" />}
-            </a>
+            </PaperLink>
           );
         })}
         {field === "realized" && (() => {

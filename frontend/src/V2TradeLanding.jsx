@@ -8,8 +8,8 @@ import { Segmented } from "./V2Controls";
 const MODELS = [
   { id: "turn-of-month", label: "Turn of the month", style: "Positional", href: "/v2/trade/turn-of-month", page: "Live trading page: the call to buy, Buy / Sell, stop and what-if", source: "Larry Williams" },
   { id: "books-gold", label: "Books + gold", style: "Positional", href: "/v2/trade/books-gold", page: "Its own page: what to hold against your Kite holdings", source: "Our portfolio" },
-  { id: "short-term-reversion", label: "Short-term mean reversion", style: "Positional", href: "/v2/paper/short-term-reversion", page: "Signals on its paper page (bought at 15:15)", source: "Larry Connors" },
-  { id: "cumulative-rsi", label: "Cumulative RSI(2)", style: "Positional", href: "/v2/paper/cumulative-rsi", page: "Signals on its paper page (bought at 15:15)", source: "Larry Connors" },
+  { id: "short-term-reversion", label: "Short-term mean reversion (RSI)", style: "Positional", href: "/v2/paper/short-term-reversion", page: "Signals on its paper page (bought at 15:15)", source: "Larry Connors" },
+  { id: "cumulative-rsi", label: "Short-term mean reversion (C-RSI)", style: "Positional", href: "/v2/paper/cumulative-rsi", page: "Signals on its paper page (bought at 15:15)", source: "Larry Connors" },
   { id: "oops", label: "Oops gap reversal", style: "Intraday", href: "/v2/paper/oops", page: "Signals on its paper page (from 09:15)", source: "Larry Williams" },
   { id: "buy-on-gap", label: "Buy/Sell on gap", style: "Intraday", href: "/v2/paper/buy-on-gap", page: "Signals on its paper page (at the open)", source: "Ernest Chan" },
   { id: "xs-mean-reversion", label: "Cross-sectional mean reversion", style: "Intraday", href: "/v2/paper/xs-mean-reversion", page: "Signals on its paper page (at 09:15)", source: "Ernest Chan" },

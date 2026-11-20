@@ -103,9 +103,9 @@ def _schedule(cursor, today, now):
              until=(9, 20)),
         step((9, 15), "Buy/Sell on gap: picks at the open", gap is not None, f"{gap} qualifying stocks" if gap is not None else None, until=(9, 20)),
         step((9, 15), "Cross-sectional mean reversion: 5 + 5 at the open", xs is not None, f"{xs} stocks quoted" if xs is not None else None, until=(9, 20)),
-        step((15, 15), "Short-term mean reversion: sells and buys", con is not None and not (con[2] or "").startswith("market closed"),
+        step((15, 15), "Short-term mean reversion (RSI): sells and buys", con is not None and not (con[2] or "").startswith("market closed"),
              (f"{con[1] or 0} sold, {con[0] or 0} bought" if con and con[0] is not None else (con[2] if con else None)), until=(15, 25)),
-        step((15, 15), "Cumulative RSI(2): sells and buys", con_cum is not None and not (con_cum[2] or "").startswith("market closed"),
+        step((15, 15), "Short-term mean reversion (C-RSI): sells and buys", con_cum is not None and not (con_cum[2] or "").startswith("market closed"),
              (f"{con_cum[1] or 0} sold, {con_cum[0] or 0} bought" if con_cum and con_cum[0] is not None else (con_cum[2] if con_cum else None)),
              until=(15, 25)),
         # Oops sells at the next open (pre-open auction) unless set to 15:15: its open buys don't hold up today's exits
@@ -280,7 +280,11 @@ def _positional_today(c, today):
             total += move
             if t in held:
                 open_today += move
+    # today's %: today's net on the value of the positions in play today (held, sold today, bought today), each on its
+    # own prices (spot: the cash in it; futures: the contract's value), like the Oops card's
+    value = sum(t.get("book_contract_rs") or 0 for t in held + sold + new)
     return {"today_net_rs": round(total, 2) if held or sold or new else None,
+            "today_value_pct": round(100 * total / value, 3) if value and (held or sold or new) else None,
             "open_today_rs": round(open_today, 2) if held or any(t in c["open"] for t in new) else None}
 
 
@@ -302,7 +306,7 @@ def paper_curve(gap_max_open=5, xsmr_max_open=10):
         except Exception as error:
             errors[label] = str(error)
     today = gapwatch._now().date().isoformat()
-    for label, book in (("Short-term mean reversion", "rsi2"), ("Cumulative RSI(2)", "cum")):
+    for label, book in (("Short-term mean reversion (RSI)", "rsi2"), ("Short-term mean reversion (C-RSI)", "cum")):
         try:
             c = connorswatch.paper(SL["connors"], book=book)
             per = {}
@@ -383,7 +387,7 @@ MODELS = [
     ("pairs", "Pairs trading", "Positional", "F&O · Bollinger · 3 pairs", lambda: v2pairs.results("bollinger", "close", 6, 3)),
     ("xs-momentum", "Cross-sectional momentum", "Positional", "F&O · 3 + 3", lambda: v2xsmom.results("fno", "close", 6, 3)),
     ("quant-momentum", "Quantitative momentum", "Positional", "F&O · book · max 5", lambda: v2qmom.results("fno", "book", "none", 5)),
-    ("short-term-reversion", "Short-term mean reversion", "Positional", "F&O · RSI(2) · max 3 · close",
+    ("short-term-reversion", "Short-term mean reversion (RSI)", "Positional", "F&O · RSI(2) · max 3 · close",
      lambda: v2connors.results("fno", "rsi2", "5d", 3, "none", "close", "all", instrument="cash")),
     ("oops", "Oops gap reversal", "Intraday", "F&O futures · out at the next open · first 3 a day · 10% disaster stop",
      lambda: v2oops.results("none", "any", 3, exit="nextopen", disaster="on")),
@@ -391,7 +395,7 @@ MODELS = [
      lambda: v2tom.results("nifty", "4")),
     ("low-volatility", "Long trend low volatility", "Positional", "F&O stocks, cash · max 10 · 20% trailing stop",
      lambda: v2ltlv.results(10, "20", 0.0002, "cash")),
-    ("cumulative-rsi", "Cumulative RSI(2) · exit on strength", "Positional", "F&O · cumulative RSI(2) · max 3 · close",
+    ("cumulative-rsi", "Short-term mean reversion (C-RSI) · exit on strength", "Positional", "F&O · cumulative RSI(2) · max 3 · close",
      lambda: v2connors.results("fno", "cumrsi2", "0d", 3, "none", "close", "all", instrument="cash")),
 ]
 
@@ -500,8 +504,8 @@ def open_positions(gap_max_open=5, xsmr_max_open=10):
     intraday("Oops gap reversal", "/v2/paper/oops", lambda: oopswatch.paper(SL["oops"]), fut=True, disaster="on" if oopswatch.stop_mode() == "on" else "off")
     intraday("Buy/Sell on gap", "/v2/paper/buy-on-gap", lambda: v2paper.gap(_cfg()["gap_side"], "none", gap_max_open, SL["gap"], _cfg()["gap_disaster"]), fut=True, disaster=_cfg()["gap_disaster"])
     intraday("Cross-sectional mean reversion", "/v2/paper/xs-mean-reversion", lambda: v2paper.xsmr_(pairs, "none", xsmr_max_open, SL["xsmr"], _cfg()["xs_disaster"]), fut=True, disaster=_cfg()["xs_disaster"])
-    for label, href, book in (("Short-term mean reversion", "/v2/paper/short-term-reversion", "rsi2"),
-                              ("Cumulative RSI(2)", "/v2/paper/cumulative-rsi", "cum")):
+    for label, href, book in (("Short-term mean reversion (RSI)", "/v2/paper/short-term-reversion", "rsi2"),
+                              ("Short-term mean reversion (C-RSI)", "/v2/paper/cumulative-rsi", "cum")):
         try:
             for t in connorswatch.paper(SL["connors"], book=book)["open"]:
                 fut = t.get("priced") == "futures" and bool(t.get("fut"))

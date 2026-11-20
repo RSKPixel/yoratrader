@@ -96,8 +96,8 @@ def compare(gap_max_open=5, xsmr_max_open=10):
     except Exception as error:
         rows.append({"key": "oops", "label": "Oops gap reversal", "error": str(error)})
     # Short-term mean reversion books (futures prices), held up to 5 days
-    for key, book, label, link in (("rsi2", "rsi2", "Short-term mean reversion (RSI(2))", "/v2/paper/short-term-reversion"),
-                                   ("cum", "cum", "Cumulative RSI(2)", "/v2/paper/cumulative-rsi")):
+    for key, book, label, link in (("rsi2", "rsi2", "Short-term mean reversion (RSI)", "/v2/paper/short-term-reversion"),
+                                   ("cum", "cum", "Short-term mean reversion (C-RSI)", "/v2/paper/cumulative-rsi")):
         try:
             c = connorswatch.paper(SL["connors"], book=book)
             pr = connorswatch.price(book)  # the backtest on the book's prices now; each paper trade on its own

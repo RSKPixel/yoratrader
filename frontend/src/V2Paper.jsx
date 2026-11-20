@@ -26,11 +26,11 @@ export const PAPER_GROUPS = [
     title: "Larry Connors",
     source: "How Markets Really Work (2nd ed., 2012)",
     models: [
-      { id: "short-term-reversion", short: "SR", label: "Short-term mean reversion", style: "Positional", live: "/api/connors/paper", book: "rsi2" },
+      { id: "short-term-reversion", short: "SR", label: "Short-term mean reversion (RSI)", style: "Positional", live: "/api/connors/paper", book: "rsi2" },
       {
         id: "cumulative-rsi",
         short: "CR",
-        label: "Cumulative RSI(2)",
+        label: "Short-term mean reversion (C-RSI)",
         style: "Positional",
         live: "/api/connors/paper",
         liveQuery: "?book=cum",
