@@ -36,9 +36,11 @@ body {
   --positive: #34d399;
   --negative: #f87171;
   --warning: #fbbf24;
+  --bar-shadow: 0 10px 20px -6px rgba(0, 0, 0, 0.95), 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 .v2[data-theme="light"] {
   color-scheme: light;
+  --bar-shadow: 0 6px 12px -6px rgba(0, 0, 0, 0.25);
   --brand: #0f1720;
   --brand-gold: #a8823f;
   --bg: #f5f7fa;

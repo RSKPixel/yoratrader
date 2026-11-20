@@ -1,9 +1,10 @@
 import { displayName, useAuth } from "../AuthGate";
 import { Segmented } from "../V2Controls";
+import MobileSchedule from "./MobileSchedule";
 
-// The phone app's last tab: who is logged in, log out, the theme and the full site.
+// The phone app's last tab: who is logged in, log out, the theme, the schedules (as the site's Settings) and the full site.
 
-export default function MobileMore({ theme, onTheme }) {
+export default function MobileMore({ theme, onTheme, d }) {
   const { user, logout } = useAuth();
   const box = { borderColor: "var(--border)", background: "var(--surface)" };
   return (
@@ -28,6 +29,12 @@ export default function MobileMore({ theme, onTheme }) {
       <div className="rounded-xl border p-4" style={box}>
         <Segmented label="Theme" options={[["light", "Light"], ["dark", "Dark"]]} value={theme} onChange={onTheme} />
       </div>
+      {d && (
+        <section className="flex flex-col gap-2">
+          <h2 className="px-1 text-xs font-semibold uppercase tracking-[0.12em]" style={{ color: "var(--faint)" }}>Schedules</h2>
+          <MobileSchedule d={d} />
+        </section>
+      )}
       <a href="/v2/dashboard" className="rounded-xl border py-3 text-center text-sm font-semibold active:bg-[var(--surface-2)]" style={{ ...box, color: "var(--accent)" }}>
         Full site
       </a>

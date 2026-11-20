@@ -42,7 +42,6 @@ import v2paper
 import v2data
 import v2dashboard
 import v2check
-import v2live
 import v2pnl
 import v2oops
 import v2tom
@@ -1577,16 +1576,6 @@ def v2_dashboard(gap_max_open: int = Query(5, ge=0, le=v2gap.MAX_OPEN), xsmr_max
         return {"status": "success", **v2dashboard.overview(gap_max_open, xsmr_max_open)}
     except Exception as error:
         print("v2 dashboard failed:", error)
-        return {"status": "error", "message": str(error)}
-
-
-@app.get("/api/v2/live")
-def v2_live(refresh: bool = False):
-    """The real Kite account, read-only: funds, positions, today's orders and trades, holdings."""
-    try:
-        return {"status": "success", **v2live.account(force=refresh)}
-    except Exception as error:
-        print("v2 live failed:", error)
         return {"status": "error", "message": str(error)}
 
 

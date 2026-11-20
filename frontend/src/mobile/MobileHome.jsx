@@ -1,35 +1,42 @@
 import { useState } from "react";
+import { link } from "./route";
+import { useIstClock } from "../istClock";
 import { tone } from "../V2BacktestView";
 import { Countdown, dashboardQuery, Delta, LiveItems, NoPaperLinks, OpenPositions, OpenPositionsModal, PaperHero, RealizedModal, paperTotals, pct, signedRs } from "../V2Dashboard";
 import V2PaperCurve from "../V2PaperCurve";
 import { statusOf, useModelStatuses } from "../modelStatus";
 import { useSettings } from "../settings";
 
-// The phone app's home: the time and status, every paper book's result today, then each book (tap to open),
+// The phone app's home: the logo, time and status, every paper book's result today, then each book (tap to open),
 // the open positions' charts and the net P&L by day.
 
 export function Status({ d, nextAt }) {
-  const market = d.market_open ? ["Market open", "var(--positive)"] : d.preopen ? ["Pre-open", "var(--warning)"] : ["Closed", "var(--faint)"];
-  const kite = d.kite?.connected;
+  const clock = useIstClock();
+  // every screen's header: the logo and the time on the left, the market, Kite and the next refresh on the right
+  const market = d ? (d.market_open ? ["Market open", "var(--positive)"] : d.preopen ? ["Pre-open", "var(--warning)"] : ["Closed", "var(--faint)"]) : null;
+  const kite = d?.kite?.connected;
   const dot = (color) => <span className="h-2 w-2 rounded-full" style={{ background: color }} aria-hidden="true" />;
   return (
-    <div className="flex flex-col gap-3">
+    <div className="mb-4 flex flex-col gap-3">
       <div className="flex items-start justify-between gap-3">
-        <div>
-          <div className="text-3xl font-semibold tabular-nums tracking-tight">{d.now.slice(11, 16)}</div>
-          <div className="text-xs" style={{ color: "var(--muted)" }}>
-            {d.weekday.slice(0, 3)}, {new Date(`${d.today}T00:00:00`).toLocaleDateString("en-IN", { day: "numeric", month: "short" })} · IST
+        <div className="flex flex-col gap-1.5">
+          <a href="/mobile" onClick={link("/mobile")} className="text-2xl font-bold leading-none tracking-[0.18em]" aria-label="YoraTrader home">
+            <span style={{ color: "var(--brand)" }}>YORA</span>
+            <span style={{ color: "var(--brand-gold)" }}>TRADER</span>
+          </a>
+          <div className="text-xs tabular-nums" style={{ color: "var(--muted)" }}>{clock}</div>
+        </div>
+        {d && (
+          <div className="flex flex-col items-end gap-1.5 text-xs font-medium leading-none">
+            <span className="flex items-center gap-1.5" style={{ color: market[1] }}>{dot(market[1])}{market[0]}</span>
+            <span className="flex items-center gap-1.5" style={{ color: kite ? "var(--positive)" : "var(--negative)" }}>
+              {dot(kite ? "var(--positive)" : "var(--negative)")}Kite {kite ? "on" : "off"}
+            </span>
+            <span className="tabular-nums" style={{ color: "var(--faint)" }}><Countdown at={nextAt} /></span>
           </div>
-        </div>
-        <div className="flex flex-col items-end gap-1.5 text-xs font-medium">
-          <span className="flex items-center gap-1.5" style={{ color: market[1] }}>{dot(market[1])}{market[0]}</span>
-          <span className="flex items-center gap-1.5" style={{ color: kite ? "var(--positive)" : "var(--negative)" }}>
-            {dot(kite ? "var(--positive)" : "var(--negative)")}Kite {kite ? "on" : "off"}
-          </span>
-          <span className="tabular-nums" style={{ color: "var(--faint)" }}><Countdown at={nextAt} /></span>
-        </div>
+        )}
       </div>
-      {!kite && (
+      {d && !kite && (
         <a href="/api/kite/login" target="_blank" rel="noreferrer" className="rounded-lg py-2.5 text-center text-sm font-semibold" style={{ background: "var(--accent)", color: "var(--accent-ink)" }}>
           Kite Login
         </a>
@@ -88,7 +95,6 @@ export default function MobileHome({ d, nextAt }) {
   const [showRealized, setShowRealized] = useState(false);
   return (
     <div className="flex flex-col gap-4">
-      <Status d={d} nextAt={nextAt} />
       <PaperHero t={t} onPositions={() => setShowOpen(true)} onRealized={() => setShowRealized(true)} />
       {showRealized && <RealizedModal query={query} onClose={() => setShowRealized(false)} />}
       {showOpen && (

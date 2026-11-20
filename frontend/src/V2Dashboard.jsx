@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { Card, Panel, tone } from "./V2BacktestView";
 import { formatRs, Segmented } from "./V2Controls";
 import { savedParams } from "./V2BacktestParams";
@@ -63,29 +63,24 @@ export function Countdown({ at }) {
 }
 
 function Header({ d, nextAt }) {
+  // the four status labels, on the right of the tab row
   const status = d.market_open ? ["Market open", "var(--positive)"] : d.preopen ? ["Pre-open", "var(--warning)"] : ["Market closed", "var(--faint)"];
   const kite = d.kite?.connected;
   return (
-    <div className="flex flex-wrap items-end justify-between gap-3">
-      <div>
-        <h1 className="text-xl font-semibold tracking-tight">
-          {d.weekday}, {new Date(`${d.today}T00:00:00`).toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" })}
-        </h1>
-        <p className="mt-1 text-sm" style={{ color: "var(--muted)" }}>
-          {d.now.slice(11, 16)} IST · next session {d.next_session === d.today ? "today" : d.next_session} · <Countdown at={nextAt} />
-        </p>
-      </div>
-      <div className="flex flex-wrap items-center gap-2">
-        <Pill color={status[1]}>{status[0]}</Pill>
-        <Pill color={kite ? "var(--positive)" : "var(--negative)"} title={kite ? `as ${d.kite.user_id}` : d.kite?.error}>
-          Kite {kite ? "connected" : "not connected"}
-        </Pill>
-        {!kite && (
-          <a href="/api/kite/login" target="_blank" rel="noreferrer" className="rounded-md px-3 py-1 text-xs font-medium" style={{ background: "var(--accent)", color: "var(--accent-ink)" }}>
-            Kite Login
-          </a>
-        )}
-      </div>
+    <div className="ml-auto flex flex-wrap items-center gap-2 self-center py-1">
+      <Pill color="var(--accent)" title="The next trading session">
+        Next session {d.next_session === d.today ? "today" : new Date(`${d.next_session}T00:00:00`).toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" })}
+      </Pill>
+      <Pill color="var(--muted)" title="The dashboard reloads its data then">Refresh in <Countdown at={nextAt} /></Pill>
+      <Pill color={status[1]}>{status[0]}</Pill>
+      <Pill color={kite ? "var(--positive)" : "var(--negative)"} title={kite ? `as ${d.kite.user_id}` : d.kite?.error}>
+        Kite {kite ? "connected" : "not connected"}
+      </Pill>
+      {!kite && (
+        <a href="/api/kite/login" target="_blank" rel="noreferrer" className="rounded-md px-3 py-1 text-xs font-medium" style={{ background: "var(--accent)", color: "var(--accent-ink)" }}>
+          Kite Login
+        </a>
+      )}
     </div>
   );
 }
@@ -116,27 +111,6 @@ export function Schedule({ steps }) {
         );
       })}
     </ol>
-  );
-}
-
-function Markets({ rows }) {
-  return (
-    <div className="flex flex-col">
-      {rows.map((m) => (
-        <div key={m.symbol} className="flex items-center justify-between border-t py-2 text-sm first:border-t-0" style={{ borderColor: "var(--border)" }}>
-          <span>{m.symbol}</span>
-          <span className="flex items-baseline gap-3 tabular-nums">
-            <span className="font-medium">{num(m.last)}</span>
-            <span className="w-16 text-right text-xs font-medium" style={{ color: tone(m.change_pct) }}>
-              {pct(m.change_pct)}
-            </span>
-          </span>
-        </div>
-      ))}
-      <p className="pt-2 text-xs" style={{ color: "var(--faint)" }}>
-        {rows[0]?.live ? "Live from Kite · change vs the previous close" : rows[0]?.as_of ? `Closes to ${rows[0].as_of} (Kite not connected)` : ""}
-      </p>
-    </div>
   );
 }
 
@@ -480,8 +454,8 @@ export function TomCard({ tm = {} }) {
   const day = (iso) => (iso ? new Date(`${iso}T00:00:00`).toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" }) : "—");
   return (
       <PaperCard
-        title="Turn of the month · manual"
-        href="/v2/manual"
+        title="Turn of the month (ITM)"
+        href="/v2/manual/turn-of-month"
         style="Positional"
         error={tm.error}
         lines={[
@@ -1231,19 +1205,31 @@ function PaperCheck({ query }) {
 const DASH_TABS = [
   { id: "paper", label: "Paper trading" },
   { id: "live", label: "Live trading" },
-  { id: "schedule", label: "Schedules" },
+  { id: "manual", label: "Manual trading" },
 ];
 
 export default function V2Dashboard() {
   const { d, error, nextAt } = useDashboard();
+  // the tab row's shadow: only while the page is scrolled under it
+  const barRef = useRef(null);
+  const [scrolled, setScrolled] = useState(false);
+  useEffect(() => {
+    const main = barRef.current?.closest("main");
+    if (!main) return undefined;
+    const on = () => setScrolled(main.scrollTop > 2);
+    on();
+    main.addEventListener("scroll", on, { passive: true });
+    return () => main.removeEventListener("scroll", on);
+  }, [d == null]);
   const [saved, setTab] = useSetting("dashboard.tab", "paper");
   const tab = DASH_TABS.some((t) => t.id === saved) ? saved : "paper";
   if (error && !d) return <p className="text-sm" style={{ color: "var(--negative)" }}>{error}</p>;
   if (!d) return <p className="text-sm" style={{ color: "var(--faint)" }}>Loading…</p>;
   return (
     <div className="flex flex-col gap-4">
-      <Header d={d} nextAt={nextAt} />
-      <div className="flex flex-wrap gap-1 border-b" style={{ borderColor: "var(--border)" }} role="tablist" aria-label="Dashboard sections">
+      <div ref={barRef} className="sticky -top-6 z-10 -mx-4 -mt-6 flex flex-wrap items-end gap-1 border-b px-4 pt-2 transition-[box-shadow,background-color] md:-mx-6 md:px-6"
+        style={{ borderColor: "var(--border)", background: "var(--surface)", boxShadow: scrolled ? "var(--bar-shadow)" : "none" }}>
+      <div className="flex flex-wrap gap-1" role="tablist" aria-label="Dashboard sections">
         {DASH_TABS.map((t) => (
           <button
             key={t.id}
@@ -1258,6 +1244,8 @@ export default function V2Dashboard() {
           </button>
         ))}
       </div>
+      <Header d={d} nextAt={nextAt} />
+      </div>
       <div role="tabpanel">
         {tab === "paper" && (
           <NoPaperLinks.Provider value={true}>
@@ -1269,27 +1257,30 @@ export default function V2Dashboard() {
             <LiveItems />
           </div>
         )}
-        {tab === "schedule" && (
-          <div className="flex flex-col gap-4">
-            <div className="grid gap-4 lg:grid-cols-5">
-              <div className="lg:col-span-3">
-                <Panel title="Today's schedule" right="the production scheduler, automatically">
-                  <Schedule steps={d.schedule} />
-                </Panel>
-              </div>
-              <div className="lg:col-span-2">
-                <Panel title="Markets" right="F&O indices">
-                  <Markets rows={d.markets} />
-                </Panel>
-              </div>
-            </div>
-            <section className="flex flex-col gap-2">
-              <h2 className="text-sm font-semibold">Data</h2>
-              <Freshness f={d.freshness} expected={d.expected_data} />
-            </section>
+        {tab === "manual" && (
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            <TomCard tm={d.paper.tom} />
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+// Settings' Schedules tab (it was the dashboard's): today's schedule and how fresh the data is
+export function SchedulesPanel() {
+  const { d, error } = useDashboard();
+  if (error && !d) return <p className="text-sm" style={{ color: "var(--negative)" }}>{error}</p>;
+  if (!d) return <p className="text-sm" style={{ color: "var(--faint)" }}>Loading…</p>;
+  return (
+    <div className="flex flex-col gap-4">
+      <Panel title="Today's schedule" right="the production scheduler, automatically">
+        <Schedule steps={d.schedule} />
+      </Panel>
+      <section className="flex flex-col gap-2">
+        <h2 className="text-sm font-semibold">Data</h2>
+        <Freshness f={d.freshness} expected={d.expected_data} />
+      </section>
     </div>
   );
 }
@@ -1405,7 +1396,6 @@ function WidePaper({ p, today }) {
     <div className="flex flex-col gap-3">
       <PaperTotals p={p} realized={false} />
       <ModelRow p={p} field="realized" />
-      <LiveRow />
       <Paper p={p} today={today} />
     </div>
   );

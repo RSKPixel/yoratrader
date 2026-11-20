@@ -1,17 +1,16 @@
 import { useEffect, useState } from "react";
 import { displayName, useAuth } from "./AuthGate";
-import V2Backtesting, { BACKTEST_GROUPS, findBacktest } from "./V2Backtesting";
-import V2Paper, { findPaper, PAPER_GROUPS } from "./V2Paper";
-import { ModelMenu } from "./V2SideNav";
+import V2Backtesting, { findBacktest } from "./V2Backtesting";
+import V2Paper, { findPaper } from "./V2Paper";
 import V2TradeLanding from "./V2TradeLanding";
 import V2TradeMix from "./V2TradeMix";
 import V2Settings from "./V2Settings";
-import V2Data from "./V2Data";
 import V2Dashboard from "./V2Dashboard";
 import { systemTheme, useSetting } from "./settings";
-import V2Live from "./V2Live";
 import V2Trade from "./V2Trade";
+import V2ManualLanding from "./V2ManualLanding";
 import V2Reports from "./V2Reports";
+import { useIstClock } from "./istClock";
 
 // YoraTrader: top navigation and one content area. Pages live at /v2/<page> ("/" opens the dashboard).
 
@@ -21,11 +20,17 @@ const PAGES = [
   { id: "paper", label: "Paper trading" },
   { id: "trade", label: "Live trading" },
   { id: "manual", label: "Manual trading" },
-  { id: "live", label: "Live" },
   { id: "reports", label: "Reports" },
-  { id: "data", label: "Data" },
-  { id: "settings", label: "Settings" },
 ];
+
+function GearIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="3" />
+      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+    </svg>
+  );
+}
 
 function pathParts() {
   return window.location.pathname.replace(/^\/v2\/?/, "").split("/");
@@ -48,11 +53,15 @@ function paperFromPath() {
 }
 
 function Logo() {
-  // The wordmark: YORA + TRADER in gold.
+  // The wordmark: YORA + TRADER in gold, the India time and date under it (as the phone app)
+  const clock = useIstClock();
   return (
-    <a href="/v2/dashboard" className="text-xl font-bold tracking-[0.18em]" aria-label="YoraTrader home">
-      <span style={{ color: "var(--brand)" }}>YORA</span>
-      <span style={{ color: "var(--brand-gold)" }}>TRADER</span>
+    <a href="/v2/dashboard" className="flex flex-col gap-1" aria-label="YoraTrader home">
+      <span className="text-xl font-bold leading-none tracking-[0.18em]">
+        <span style={{ color: "var(--brand)" }}>YORA</span>
+        <span style={{ color: "var(--brand-gold)" }}>TRADER</span>
+      </span>
+      <span className="text-[0.6875rem] leading-none tabular-nums" style={{ color: "var(--muted)" }}>{clock}</span>
     </a>
   );
 }
@@ -74,79 +83,6 @@ function NavLink({ page, active, onSelect }) {
   );
 }
 
-// Backtesting and Paper trading: the link opens the landing page; hovering it pops up a dropdown of the page's
-// models (no side nav). inline: the phone menu (no hover), where the arrow opens the list in place.
-// One dropdown open at a time: the top bar's links share which one (hover moving across closes the other at once)
-let hoverTimer = null;
-const hoverListeners = new Set();
-let hoverOpen = null;
-function setHoverOpen(id) {
-  hoverOpen = id;
-  hoverListeners.forEach((fn) => fn(id));
-}
-
-function NavMenu({ page, active, menu, onOpen, inline = false }) {
-  const [inlineOpen, setInlineOpen] = useState(false);
-  const [shared, setShared] = useState(hoverOpen);
-  useEffect(() => {
-    hoverListeners.add(setShared);
-    return () => hoverListeners.delete(setShared);
-  }, []);
-  const open = inline ? inlineOpen : shared === page.id;
-  const setOpen = (v) => {
-    if (inline) setInlineOpen(typeof v === "function" ? v(inlineOpen) : v);
-    else setHoverOpen(v ? page.id : null);
-  };
-  const enter = () => {
-    if (inline) return;
-    clearTimeout(hoverTimer);
-    setHoverOpen(page.id); // the other link's dropdown closes now
-  };
-  const leave = () => {
-    if (inline) return;
-    clearTimeout(hoverTimer);
-    hoverTimer = setTimeout(() => hoverOpen === page.id && setHoverOpen(null), 150); // a short grace, so a slip past the edge doesn't close it
-  };
-  const style = active ? { background: "var(--accent-soft)", color: "var(--accent)" } : { color: "var(--muted)" };
-  return (
-    <div className={inline ? "flex flex-col" : "relative"} onMouseEnter={enter} onMouseLeave={leave}>
-      <div className="flex items-center rounded-md" style={style}>
-        <a
-          href={`/v2/${page.id}`}
-          onClick={(e) => {
-            e.preventDefault();
-            setOpen(false);
-            onOpen();
-          }}
-          aria-current={active ? "page" : undefined}
-          className={`flex flex-1 items-center gap-1 py-1.5 text-sm font-medium ${inline ? "pl-3" : "px-3"}`}
-        >
-          {page.label}
-          {!inline && (
-            <svg viewBox="0 0 24 24" className={`h-3.5 w-3.5 transition-transform ${open ? "rotate-180" : ""}`} fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-              <path d="M6 9l6 6 6-6" />
-            </svg>
-          )}
-        </a>
-        {inline && (
-          <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open} aria-label={`${page.label}: the models`} className="grid h-8 w-10 place-items-center">
-            <svg viewBox="0 0 24 24" className={`h-4 w-4 transition-transform ${open ? "rotate-180" : ""}`} fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-              <path d="M6 9l6 6 6-6" />
-            </svg>
-          </button>
-        )}
-      </div>
-      {open && (
-        <div className={inline ? "mt-1 rounded-md border" : "absolute left-0 top-full z-40 pt-2"} style={inline ? { borderColor: "var(--border)", background: "var(--surface)" } : undefined}>
-          <div className={inline ? "" : "max-h-[75vh] w-80 overflow-y-auto rounded-lg border shadow-2xl"} style={inline ? undefined : { borderColor: "var(--border)", background: "var(--surface)" }}>
-            {menu(() => setOpen(false))}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
 export default function AppV2() {
   const { user, logout } = useAuth();
   const [theme, setTheme] = useSetting("theme", systemTheme());
@@ -157,6 +93,8 @@ export default function AppV2() {
   const [paper, setPaper] = useState(paperFromPath);
   // Live trading: the landing page (null) or a model's own page ("turn-of-month")
   const [tradeSub, setTradeSub] = useState(() => (pathParts()[0] === "trade" ? pathParts()[1] || null : null));
+  // Manual trading: the landing page (null) or a model's page ("turn-of-month")
+  const [manualSub, setManualSub] = useState(() => (pathParts()[0] === "manual" ? pathParts()[1] || null : null));
 
 
   useEffect(() => {
@@ -165,6 +103,7 @@ export default function AppV2() {
       setBacktest(backtestFromPath());
       setPaper(paperFromPath());
       setTradeSub(pathParts()[0] === "trade" ? pathParts()[1] || null : null);
+      setManualSub(pathParts()[0] === "manual" ? pathParts()[1] || null : null);
     };
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
@@ -198,28 +137,16 @@ export default function AppV2() {
     if (id === "paper") setPaper(null); // the landing pages, not the last model
     if (id === "backtesting") setBacktest(null);
     if (id === "trade") setTradeSub(null);
-    if (id === page && !(id === "paper" && paper) && !(id === "backtesting" && backtest) && !(id === "trade" && tradeSub)) return;
+    if (id === "manual") setManualSub(null);
+    if (id === page && !(id === "paper" && paper) && !(id === "backtesting" && backtest) && !(id === "trade" && tradeSub) && !(id === "manual" && manualSub)) return;
     window.history.pushState(null, "", id === "backtesting" ? "/v2/backtesting" : id === "paper" ? "/v2/paper" : `/v2/${id}`);
     setPage(id);
   };
 
   const current = PAGES.find((p) => p.id === page);
-  const menus = {
-    backtesting: (done) => (
-      <ModelMenu groups={BACKTEST_GROUPS} base="/v2/backtesting" title="Backtests" current={page === "backtesting" ? backtest : "-"} onSelect={(id) => { setMenuOpen(false); selectBacktest(id); }}
-        onDone={done} />
-    ),
-    paper: (done) => (
-      <ModelMenu groups={PAPER_GROUPS} base="/v2/paper" title="Paper trading" current={page === "paper" ? paper : "-"} onSelect={(id) => { setMenuOpen(false); selectPaper(id); }}
-        onDone={done} />
-    ),
-  };
-  const link = (p, inline) =>
-    menus[p.id] ? (
-      <NavMenu key={p.id} page={p} active={p.id === page} menu={menus[p.id]} inline={inline} onOpen={() => select(p.id)} />
-    ) : (
-      <NavLink key={p.id} page={p} active={p.id === "settings" ? settingsOpen : p.id === page} onSelect={select} />
-    );
+
+  // every page a plain link: each model is reached from its page's landing (no menus)
+  const link = (p) => <NavLink key={p.id} page={p} active={p.id === page} onSelect={select} />;
   return (
     <div className="v2 flex h-full flex-col overflow-hidden" data-theme={theme}>
       {settingsOpen && <V2Settings theme={theme} onTheme={setTheme} onClose={() => setSettingsOpen(false)} />}
@@ -227,12 +154,22 @@ export default function AppV2() {
         <div className="flex h-14 items-center gap-4 px-4 md:px-6">
           <Logo />
           <nav className="ml-auto hidden items-center gap-1 lg:flex" aria-label="Main">
-            {PAGES.map((p) => link(p, false))}
+            {PAGES.map((p) => link(p))}
           </nav>
           <div className="ml-auto flex items-center gap-2 lg:ml-3 lg:border-l lg:pl-4" style={{ borderColor: "var(--border)" }}>
             <span className="hidden text-sm lg:inline" style={{ color: "var(--muted)" }}>
               {displayName(user)}
             </span>
+            <button
+              type="button"
+              onClick={() => { setMenuOpen(false); setSettingsOpen(true); }}
+              className="hidden h-8 w-8 place-items-center rounded-md border transition-colors lg:grid hover:bg-[var(--surface-2)]"
+              style={{ borderColor: settingsOpen ? "var(--accent)" : "var(--border)", color: settingsOpen ? "var(--accent)" : "var(--muted)" }}
+              aria-label="Settings"
+              title="Settings"
+            >
+              <GearIcon />
+            </button>
             <button
               type="button"
               onClick={logout}
@@ -261,11 +198,21 @@ export default function AppV2() {
         </div>
         {menuOpen && (
           <nav className="flex max-h-[80vh] flex-col gap-1 overflow-y-auto border-t px-4 py-2 lg:hidden" style={{ borderColor: "var(--border)" }} aria-label="Main">
-            {PAGES.map((p) => link(p, true))}
+            {PAGES.map((p) => link(p))}
             <div className="mt-1 flex items-center justify-between gap-3 border-t px-3 pt-2" style={{ borderColor: "var(--border)" }}>
               <span className="truncate text-sm" style={{ color: "var(--muted)" }}>
                 {displayName(user)}
               </span>
+              <button
+                type="button"
+                onClick={() => { setMenuOpen(false); setSettingsOpen(true); }}
+                className="ml-auto grid h-8 w-8 shrink-0 place-items-center rounded-md border transition-colors hover:bg-[var(--surface-2)]"
+                style={{ borderColor: "var(--border)", color: "var(--muted)" }}
+                aria-label="Settings"
+                title="Settings"
+              >
+                <GearIcon />
+              </button>
               <button
                 type="button"
                 onClick={logout}
@@ -301,19 +248,11 @@ export default function AppV2() {
         </main>
       ) : page === "manual" ? (
         <main className="min-h-0 flex-1 overflow-auto px-4 py-6 md:px-6">
-          <V2Trade />
-        </main>
-      ) : page === "live" ? (
-        <main className="min-h-0 flex-1 overflow-auto px-4 py-6 md:px-6">
-          <V2Live />
+          {manualSub === "turn-of-month" ? <V2Trade /> : <V2ManualLanding />}
         </main>
       ) : page === "reports" ? (
         <main className="min-h-0 flex-1 overflow-auto px-4 py-6 md:px-6">
           <V2Reports />
-        </main>
-      ) : page === "data" ? (
-        <main className="min-h-0 flex-1 overflow-auto px-4 py-6 md:px-6">
-          <V2Data />
         </main>
       ) : (
         <main className="min-h-0 flex-1 overflow-auto px-4 py-6 md:px-6">

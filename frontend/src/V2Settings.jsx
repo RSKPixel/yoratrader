@@ -2,8 +2,10 @@ import { useEffect, useState } from "react";
 import { useAuth } from "./AuthGate";
 import { inputStyle, Segmented } from "./V2Controls";
 import { KitePanel, useKiteStatus } from "./V2Kite";
+import V2Data from "./V2Data";
+import { SchedulesPanel } from "./V2Dashboard";
 
-// v2 Settings: a dialog with five tabs (Angel One: SmartAPI credentials). General (theme), Kite (connection, daily token, credentials),
+// v2 Settings: a dialog with seven tabs (Schedules: the dashboard's, today's runs, markets, data freshness) (Data: every symbol's stored candles, the page it was) (Angel One: SmartAPI credentials). General (theme), Kite (connection, daily token, credentials),
 // Profile (user name, password; the user ID is fixed and can't be changed), Backups (the nightly database backup).
 
 const TABS = [
@@ -12,6 +14,8 @@ const TABS = [
   ["angel", "Angel One"],
   ["profile", "Profile"],
   ["backups", "Backups"],
+  ["schedules", "Schedules"],
+  ["data", "Data"],
 ];
 const button = "rounded-md border px-3 py-1.5 text-sm transition-colors hover:bg-[var(--surface-2)] disabled:opacity-40";
 const primary = { background: "var(--accent)", color: "var(--accent-ink)", borderColor: "var(--accent)" };
@@ -316,7 +320,7 @@ export default function V2Settings({ theme, onTheme, onClose, initialTab = "gene
         role="dialog"
         aria-modal="true"
         aria-label="Settings"
-        className="flex h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-lg border"
+        className="flex h-[90vh] w-full max-w-7xl flex-col overflow-hidden rounded-lg border"
         style={{ borderColor: "var(--border)", background: "var(--bg)" }}
         onClick={(e) => e.stopPropagation()}
       >
@@ -361,6 +365,8 @@ export default function V2Settings({ theme, onTheme, onClose, initialTab = "gene
           {tab === "angel" && <AngelOne />}
           {tab === "profile" && <Profile />}
           {tab === "backups" && <Backups />}
+          {tab === "schedules" && <SchedulesPanel />}
+          {tab === "data" && <V2Data />}
         </div>
       </div>
     </div>

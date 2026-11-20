@@ -1,7 +1,6 @@
-import { num, pct, Schedule } from "../V2Dashboard";
-import { tone } from "../V2BacktestView";
+import { Schedule } from "../V2Dashboard";
 
-// The phone app's schedule tab: what's next, the day's schedule, the indices and how fresh the data is.
+// The phone app's schedule tab: what's next, the day's schedule and how fresh the data is.
 
 export default function MobileSchedule({ d }) {
   const next = d.schedule.find((s) => s.state === "running") || d.schedule.find((s) => s.state === "pending");
@@ -24,15 +23,6 @@ export default function MobileSchedule({ d }) {
       )}
       <div className="rounded-xl border px-4 py-1" style={box}>
         <Schedule steps={d.schedule} />
-      </div>
-      <div className="grid grid-cols-2 gap-2">
-        {d.markets.map((m) => (
-          <div key={m.symbol} className="rounded-xl border p-3" style={box}>
-            <div className="truncate text-xs" style={{ color: "var(--muted)" }}>{m.symbol}</div>
-            <div className="text-base font-semibold tabular-nums">{num(m.last)}</div>
-            <div className="text-xs font-medium tabular-nums" style={{ color: tone(m.change_pct) }}>{pct(m.change_pct)}</div>
-          </div>
-        ))}
       </div>
       <div className="rounded-xl border" style={box}>
         <div className="px-4 pt-3 text-xs font-semibold">Data</div>
