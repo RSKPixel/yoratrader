@@ -528,6 +528,16 @@ def _capped_version(days, today, live, fills_slip, cps, lots):
                             nxt[(need[f], d)] = (today, float(o))
         except Exception as error:
             print("Oops tick book: today's opens failed:", error)
+    # held overnight by the tick book but not by the printed one (paper() only quotes the printed book's open trades
+    # and today's watchlist): their live price, so they're marked (unrealized) until the next-open sale
+    unmarked = {watch[s][2]: s for d, watch, taken, _, _, _ in todo if d < today for s, *_ in taken
+                if (s, d) not in nxt and not (market.get((d.isoformat(), s)) or {}).get("closed") and watch[s][2]
+                and not (live.get(s) or {}).get("last_price")}
+    if unmarked and kite_auth.status().get("connected"):
+        try:
+            live = {**live, **{unmarked[f]: q for f, q in _fut_quotes(kite_auth.trading_client(), sorted(unmarked)).items()}}
+        except Exception as error:
+            print("Oops tick book: live prices failed:", error)
 
     def exit_of(d, s):
         """(exit price, closed, exit day) as the book would: its own exit if it held it, else the next open."""

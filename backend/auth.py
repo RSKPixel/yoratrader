@@ -5,8 +5,8 @@ takes a 6-digit authenticator code (or, the first time, enrols the authenticator
 Only then is a session issued.
 
 A session is a JWT (HS256, signed with JWT_SECRET from the environment) in an httponly cookie. It
-expires at the next 06:00 IST, like the Kite token, so every trading day starts with a fresh
-sign-in. Each JWT also has a server-side row (sessions, keyed by a hash of its jti), so logging out
+lasts a week: it expires at 06:00 IST seven days after sign-in (SESSION_DAYS), so the sign-in is
+weekly, not daily (the Kite login stays daily). Each JWT also has a server-side row (sessions, keyed by a hash of its jti), so logging out
 or changing the password revokes it at once.
 """
 
@@ -32,7 +32,8 @@ from db import schema_once
 COOKIE_NAME = "yt_session"
 MIN_PASSWORD_LENGTH = 8
 IST = ZoneInfo("Asia/Kolkata")
-EXPIRES_AT = clock(6, 0)  # sessions end at the next 06:00 IST
+EXPIRES_AT = clock(6, 0)  # sessions end at 06:00 IST ...
+SESSION_DAYS = 7  # ... seven days after sign-in
 CHALLENGE_SECONDS = 5 * 60  # time to type the authenticator code after the password
 TOTP_ISSUER = "YoraTrader"
 
@@ -180,10 +181,10 @@ def _decode(token, typ):
 
 
 def next_expiry(now=None):
-    """The next 06:00 IST: today's if it's still ahead, else tomorrow's."""
+    """06:00 IST, SESSION_DAYS days on: the next 06:00 (today's if still ahead, else tomorrow's) plus SESSION_DAYS - 1 days."""
     now = now or datetime.now(IST)
     at = datetime.combine(now.date(), EXPIRES_AT, IST)
-    return at if at > now else at + timedelta(days=1)
+    return (at if at > now else at + timedelta(days=1)) + timedelta(days=SESSION_DAYS - 1)
 
 
 # ---------- login ----------

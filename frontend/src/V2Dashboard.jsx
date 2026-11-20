@@ -542,14 +542,20 @@ export function paperTotals(p, statuses) {
 
 function PaperTotals({ p, realized = true }) {
   // realized false: the dashboard, whose realized total ends the Realized net by model row
-  const { openBooks, books, positions, today, total, openToday, soldToday } = paperTotals(p, useModelStatuses());
+  const { openBooks, books, positions, today, total, openRs, openToday, soldToday } = paperTotals(p, useModelStatuses());
+  const query = dashboardQuery(useSettings().values);
+  const [showOpen, setShowOpen] = useState(false);
   const signed = (v) => `${v > 0 ? "+" : ""}${formatRs(v)}`;
   return (
-    <div className={`grid grid-cols-2 gap-3 sm:grid-cols-3 ${realized ? "lg:grid-cols-5" : "lg:grid-cols-4"}`}>
-      <Card label="Today's net" value={signed(today)} color={tone(today)} hint="Every paper book today, one lot each: the intraday books' trades, and SR and CR each trade on its own prices (spot or futures) (positions held from before: the move since yesterday's close)" />
+    <div className={`grid grid-cols-2 gap-3 sm:grid-cols-3 ${realized ? "lg:grid-cols-6" : "lg:grid-cols-5"}`}>
+      <Card label="Today's realized" value={signed(soldToday)} color={tone(soldToday)} hint="Trades sold today, every paper book, one lot each, after charges and slippage: each sale's whole result (Oops: yesterday's buys sold at today's open too). What's still held is in Open today and Unrealized" />
       <Card label="Books with open trades" value={`${openBooks} / ${books}`} hint="Paper books holding something now" />
-      <Card label="Open positions" value={positions} hint="Intraday books: today's live positions; SR and CR: positions held" />
-      <Card label="Open today" value={signed(openToday)} color={tone(openToday)} hint="Today's move on the positions still held: bought today, their whole result; held from before (SR, CR, TOM), since yesterday's close. Today's net = what closed today + this" />
+      <button type="button" onClick={() => setShowOpen(true)} className="text-left transition-opacity hover:opacity-80" aria-label="Open positions: show the details">
+        <Card label="Open positions" value={positions} hint="Every position held now, all paper books: click for the details" />
+      </button>
+      {showOpen && <OpenPositionsModal query={query} onClose={() => setShowOpen(false)} />}
+      <Card label="Open today" value={signed(openToday)} color={tone(openToday)} hint="Today's move on the positions still held: bought today, their whole result; held from before (SR, CR, TOM), since yesterday's close. Today's realized + this = today's net" />
+      <Card label="Unrealized" value={signed(openRs)} color={tone(openRs)} hint="Every position still held, all paper books, one lot each, marked now: its whole result since it was bought, after charges and slippage" />
       {realized && (
         <div className="rounded-lg border px-3 py-2.5" style={{ borderColor: "var(--border)", background: "var(--surface)" }} title="Trades already sold, every paper book since it started, one lot each, after charges and slippage">
           <p className="text-[0.6875rem] font-semibold uppercase tracking-[0.12em]" style={{ color: "var(--faint)" }}>Realized net</p>
@@ -557,6 +563,91 @@ function PaperTotals({ p, realized = true }) {
           <Delta v={soldToday} className="text-[0.6875rem]" />
         </div>
       )}
+    </div>
+  );
+}
+
+// Every open paper position in one table (the Open positions card's click): script, model, side, entry, now, P&L
+function OpenPositionsModal({ query, onClose }) {
+  const [data, setData] = useState(null);
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch(`/api/v2/paper/open-positions?${query}`, { signal: controller.signal })
+      .then((r) => r.json())
+      .then(setData)
+      .catch(() => {});
+    return () => controller.abort();
+  }, [query]);
+  useEffect(() => {
+    const onKey = (e) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  // one row a book: a stock two books hold is two lots, each with its own result (as the Unrealized card counts them)
+  const rows = (data?.positions || []).flatMap((p) => p.books.map((b) => ({ ...p, ...b, book: b })));
+  const total = rows.reduce((a, p) => a + (p.net_rs || 0), 0);
+  const px = (v) => (v == null ? "—" : Number(v).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+  const cols = ["Script", "Model", "Instrument", "Side", "Entry date & time", "Entry", "Now", "Stop", "Held", "Net P&L", "Net %"];
+  return (
+    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
+      <div role="dialog" aria-modal="true" aria-label="Open positions" className="flex max-h-[85vh] w-full max-w-6xl flex-col overflow-hidden rounded-lg border"
+        style={{ borderColor: "var(--border)", background: "var(--surface)" }} onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between border-b px-4 py-3" style={{ borderColor: "var(--border)" }}>
+          <div>
+            <h2 className="text-base font-semibold">Open positions</h2>
+            <p className="text-xs" style={{ color: "var(--muted)" }}>
+              {data ? `${rows.length} lots held · unrealized ` : "Loading…"}
+              {data && <span style={{ color: tone(total) }}>{signedRs(total)}</span>}
+              {data && " · one lot each, after charges and slippage, marked now"}
+            </p>
+          </div>
+          <button type="button" onClick={onClose} className="rounded-md border px-3 py-1 text-sm" style={{ borderColor: "var(--border)" }}>Close</button>
+        </div>
+        <div className="overflow-auto">
+          {data && data.status !== "success" ? (
+            <p className="p-4 text-sm" style={{ color: "var(--negative)" }}>{data.message}</p>
+          ) : data && rows.length === 0 ? (
+            <p className="p-4 text-sm" style={{ color: "var(--muted)" }}>No paper book holds anything right now.</p>
+          ) : (
+            <table className="w-full text-xs tabular-nums" style={{ minWidth: 900 }}>
+              <thead className="sticky top-0 text-left" style={{ background: "var(--surface)", color: "var(--faint)" }}>
+                <tr>{cols.map((c) => <th key={c} className="px-3 py-2 font-medium">{c}</th>)}</tr>
+              </thead>
+              <tbody>
+                {rows.map((p) => {
+                  const fut = p.key?.startsWith("NFO:");
+                  return (
+                    <tr key={`${p.key}-${p.since}-${p.entry}-${p.book.label}`} className="border-t" style={{ borderColor: "var(--border)" }}>
+                      <td className="px-3 py-2 font-semibold">{p.symbol}</td>
+                      <td className="px-3 py-2">
+                        <a href={p.book.href} className="underline-offset-2 hover:underline">{p.book.label}</a>
+                      </td>
+                      <td className="px-3 py-2" title={p.key?.split(":")[1]}>{fut ? "Futures" : "Spot"}</td>
+                      <td className="px-3 py-2" style={{ color: p.side === "short" ? "var(--negative)" : "var(--positive)" }}>{p.side === "short" ? "Short" : "Long"}</td>
+                      <td className="px-3 py-2 whitespace-nowrap">{p.entry_at || p.since}</td>
+                      <td className="px-3 py-2">{px(p.entry)}</td>
+                      <td className="px-3 py-2">{px(p.last)}</td>
+                      <td className="px-3 py-2">{px(p.stop)}</td>
+                      <td className="px-3 py-2">{p.day_of_hold ? `day ${p.day_of_hold}` : p.since === new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" }) ? "today" : `since ${p.since}`}</td>
+                      <td className="px-3 py-2 font-semibold" style={{ color: tone(p.net_rs) }}>{p.net_rs == null ? "—" : signedRs(p.net_rs)}</td>
+                      <td className="px-3 py-2" style={{ color: tone(p.net_pct) }}>{p.net_pct == null ? "—" : `${p.net_pct > 0 ? "+" : ""}${Number(p.net_pct).toFixed(2)}%`}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+              {rows.length > 0 && (
+                <tfoot className="sticky bottom-0" style={{ background: "var(--surface-2)" }}>
+                  <tr className="border-t font-semibold" style={{ borderColor: "var(--border)" }}>
+                    <td className="px-3 py-2" colSpan={9}>Total · {rows.length} lots</td>
+                    <td className="px-3 py-2" style={{ color: tone(total) }}>{signedRs(total)}</td>
+                    <td className="px-3 py-2" />
+                  </tr>
+                </tfoot>
+              )}
+            </table>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -851,7 +942,7 @@ export function PaperHero({ t, wide = false }) {
     </div>
   );
   const realized = stat("Realized net", t.total, "Trades already sold, every paper book since it started, one lot each, after charges and slippage");
-  const open = stat("Open now", t.openRs, "Positions not sold yet, marked at the current price, after costs: not locked in");
+  const open = stat("Unrealized", t.openRs, "Every position still held, all paper books, one lot each, marked now: its whole result since it was bought, after costs: not locked in");
   const openToday = stat("Open today", t.openToday, "Today's move on the positions still held (held from before: since yesterday's close)");
   const count = `${t.positions} positions open · ${t.openBooks} of ${t.books} books`;
   if (wide)
@@ -866,7 +957,7 @@ export function PaperHero({ t, wide = false }) {
       </div>
     );
   // the phone: realized net big, today's net with the open ones below
-  const todayNet = stat("Today's net", t.today, "Every paper book today, one lot each, after charges and slippage");
+  const todayNet = stat("Today's realized", t.soldToday, "Trades sold today, every paper book, one lot each, after charges and slippage");
   return (
     <div className="rounded-xl border p-4" style={{ borderColor: "var(--border)", background: "var(--surface)" }}>
       <div className="text-xs" style={{ color: "var(--muted)" }}>Realized net · all paper books</div>
@@ -874,9 +965,10 @@ export function PaperHero({ t, wide = false }) {
         <span className="text-3xl font-semibold tabular-nums tracking-tight" style={{ color: tone(t.total) }}>{signedRs(t.total)}</span>
         <Delta v={t.soldToday} className="text-sm" />
       </div>
-      <div className="mt-3 grid grid-cols-2 gap-3 border-t pt-3 text-sm tabular-nums" style={{ borderColor: "var(--border)" }}>
+      <div className="mt-3 grid grid-cols-3 gap-3 border-t pt-3 text-sm tabular-nums" style={{ borderColor: "var(--border)" }}>
         {todayNet}
         {openToday}
+        {open}
       </div>
       <div className="mt-2 text-xs" style={{ color: "var(--muted)" }}>{count}</div>
     </div>

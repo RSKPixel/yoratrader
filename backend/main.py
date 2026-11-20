@@ -149,7 +149,7 @@ def auth_login(req: LoginRequest):
 
 @app.post("/api/auth/totp")
 def auth_totp(req: TotpRequest, response: Response):
-    """Step 2: the 6-digit Google Authenticator code. Sets the session cookie (valid until the next 06:00 IST)."""
+    """Step 2: the 6-digit Google Authenticator code. Sets the session cookie (valid a week: until 06:00 IST seven days on)."""
     try:
         issued = auth.verify_totp(req.challenge, req.code)
     except auth.LoginLocked as exc:

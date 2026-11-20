@@ -244,8 +244,9 @@ def _open_today_rs(days, today):
 
 
 def _open_days_rs(days):
-    """An intraday book's days not closed yet (today's live trades; Oops buys waiting for the next open), marked now."""
-    open_ = [d["net_rs"] for d in days if d.get("status") != "closed" and d.get("net_rs") is not None]
+    """An intraday book's positions not sold yet (today's live trades; Oops buys waiting for the next open), marked now:
+    only the ones still held (a trade already sold on an open day is realized: _sold_today_rs)."""
+    open_ = [p["net_rs"] for d in days if d.get("status") != "closed" for p in d["picks"] if not p.get("closed") and p.get("net_rs") is not None]
     return round(sum(open_), 2) if open_ else None
 
 
@@ -524,10 +525,12 @@ def open_positions(gap_max_open=5, xsmr_max_open=10):
     merged = {}
     for p in found:
         k = (p["key"], p["since"], p["entry"])
+        own = {"label": p["book"], "href": p["href"], "net_rs": p["net_rs"], "net_pct": p["net_pct"], "entry": p["entry"],
+               "entry_at": p["entry_at"], "stop": p["stop"], "side": p["side"], "day_of_hold": p.get("day_of_hold")}  # each book its own lot
         if k in merged:
-            merged[k]["books"].append({"label": p["book"], "href": p["href"]})
+            merged[k]["books"].append(own)
         else:
-            merged[k] = {**{x: v for x, v in p.items() if x not in ("book", "href")}, "books": [{"label": p["book"], "href": p["href"]}]}
+            merged[k] = {**{x: v for x, v in p.items() if x not in ("book", "href")}, "books": [own]}
     rows = sorted(merged.values(), key=lambda p: (p["since"], p["symbol"]))
     chart_error = None
     if rows and kite_auth.status().get("connected"):

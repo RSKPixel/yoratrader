@@ -279,7 +279,7 @@ function Profile() {
           </div>
         </dl>
         <p className="mt-3 text-xs" style={{ color: "var(--faint)" }}>
-          Every session ends at 06:00 IST. Lost your phone? On the server run <code>manage_user.py --reset-2fa</code>; the next sign-in shows a new QR code.
+          A sign-in lasts a week: it ends at 06:00 IST seven days later. Lost your phone? On the server run <code>manage_user.py --reset-2fa</code>; the next sign-in shows a new QR code.
         </p>
       </Section>
       <Section title="Change password">

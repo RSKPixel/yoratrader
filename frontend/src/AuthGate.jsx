@@ -226,7 +226,7 @@ function LoginPage({ onLogin }) {
         {busy ? "Signing in…" : "Continue"}
       </Submit>
       <p className="mt-4 text-center text-[0.6875rem]" style={{ color: "var(--faint)" }}>
-        Sessions end daily at 06:00 IST
+        Sign-in lasts a week (ends 06:00 IST)
       </p>
     </Card>
   );
