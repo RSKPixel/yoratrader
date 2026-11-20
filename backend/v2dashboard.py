@@ -547,3 +547,50 @@ def open_positions(gap_max_open=5, xsmr_max_open=10):
     elif rows:
         chart_error = "Kite not connected: no price paths"
     return {"positions": rows, "errors": errors, "chart_error": chart_error}
+
+
+def realized_trades(gap_max_open=5, xsmr_max_open=10):
+    """Every paper book's sold trades (what Total realized adds up): one lot each, after charges and slippage,
+    on the prices each book trades (the futures for the intraday books, SR / CR on what each trade was priced on)."""
+    pairs = min(5, xsmr_max_open // 2) if xsmr_max_open else 5
+    rows, errors = [], {}
+
+    def at(day, t):  # an intraday book's times carry no date ("15:15:00", "09:08 (auction)")
+        return t if not t or t[:4].isdigit() else f"{day} {t}"
+
+    for bid, label, build in (("oops", "Oops gap reversal", lambda: oopswatch.paper(SL["oops"])),
+                              ("buy-on-gap", "Buy/Sell on gap", lambda: v2paper.gap(_cfg()["gap_side"], "none", gap_max_open, SL["gap"], _cfg()["gap_disaster"])),
+                              ("xs-mean-reversion", "Cross-sectional mean reversion", lambda: v2paper.xsmr_(pairs, "none", xsmr_max_open, SL["xsmr"], _cfg()["xs_disaster"]))):
+        try:
+            for d in build()["days"]:
+                for p in d["picks"]:
+                    if not p.get("closed"):
+                        continue
+                    rows.append({"id": bid, "book": label, "symbol": p["symbol"], "side": p.get("side", "long"),
+                                 "qty": p.get("qty") or p.get("lot"), "entry": p.get("entry"),
+                                 "entry_at": at(d["day"], p.get("entry_at") or p.get("filled_at")),
+                                 "exit": p.get("exit"), "exit_at": at(p.get("exit_day") or d["day"], p.get("exit_at")),
+                                 "reason": p.get("reason"), "net_rs": p.get("net_rs"), "net_pct": p.get("net_value_pct")})
+        except Exception as error:
+            errors[label] = str(error)
+    for bid, label, book in (("short-term-reversion", "Short-term mean reversion (RSI)", "rsi2"),
+                             ("cumulative-rsi", "Short-term mean reversion (C-RSI)", "cum")):
+        try:
+            for t in connorswatch.paper(SL["connors"], book=book)["closed"]:
+                fut = t.get("priced") == "futures"
+                rows.append({"id": bid, "book": label, "symbol": t["symbol"], "side": "long", "qty": t.get("book_qty"),
+                             "entry": t.get("fut_buy") if fut else t.get("buy"), "entry_at": t.get("entry_at"),
+                             "exit": t.get("fut_sell") if fut else t.get("sell"), "exit_at": t.get("exit_at"),
+                             "reason": t.get("reason"), "net_rs": t.get("book_net_rs"), "net_pct": t.get("book_net_value_pct")})
+        except Exception as error:
+            errors[label] = str(error)
+    try:
+        import tomwatch
+        for t in tomwatch.paper(SL["tom"])["closed"]:
+            rows.append({"id": "turn-of-month", "book": "Turn of the month", "symbol": "NIFTY", "side": "long", "qty": t.get("lot"),
+                         "entry": t.get("buy"), "entry_at": t.get("entry_at"), "exit": t.get("sell"), "exit_at": t.get("exit_at"),
+                         "reason": "planned sale", "net_rs": t.get("net_rs"), "net_pct": t.get("net_pct")})
+    except Exception as error:
+        errors["Turn of the month"] = str(error)
+    rows.sort(key=lambda r: (r["exit_at"] or "", r["book"], r["symbol"]), reverse=True)
+    return {"trades": rows, "errors": errors}

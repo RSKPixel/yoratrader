@@ -1,10 +1,11 @@
 """The open and the 15:15 exit, tick by tick: every Kite tick of every current-month stock future in two
-windows a day, 09:14-09:17 and 15:14-15:15:30 (price, last traded quantity, volume, best bid and ask with their quantities, the five-level depth
+windows a day, 09:00-09:17 and 15:14-15:15:30 (price, last traded quantity, volume, best bid and ask with their quantities, the five-level depth
 totals, the exchange time), stored in tick_open. It answers whether a real order sent a second or two after
 the open would have filled where a paper book assumes (the opening price, an Oops level).
 
 Kite streams snapshots (about one a second per instrument when something changes), not every exchange
-trade, so this is the finest it offers. Started by gapwatch's production scheduler at 09:14 on trading days;
+trade, so this is the finest it offers. Started by gapwatch's production scheduler at 09:00 on trading days (from 20 Nov 2026:
+the pre-open order entry 09:00-09:08 too, to test entering in the auction; before that from 09:14);
 a separate WebSocket from the Oops stream (Kite allows three per API key; one twisted loop runs both).
 Nothing here places orders.
 """
@@ -20,8 +21,8 @@ import kite_auth
 import xsmrwatch
 from db import connect, schema_once
 
-# (start, until): the open (to 09:17: the tick fills' three rounds to 09:16:31 and the unpaired sell-backs, see capped.py), the 15:15 exit
-WINDOWS = ((clock(9, 14), clock(9, 17)), (clock(15, 14), clock(15, 15, 30)))
+# (start, until): the pre-open and the open (from 09:00: the pre-open order entry's indicative prices; to 09:17: the tick fills' three rounds to 09:16:31 and the unpaired sell-backs, see capped.py), the 15:15 exit
+WINDOWS = ((clock(9, 0), clock(9, 17)), (clock(15, 14), clock(15, 15, 30)))
 START_AT, UNTIL = WINDOWS[0]
 _state = {"day": None, "ticker": None, "rows": [], "by_token": {}, "saved": None, "window": None}
 
@@ -62,13 +63,15 @@ def _on_ticks(ws, ticks):
         _state["rows"].append((now.date(), tk["instrument_token"], meta[0], meta[1], ts, now, tk.get("last_price"),
                                tk.get("last_traded_quantity") or tk.get("last_quantity"), tk.get("volume_traded") or tk.get("volume"),
                                b.get("price") or None, b.get("quantity") or None, a.get("price") or None, a.get("quantity") or None,
-                               tk.get("total_buy_quantity"), tk.get("total_sell_quantity"), Json(d) if d else None))
+                               tk.get("total_buy_quantity"), tk.get("total_sell_quantity"),
+                               # before 09:15 also the tick's ohlc: in the pre-open its open may carry the indicative auction price
+                               Json({**d, "ohlc": tk.get("ohlc")} if ts is not None and ts.time() < clock(9, 15) else d) if d else None))
     if _state["window"] and now.time() >= _state["window"][1]:
         threading.Thread(target=stop, daemon=True, name="ticklog-stop").start()
 
 
 def start():
-    """09:14 and 15:14 on a trading day: open the stream on every current-month stock future, once a window."""
+    """09:00 and 15:14 on a trading day: open the stream on every current-month stock future, once a window."""
     now = gapwatch._now()
     today = now.date()
     w = window(now.time())

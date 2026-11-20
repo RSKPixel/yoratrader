@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { tone } from "../V2BacktestView";
-import { Countdown, dashboardQuery, Delta, NoPaperLinks, OpenPositions, OpenPositionsModal, PaperHero, paperTotals, pct, signedRs } from "../V2Dashboard";
+import { Countdown, dashboardQuery, Delta, NoPaperLinks, OpenPositions, OpenPositionsModal, PaperHero, RealizedModal, paperTotals, pct, signedRs } from "../V2Dashboard";
 import V2PaperCurve from "../V2PaperCurve";
 import { statusOf, useModelStatuses } from "../modelStatus";
 import { useSettings } from "../settings";
@@ -85,10 +85,12 @@ export default function MobileHome({ d, nextAt }) {
   ].filter(([id]) => shown(id));
   const box = { borderColor: "var(--border)", background: "var(--surface)" };
   const [showOpen, setShowOpen] = useState(false);
+  const [showRealized, setShowRealized] = useState(false);
   return (
     <div className="flex flex-col gap-4">
       <Status d={d} nextAt={nextAt} />
-      <PaperHero t={t} onPositions={() => setShowOpen(true)} />
+      <PaperHero t={t} onPositions={() => setShowOpen(true)} onRealized={() => setShowRealized(true)} />
+      {showRealized && <RealizedModal query={query} onClose={() => setShowRealized(false)} />}
       {showOpen && (
         <NoPaperLinks.Provider value={true}>
           <OpenPositionsModal query={query} onClose={() => setShowOpen(false)} />

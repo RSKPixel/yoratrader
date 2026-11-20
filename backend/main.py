@@ -1355,6 +1355,16 @@ def v2_paper_check(gap_max_open: int = Query(5, ge=0, le=v2gap.MAX_OPEN), xsmr_m
         return {"status": "error", "message": str(error)}
 
 
+@app.get("/api/v2/paper/realized")
+def v2_paper_realized(gap_max_open: int = Query(5, ge=0, le=v2gap.MAX_OPEN), xsmr_max_open: int = Query(10, ge=0, le=v2xsmr.MAX_OPEN)):
+    """Every paper book's sold trades (the dashboard's Total realized card)."""
+    try:
+        return {"status": "success", **v2dashboard.realized_trades(gap_max_open, xsmr_max_open)}
+    except Exception as error:
+        print("Paper realized trades failed:", error)
+        return {"status": "error", "message": str(error)}
+
+
 @app.get("/api/v2/paper/open-positions")
 def v2_paper_open_positions(gap_max_open: int = Query(5, ge=0, le=v2gap.MAX_OPEN), xsmr_max_open: int = Query(10, ge=0, le=v2xsmr.MAX_OPEN)):
     """Every paper book's open positions with their price path since bought (the paper landing page's charts)."""

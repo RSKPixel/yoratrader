@@ -269,7 +269,7 @@ def _simulate(d, variant, lot=None):
     open_trades, trades = [], []
     month_end = xsmr.month_ends(idx).to_numpy()
     for i in range(n):
-        still = []
+        still, leaving = [], set()  # leaving: sold at the next open (closeopen), still holding its slot at today's buys
         for tr in open_trades:  # each open trade's move from yesterday's 15:15 to today's
             s_ = tr["s"]
             prev = tr["last"]
@@ -314,6 +314,8 @@ def _simulate(d, variant, lot=None):
                     t_rs[i] += tr["lot"] * now
                 tr.update(sell_i=i, sell=now, reason=reason)
                 trades.append(tr)
+                if xp is not None and reason in ("time", "strength"):
+                    leaving.add(tr["s"])
             else:
                 still.append(tr)
         open_trades = still
@@ -327,9 +329,9 @@ def _simulate(d, variant, lot=None):
         # oversold longs and the most overbought shorts first)
         cand = [(c, 1) for c in np.flatnonzero(hit[i])] + [(c, -1) for c in np.flatnonzero(hit_short[i])]
         if cap:  # free slots only, stocks not already held
-            held_now = {tr["s"] for tr in open_trades}
+            held_now = {tr["s"] for tr in open_trades} | leaving
             cand = [x for x in cand if x[0] not in held_now]
-            top = cap - len(open_trades)
+            top = cap - len(open_trades) - len(leaving)
         extreme = lambda x: score[i, x[0]] if x[1] > 0 else 100 - score[i, x[0]]
         if top is not None and len(cand) > top:
             cand = sorted(cand, key=extreme)[:max(top, 0)]

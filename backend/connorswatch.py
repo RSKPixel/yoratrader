@@ -384,7 +384,9 @@ def _choose(book, open_rows, age, live, hit):
             to_sell.append((s_, d, f, "time"))
         elif exit_mode(book) == "strength" and rsi_now.get(s_) is not None and rsi_now[s_] > connors.EXIT_RSI:
             to_sell.append((s_, d, f, "strength"))
-    held = {r[0] for r in open_rows} - {x[0] for x in to_sell} - {k[0] for k in hit}
+    held = {r[0] for r in open_rows} - {k[0] for k in hit}
+    if trade_at(book) != "closeopen":  # closeopen: a sale waits for the next open, so its slot stays taken until then
+        held -= {x[0] for x in to_sell}
     if b["setup"] == "cumrsi2":  # the cumulative-RSI book: today's + yesterday's 2-day RSI below 35, lowest first
         signals = sorted((x for x in live["stocks"] if x["signal_cum"] and x["symbol"] not in held), key=lambda x: x["cum"])
         score, n_signals = "cum", sum(x["signal_cum"] for x in live["stocks"])

@@ -154,11 +154,18 @@ export function Delta({ v, className = "text-xs" }) {
 function PaperCard({ title, href, style, lines, error, price, headline, side }) {
   // side: [label, value, color]: shown to the right of the headline (unrealized)
   // headline: [label, value, color]: the card's big number (the paper books: realized net)
+  // on the dashboard (no links to the paper pages) a click opens the book's open positions' charts instead
+  const inPlace = useContext(NoPaperLinks) && href.startsWith("/v2/paper");
+  const [show, setShow] = useState(false);
+  const query = dashboardQuery(useSettings().values);
   return (
+    <>
+    {show && <BookPositionsModal title={title} query={query} onClose={() => setShow(false)} />}
     <PaperLink
       href={href}
-      className="block rounded-lg border p-4 transition-colors hover:bg-[var(--surface-2)]"
+      className={`block rounded-lg border p-4 transition-colors hover:bg-[var(--surface-2)] ${inPlace ? "cursor-pointer" : ""}`}
       style={{ borderColor: "var(--border)", background: "var(--surface)" }}
+      {...(inPlace ? { onClick: () => setShow(true), role: "button", tabIndex: 0, onKeyDown: (e) => (e.key === "Enter" || e.key === " ") && setShow(true), title: "Open positions: click for their charts" } : {})}
     >
       <div className="flex items-center justify-between gap-2">
         <h3 className="text-sm font-semibold">{title}</h3>
@@ -203,6 +210,58 @@ function PaperCard({ title, href, style, lines, error, price, headline, side }) 
         </>
       )}
     </PaperLink>
+    </>
+  );
+}
+
+// One paper book's open positions, each a chart of its price since it was bought (the dashboard's model card click)
+function BookPositionsModal({ title, query, onClose }) {
+  const [data, setData] = useState(null);
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch(`/api/v2/paper/open-positions?${query}`, { signal: controller.signal })
+      .then((r) => r.json())
+      .then(setData)
+      .catch(() => {});
+    return () => controller.abort();
+  }, [query]);
+  useEffect(() => {
+    const onKey = (e) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  // each position with this book's own lot (a stock two books hold: this book's entry and result)
+  const rows = (data?.positions || []).flatMap((p) => p.books.filter((b) => b.label === title).map((b) => ({ ...p, ...b, books: [b] })));
+  const total = rows.reduce((a, p) => a + (p.net_rs || 0), 0);
+  return (
+    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
+      <div role="dialog" aria-modal="true" aria-label={`${title}: open positions`} className="flex max-h-[85vh] w-full max-w-5xl flex-col overflow-hidden rounded-lg border"
+        style={{ borderColor: "var(--border)", background: "var(--surface)" }} onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between border-b px-4 py-3" style={{ borderColor: "var(--border)" }}>
+          <div>
+            <h2 className="text-base font-semibold">{title}</h2>
+            <p className="text-xs" style={{ color: "var(--muted)" }}>
+              {data ? `${rows.length} open · unrealized ` : "Loading…"}
+              {data && <span style={{ color: tone(total) }}>{signedRs(total)}</span>}
+              {data && " · one lot each, after costs, marked now"}
+            </p>
+          </div>
+          <button type="button" onClick={onClose} className="rounded-md border px-3 py-1 text-sm" style={{ borderColor: "var(--border)" }}>Close</button>
+        </div>
+        <div className="overflow-auto p-4">
+          {data && data.status !== "success" ? (
+            <p className="text-sm" style={{ color: "var(--negative)" }}>{data.message}</p>
+          ) : data && rows.length === 0 ? (
+            <p className="text-sm" style={{ color: "var(--muted)" }}>Nothing open in this book right now.</p>
+          ) : (
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {rows.map((p) => <PositionChart key={`${p.key}-${p.since}-${p.entry}`} p={p} />)}
+            </div>
+          )}
+          {data?.chart_error && <p className="mt-2 text-xs" style={{ color: "var(--warning)" }}>{data.chart_error}</p>}
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -558,14 +617,15 @@ function PaperTotals({ p, realized = true }) {
   const { openBooks, books, positions, today, total, openRs, openToday, soldToday, cash, margin } = paperTotals(p, useModelStatuses());
   const query = dashboardQuery(useSettings().values);
   const [showOpen, setShowOpen] = useState(false);
+  const [showRealized, setShowRealized] = useState(false);
   const signed = (v) => `${v > 0 ? "+" : ""}${formatRs(v)}`;
   return (
     <div className={`grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6`}>
-      <div className="rounded-lg border px-3 py-2.5" style={{ borderColor: "var(--border)", background: "var(--surface)" }} title="Trades already sold, every paper book since it started, one lot each, after charges and slippage. The arrow: how much it moved today (the trades sold today)">
+      <button type="button" onClick={() => setShowRealized(true)} className="h-full rounded-lg border px-3 py-2.5 text-left transition-opacity hover:opacity-80" style={{ borderColor: "var(--border)", background: "var(--surface)" }} title="Trades already sold, every paper book since it started, one lot each, after charges and slippage. The arrow: how much it moved today (the trades sold today). Click for every sold trade">
         <p className="text-[0.6875rem] font-semibold uppercase tracking-[0.12em]" style={{ color: "var(--faint)" }}>Total realized</p>
         <p className="mt-1 text-lg font-semibold tabular-nums" style={{ color: tone(total) }}>{signed(total)}</p>
         <Delta v={soldToday} className="text-[0.6875rem]" />
-      </div>
+      </button>
       <Card label="Today's realized" value={signed(soldToday)} color={tone(soldToday)} hint="Trades sold today, every paper book, one lot each, after charges and slippage: each sale's whole result (Oops: yesterday's buys sold at today's open too)" />
       <Card label="Total unrealized" value={signed(openRs)} color={tone(openRs)} hint="Every position still held, all paper books, one lot each, marked now: its whole result since it was bought, after charges and slippage" />
       <Card label="Books with open trades" value={`${openBooks} / ${books}`} hint="Paper books holding something now" />
@@ -578,6 +638,91 @@ function PaperTotals({ p, realized = true }) {
         <p className="text-[0.6875rem] tabular-nums" style={{ color: "var(--muted)" }}>cash {formatRs(cash)} · margin {formatRs(margin)}</p>
       </div>
       {showOpen && <OpenPositionsModal query={query} onClose={() => setShowOpen(false)} />}
+      {showRealized && <RealizedModal query={query} onClose={() => setShowRealized(false)} />}
+    </div>
+  );
+}
+
+// Every sold paper trade in one table (the Total realized card's click), newest sale first, with the total
+export function RealizedModal({ query, onClose }) {
+  const [data, setData] = useState(null);
+  const statuses = useModelStatuses();
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch(`/api/v2/paper/realized?${query}`, { signal: controller.signal })
+      .then((r) => r.json())
+      .then(setData)
+      .catch(() => {});
+    return () => controller.abort();
+  }, [query]);
+  useEffect(() => {
+    const onKey = (e) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  // the books the card counts (archived ones left out)
+  const rows = (data?.trades || []).filter((t) => statusOf(statuses, t.id) !== "archived");
+  const total = rows.reduce((a, t) => a + (t.net_rs || 0), 0);
+  const wins = rows.filter((t) => (t.net_rs || 0) > 0).length;
+  const px = (v) => (v == null ? "—" : Number(v).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+  const cols = ["Script", "Model", "Side", "Qty", "Bought", "Entry", "Sold", "Exit", "Why sold", "Net P&L", "Net %"];
+  const errors = Object.entries(data?.errors || {});
+  return (
+    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
+      <div role="dialog" aria-modal="true" aria-label="Realized trades" className="flex max-h-[85vh] w-full max-w-6xl flex-col overflow-hidden rounded-lg border"
+        style={{ borderColor: "var(--border)", background: "var(--surface)" }} onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between border-b px-4 py-3" style={{ borderColor: "var(--border)" }}>
+          <div>
+            <h2 className="text-base font-semibold">Realized trades</h2>
+            <p className="text-xs" style={{ color: "var(--muted)" }}>
+              {data ? `${rows.length} trades sold · ${wins} winners · realized ` : "Loading…"}
+              {data && <span style={{ color: tone(total) }}>{signedRs(total)}</span>}
+              {data && " · one lot each, after charges and slippage"}
+            </p>
+            {errors.length > 0 && <p className="text-xs" style={{ color: "var(--negative)" }}>Not loaded: {errors.map(([k]) => k).join(", ")}</p>}
+          </div>
+          <button type="button" onClick={onClose} className="rounded-md border px-3 py-1 text-sm" style={{ borderColor: "var(--border)" }}>Close</button>
+        </div>
+        <div className="overflow-auto">
+          {data && data.status !== "success" ? (
+            <p className="p-4 text-sm" style={{ color: "var(--negative)" }}>{data.message}</p>
+          ) : data && rows.length === 0 ? (
+            <p className="p-4 text-sm" style={{ color: "var(--muted)" }}>No paper trade has been sold yet.</p>
+          ) : (
+            <table className="w-full whitespace-nowrap text-xs tabular-nums" style={{ minWidth: 900 }}>
+              <thead className="sticky top-0 text-left" style={{ background: "var(--surface)", color: "var(--faint)" }}>
+                <tr>{cols.map((c) => <th key={c} className="px-3 py-2 font-medium">{c}</th>)}</tr>
+              </thead>
+              <tbody>
+                {rows.map((t, i) => (
+                  <tr key={`${t.id}-${t.symbol}-${t.entry_at}-${i}`} className="border-t" style={{ borderColor: "var(--border)" }}>
+                    <td className="px-3 py-2 font-semibold">{t.symbol}</td>
+                    <td className="px-3 py-2">{t.book}</td>
+                    <td className="px-3 py-2" style={{ color: t.side === "short" ? "var(--negative)" : "var(--positive)" }}>{t.side === "short" ? "Short" : "Long"}</td>
+                    <td className="px-3 py-2">{t.qty ?? "—"}</td>
+                    <td className="px-3 py-2">{t.entry_at || "—"}</td>
+                    <td className="px-3 py-2">{px(t.entry)}</td>
+                    <td className="px-3 py-2">{t.exit_at || "—"}</td>
+                    <td className="px-3 py-2">{px(t.exit)}</td>
+                    <td className="px-3 py-2" style={{ color: "var(--muted)" }}>{t.reason || "—"}</td>
+                    <td className="px-3 py-2 font-semibold" style={{ color: tone(t.net_rs) }}>{t.net_rs == null ? "—" : signedRs(t.net_rs)}</td>
+                    <td className="px-3 py-2" style={{ color: tone(t.net_pct) }}>{t.net_pct == null ? "—" : `${t.net_pct > 0 ? "+" : ""}${Number(t.net_pct).toFixed(2)}%`}</td>
+                  </tr>
+                ))}
+              </tbody>
+              {rows.length > 0 && (
+                <tfoot className="sticky bottom-0" style={{ background: "var(--surface-2)" }}>
+                  <tr className="border-t font-semibold" style={{ borderColor: "var(--border)" }}>
+                    <td className="px-3 py-2" colSpan={9}>Total · {rows.length} trades</td>
+                    <td className="px-3 py-2" style={{ color: tone(total) }}>{signedRs(total)}</td>
+                    <td className="px-3 py-2" />
+                  </tr>
+                </tfoot>
+              )}
+            </table>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -953,7 +1098,7 @@ export default function V2Dashboard() {
 
 export const signedRs = (v) => (v == null ? "—" : `${v > 0 ? "+" : ""}${formatRs(v)}`);
 
-export function PaperHero({ t, wide = false, onPositions }) {
+export function PaperHero({ t, wide = false, onPositions, onRealized }) {
   const stat = (label, v, hint) => (
     <div title={hint}>
       <div className="text-xs" style={{ color: "var(--muted)" }}>{label}</div>
@@ -979,11 +1124,16 @@ export function PaperHero({ t, wide = false, onPositions }) {
   const todayNet = stat("Today's realized", t.soldToday, "Trades sold today, every paper book, one lot each, after charges and slippage");
   return (
     <div className="rounded-xl border p-4" style={{ borderColor: "var(--border)", background: "var(--surface)" }}>
-      <div className="text-xs" style={{ color: "var(--muted)" }}>Total realized · all paper books</div>
-      <div className="mt-1 flex flex-wrap items-baseline gap-x-3">
-        <span className="text-3xl font-semibold tabular-nums tracking-tight" style={{ color: tone(t.total) }}>{signedRs(t.total)}</span>
-        <Delta v={t.soldToday} className="text-sm" />
-      </div>
+      <button type="button" onClick={onRealized} className="block w-full text-left">
+        <div className="flex items-center justify-between text-xs" style={{ color: "var(--muted)" }}>
+          <span>Total realized · all paper books</span>
+          {onRealized && <span style={{ color: "var(--accent)" }}>Trades ›</span>}
+        </div>
+        <div className="mt-1 flex flex-wrap items-baseline gap-x-3">
+          <span className="text-3xl font-semibold tabular-nums tracking-tight" style={{ color: tone(t.total) }}>{signedRs(t.total)}</span>
+          <Delta v={t.soldToday} className="text-sm" />
+        </div>
+      </button>
       <div className="mt-3 grid grid-cols-2 gap-3 border-t pt-3 text-sm tabular-nums" style={{ borderColor: "var(--border)" }}>
         {todayNet}
         {open}
