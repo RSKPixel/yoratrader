@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { tone } from "../V2BacktestView";
-import { Countdown, dashboardQuery, Delta, NoPaperLinks, OpenPositions, OpenPositionsModal, PaperHero, RealizedModal, paperTotals, pct, signedRs } from "../V2Dashboard";
+import { Countdown, dashboardQuery, Delta, LiveItems, NoPaperLinks, OpenPositions, OpenPositionsModal, PaperHero, RealizedModal, paperTotals, pct, signedRs } from "../V2Dashboard";
 import V2PaperCurve from "../V2PaperCurve";
 import { statusOf, useModelStatuses } from "../modelStatus";
 import { useSettings } from "../settings";
@@ -100,6 +100,12 @@ export default function MobileHome({ d, nextAt }) {
         {rows.map(([id, r]) => <Row key={id} {...r} />)}
       </div>
       <p className="text-[0.6875rem]" style={{ color: "var(--faint)" }}>One lot a position. SR and CR each trade on its own prices (spot or futures).</p>
+      <section className="flex flex-col gap-2">
+        <h2 className="text-sm font-semibold">Live trading</h2>
+        <div className="flex flex-col gap-3">
+          <LiveItems />
+        </div>
+      </section>
       <section className="flex flex-col gap-2">
         <h2 className="text-sm font-semibold">Open positions</h2>
         <OpenPositions query={query} schedule />

@@ -796,3 +796,56 @@ def signals(item_id):
             "free": free, "rule": "Cumulative RSI(2) below 35" if setup == "cumrsi2" else "RSI(2) below 10",
             "exit_rsi": connors.EXIT_RSI, "above_average": len(live["stocks"]), "signals": sum(r["signal"] for r in rows),
             "sells": sum(bool(r.get("sell")) for r in rows), "stocks": rows}
+
+
+def summary():
+    """Every live item for the dashboard: its state, holdings marked now (Kite's last prices), realized and
+    unrealized (gross: before charges), today's orders and its last log line."""
+    items = liveitems.items()
+    accts = {a["id"]: a for a in items["accounts"]}
+    today = gapwatch._now().date()
+    out = []
+    with connect() as conn, conn.cursor() as cursor:
+        _ensure(cursor)
+        conn.commit()
+        cursor.execute("SELECT item_id, symbol, instrument, exchange, tradingsymbol, qty, buy_day, buy_price, sell_day, sell_price, sell_queued, "
+                       "real, buy_status, sell_status FROM live_positions")
+        cols = ("item_id", "symbol", "instrument", "exchange", "tradingsymbol", "qty", "buy_day", "buy_price", "sell_day", "sell_price",
+                "sell_queued", "real", "buy_status", "sell_status")
+        pos = [dict(zip(cols, r)) for r in cursor.fetchall()]
+        cursor.execute("SELECT item_id, count(*) FILTER (WHERE status = 'sent'), count(*) FILTER (WHERE status = 'dry-run'), "
+                       "count(*) FILTER (WHERE status IN ('rejected') OR event = 'error') FROM live_order_log "
+                       "WHERE (at AT TIME ZONE 'Asia/Kolkata')::date = %s GROUP BY item_id", (today,))
+        counts = {r[0]: r[1:] for r in cursor.fetchall()}
+        cursor.execute("SELECT DISTINCT ON (item_id) item_id, at, event, symbol, note, status FROM live_order_log ORDER BY item_id, at DESC, id DESC")
+        last = {r[0]: {"at": r[1].astimezone(gapwatch.IST).strftime("%d %b %H:%M"), "event": r[2], "symbol": r[3], "note": r[4], "status": r[5]}
+                for r in cursor.fetchall()}
+    held = [p for p in pos if not p["sell_day"]]
+    ltp = {}
+    if held and kite_auth.status().get("connected"):
+        try:
+            keys = sorted({f"{p['exchange']}:{p['tradingsymbol']}" for p in held})
+            ltp = {k: v.get("last_price") for k, v in kite_auth.trading_client().ltp(keys).items()}
+        except Exception as error:
+            print("Live summary: prices failed:", error)
+    for it in items["items"]:
+        mine = [p for p in pos if p["item_id"] == it["id"]]
+        open_ = []
+        for p in mine:
+            if p["sell_day"]:
+                continue
+            now = ltp.get(f"{p['exchange']}:{p['tradingsymbol']}")
+            open_.append({"symbol": p["symbol"], "instrument": p["instrument"], "qty": p["qty"], "buy_day": p["buy_day"].isoformat(),
+                          "buy_price": p["buy_price"], "last": now, "pnl_rs": round((now - p["buy_price"]) * p["qty"], 2) if now else None,
+                          "state": "buy order in" if p["buy_status"] == "pending" else "sale order in" if p["sell_status"] == "pending"
+                          else "sell at next open" if p["sell_queued"] else "sell by hand" if p["sell_status"] == "manual" else "held"})
+        closed = [p for p in mine if p["sell_day"] and p["sell_price"] is not None]
+        sent, dry, bad = counts.get(it["id"], (0, 0, 0))
+        out.append({"id": it["id"], "name": it["name"], "model": it["model_label"], "account": (accts.get(it["account"]) or {}).get("label", it["account"]),
+                    "enabled": it["enabled"], "real": it.get("real"), "engine": it["orders"] == "engine", "settings": it["settings"],
+                    "open": open_, "unrealized_rs": round(sum(x["pnl_rs"] or 0 for x in open_), 2) if open_ else None,
+                    "invested_rs": round(sum(x["buy_price"] * x["qty"] for x in open_), 2),
+                    "realized_rs": round(sum((p["sell_price"] - p["buy_price"]) * p["qty"] for p in closed), 2), "trades": len(closed),
+                    "sold_today_rs": round(sum((p["sell_price"] - p["buy_price"]) * p["qty"] for p in closed if p["sell_day"] == today), 2),
+                    "today": {"sent": sent, "dry": dry, "problems": bad}, "last": last.get(it["id"])})
+    return {"items": out, "real_allowed": real_orders_allowed()}

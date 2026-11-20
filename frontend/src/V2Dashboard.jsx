@@ -337,6 +337,85 @@ function openNow(p) {
   };
 }
 
+// The live trading items (the Live trading page), each a card: on / off, real or dry run, its holdings marked now,
+// realized and unrealized (gross, before charges), today's orders and its last log line. Every minute.
+export function LiveItems() {
+  const [data, setData] = useState(null);
+  const resumed = useResume();
+  useEffect(() => {
+    let alive = true;
+    const load = () => fetch("/api/v2/live/summary").then((r) => r.json()).then((p) => alive && setData(p)).catch(() => {});
+    load();
+    const t = setInterval(load, 60000);
+    return () => {
+      alive = false;
+      clearInterval(t);
+    };
+  }, [resumed]);
+  if (!data) return null;
+  if (data.status !== "success") return <p className="text-sm" style={{ color: "var(--negative)" }}>{data.message || data.detail}</p>;
+  const open = (e) => {
+    e.preventDefault();
+    window.history.pushState(null, "", "/v2/trade");
+    window.dispatchEvent(new PopStateEvent("popstate"));
+  };
+  const signed = (v) => (v == null ? "—" : `${v > 0 ? "+" : ""}${formatRs(v)}`);
+  return data.items.map((it) => {
+    const s = it.settings || {};
+    return (
+      <a key={it.id} href="/v2/trade" onClick={open} className="flex flex-col gap-3 rounded-lg border p-4 transition-colors hover:bg-[var(--surface-2)]"
+        style={{ borderColor: it.enabled && it.real ? "var(--negative)" : it.enabled ? "var(--positive)" : "var(--border)", background: "var(--surface)" }}>
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <h3 className="truncate text-sm font-semibold">{it.name}</h3>
+            <p className="truncate text-xs" style={{ color: "var(--muted)" }}>{it.model} · {it.account}</p>
+          </div>
+          <div className="flex shrink-0 gap-1">
+            <span className="rounded-full px-2 py-0.5 text-[0.625rem] font-semibold uppercase tracking-[0.08em]" style={{ background: "var(--surface-2)", color: it.enabled ? "var(--positive)" : "var(--faint)" }}>
+              {it.enabled ? "On" : "Off"}
+            </span>
+            {it.engine && (
+              <span className="rounded-full px-2 py-0.5 text-[0.625rem] font-semibold uppercase tracking-[0.08em]" style={{ background: "var(--surface-2)", color: it.real ? "var(--negative)" : "var(--accent)" }}>
+                {it.real ? "Real" : "Dry run"}
+              </span>
+            )}
+          </div>
+        </div>
+        <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs tabular-nums">
+          <div className="flex justify-between gap-2"><dt style={{ color: "var(--muted)" }}>Realized</dt><dd style={{ color: tone(it.realized_rs) }}>{signed(it.realized_rs)}</dd></div>
+          <div className="flex justify-between gap-2"><dt style={{ color: "var(--muted)" }}>Unrealized</dt><dd style={{ color: tone(it.unrealized_rs) }}>{signed(it.unrealized_rs)}</dd></div>
+          <div className="flex justify-between gap-2"><dt style={{ color: "var(--muted)" }}>Holding</dt><dd>{it.open.length} / {s.max_open ?? "—"}</dd></div>
+          <div className="flex justify-between gap-2"><dt style={{ color: "var(--muted)" }}>Invested</dt><dd>{formatRs(it.invested_rs)}</dd></div>
+          {s.capital != null && <div className="flex justify-between gap-2"><dt style={{ color: "var(--muted)" }}>Capital</dt><dd>{formatRs(s.capital)}</dd></div>}
+          <div className="flex justify-between gap-2"><dt style={{ color: "var(--muted)" }}>Trades closed</dt><dd>{it.trades}</dd></div>
+          <div className="col-span-2 flex justify-between gap-2">
+            <dt style={{ color: "var(--muted)" }}>Today's orders</dt>
+            <dd>{it.real ? `${it.today.sent} sent` : `${it.today.dry} logged`}{it.today.problems ? <span style={{ color: "var(--negative)" }}> · {it.today.problems} problems</span> : ""}</dd>
+          </div>
+        </dl>
+        {it.open.length > 0 && (
+          <table className="w-full text-xs tabular-nums">
+            <tbody>
+              {it.open.map((p) => (
+                <tr key={`${p.symbol}-${p.buy_day}`} className="border-t" style={{ borderColor: "var(--border)" }}>
+                  <td className="py-1 font-semibold">{p.symbol}</td>
+                  <td className="py-1" style={{ color: "var(--muted)" }}>{p.qty} @ {num(p.buy_price)}</td>
+                  <td className="py-1 text-right">{num(p.last)}</td>
+                  <td className="py-1 text-right font-medium" style={{ color: tone(p.pnl_rs) }}>{signed(p.pnl_rs)}</td>
+                  <td className="py-1 pl-2 text-right" style={{ color: p.state === "held" ? "var(--faint)" : "var(--warning)" }}>{p.state}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+        <p className="text-[0.6875rem]" style={{ color: it.last?.status === "rejected" || it.last?.event === "error" ? "var(--negative)" : "var(--faint)" }}>
+          {it.last ? `Last: ${it.last.at} · ${it.last.event}${it.last.symbol ? ` ${it.last.symbol}` : ""}${it.last.note ? ` · ${it.last.note}` : ""}` : it.engine ? "Nothing logged yet: first run at 15:15 on a trading day" : "No order engine: traded by hand"}
+        </p>
+      </a>
+    );
+  });
+}
+
 // Turn of the month is traded by hand with real money (Live trading), not paper traded: its own card
 export function TomCard({ tm = {} }) {
   const day = (iso) => (iso ? new Date(`${iso}T00:00:00`).toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" }) : "—");
@@ -1129,6 +1208,7 @@ export default function V2Dashboard() {
         {tab === "live" && (
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
             <TomCard tm={d.paper.tom} />
+            <LiveItems />
           </div>
         )}
         {tab === "schedule" && (

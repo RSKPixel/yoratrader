@@ -804,6 +804,13 @@ def v2_live_enable(item_id: int, req: LiveItemEnable, request: Request):
     return _live(lambda: {"item": liveitems.set_enabled(item_id, req.enabled, request.state.user.get("username"))})
 
 
+@app.get("/api/v2/live/summary")
+def v2_live_summary():
+    """Every live item for the dashboard: state, holdings marked now, realized / unrealized, today's orders."""
+    import liveengine
+    return _live(liveengine.summary)
+
+
 @app.get("/api/v2/live/items/{item_id}/log")
 def v2_live_log(item_id: int):
     """An item's order log (dry run: each order as the broker's API would get it) and its holdings."""
