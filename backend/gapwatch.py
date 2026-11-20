@@ -508,6 +508,16 @@ def _tick():
         result = tomwatch.record()
         if result.get("bought") or result.get("sold"):
             print("Turn of the month paper:", result)
+    import liveengine  # live items' orders (dry run: built and logged, nothing sent)
+
+    def live_run():
+        try:
+            result = liveengine.tick()
+            if result.get("runs"):
+                print("Live engine:", result["runs"])
+        except Exception as error:
+            print("Live engine failed:", error)
+    threading.Thread(target=live_run, daemon=True, name="live-engine").start()  # its own thread: broker calls can't hold up the paper runs
     if connorswatch.PREOPEN_FILL_FROM <= t < clock(15, 30):  # sales queued at the close: the pre-open auction (open) price
         result = connorswatch.execute_orders()
         if result.get("filled"):

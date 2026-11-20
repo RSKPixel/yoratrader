@@ -271,7 +271,7 @@ function BookPositionsModal({ title, query, onClose }) {
 }
 
 // A book's open positions under its charts: each trade's details and its exit schedule, one row a position
-function PositionsSchedule({ rows }) {
+function PositionsSchedule({ rows, model = false }) {
   // the script's candlestick button: the 15-minute candles of what the book trades (the future's contract, or the share)
   const chart = usePaperChart({ days: 5 });
   const asRow = (p) => {
@@ -279,7 +279,7 @@ function PositionsSchedule({ rows }) {
     return { symbol: p.symbol, side: p.side, stop: p.stop, entry: p.entry, ...(fut ? { fut, fut_buy: p.entry, fut_ltp: p.last } : { exit: p.last }) };
   };
   const px = (v) => (v == null ? "—" : Number(v).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
-  const cols = ["Script", "Instrument", "Side", "Qty", "Bought", "Entry", "Now", "Value", "Held", "Net P&L", "Schedule"];
+  const cols = ["Script", ...(model ? ["Model"] : []), "Instrument", "Side", "Qty", "Bought", "Entry", "Now", "Value", "Held", "Net P&L", "Schedule"];
   const color = (when) => (when === "Sell order placed" ? "var(--warning)" : when === "Disaster stop" ? "var(--negative)" : undefined);
   return (
     <div className="mt-4 overflow-x-auto rounded-lg border" style={{ borderColor: "var(--border)" }}>
@@ -291,10 +291,11 @@ function PositionsSchedule({ rows }) {
           {rows.map((p) => {
             const fut = p.key?.startsWith("NFO:");
             return (
-              <tr key={`${p.key}-${p.since}-${p.entry}`} className="border-t align-top" style={{ borderColor: "var(--border)" }}>
+              <tr key={`${p.key}-${p.since}-${p.entry}-${p.label}`} className="border-t align-top" style={{ borderColor: "var(--border)" }}>
                 <td className="px-3 py-2 font-semibold">
                   <span className="flex items-center gap-2">{chart.column.cell(asRow(p))}{p.symbol}</span>
                 </td>
+                {model && <td className="px-3 py-2">{p.label}</td>}
                 <td className="px-3 py-2" title={p.key?.split(":")[1]}>{fut ? "Futures" : "Spot"}</td>
                 <td className="px-3 py-2" style={{ color: p.side === "short" ? "var(--negative)" : "var(--positive)" }}>{p.side === "short" ? "Short" : "Long"}</td>
                 <td className="px-3 py-2">{p.qty ?? "—"}</td>
@@ -905,7 +906,7 @@ export function PaperOverview() {
 }
 
 // Every paper book's open positions, each a small chart of its price since it was bought (refreshed each minute)
-export function OpenPositions({ query }) {
+export function OpenPositions({ query, schedule = false }) {
   const [data, setData] = useState(null);
   const resumed = useResume();
   useEffect(() => {
@@ -938,6 +939,10 @@ export function OpenPositions({ query }) {
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
           {rows.map((p) => <PositionChart key={`${p.key}-${p.since}-${p.entry}`} p={p} />)}
         </div>
+      )}
+      {schedule && rows.length > 0 && (
+        // one row a book (a stock two books hold: each book's own lot and schedule)
+        <PositionsSchedule model rows={rows.flatMap((p) => p.books.map((b) => ({ ...p, ...b, books: [b] })))} />
       )}
       {(data.chart_error || Object.keys(data.errors || {}).length > 0) && (
         <p className="text-xs" style={{ color: "var(--warning)" }}>

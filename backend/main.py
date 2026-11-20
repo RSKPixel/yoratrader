@@ -750,6 +750,87 @@ class LivePriceRequest(BaseModel):
     price: float
 
 
+class LiveItemCreate(BaseModel):
+    model: str
+    name: str = ""
+
+
+class LiveItemUpdate(BaseModel):
+    name: str | None = None
+    account: str | None = None
+    settings: dict | None = None
+
+
+class LiveItemEnable(BaseModel):
+    enabled: bool
+
+
+def _live(fn):
+    try:
+        return {"status": "success", **fn()}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.get("/api/v2/live/items")
+def v2_live_items():
+    """The Live trading page's items, each model's settings fields and the trading accounts."""
+    import liveitems
+    return _live(liveitems.items)
+
+
+@app.get("/api/v2/live/models")
+def v2_live_models():
+    """The models that can be added (marked Live), with their paper settings now."""
+    import liveitems
+    return _live(lambda: {"models": liveitems.models()})
+
+
+@app.post("/api/v2/live/items")
+def v2_live_create(req: LiveItemCreate, request: Request):
+    import liveitems
+    return _live(lambda: {"item": liveitems.create(req.model, req.name, request.state.user.get("username"))})
+
+
+@app.put("/api/v2/live/items/{item_id}")
+def v2_live_update(item_id: int, req: LiveItemUpdate, request: Request):
+    import liveitems
+    return _live(lambda: {"item": liveitems.update(item_id, req.name, req.account, req.settings, request.state.user.get("username"))})
+
+
+@app.post("/api/v2/live/items/{item_id}/enabled")
+def v2_live_enable(item_id: int, req: LiveItemEnable, request: Request):
+    import liveitems
+    return _live(lambda: {"item": liveitems.set_enabled(item_id, req.enabled, request.state.user.get("username"))})
+
+
+@app.get("/api/v2/live/items/{item_id}/log")
+def v2_live_log(item_id: int):
+    """An item's order log (dry run: each order as the broker's API would get it) and its holdings."""
+    import liveengine
+    return _live(lambda: liveengine.log(item_id))
+
+
+@app.post("/api/v2/live/items/{item_id}/preview")
+def v2_live_preview(item_id: int):
+    """What the item's 15:15 run would do on the prices now (nothing saved, nothing sent)."""
+    import liveengine
+    return _live(lambda: liveengine.preview(item_id))
+
+
+@app.get("/api/v2/live/items/{item_id}/signals")
+def v2_live_signals(item_id: int):
+    """The model's signals now on the item's setup and instrument, and what the item would do with each."""
+    import liveengine
+    return _live(lambda: liveengine.signals(item_id))
+
+
+@app.delete("/api/v2/live/items/{item_id}")
+def v2_live_delete(item_id: int):
+    import liveitems
+    return _live(lambda: liveitems.delete(item_id))
+
+
 @app.get("/api/v2/trade/modes")
 def v2_trade_modes():
     """Each live trading model's mode (off / manual / on) and which can be automatic."""

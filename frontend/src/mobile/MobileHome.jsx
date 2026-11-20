@@ -102,7 +102,7 @@ export default function MobileHome({ d, nextAt }) {
       <p className="text-[0.6875rem]" style={{ color: "var(--faint)" }}>One lot a position. SR and CR each trade on its own prices (spot or futures).</p>
       <section className="flex flex-col gap-2">
         <h2 className="text-sm font-semibold">Open positions</h2>
-        <OpenPositions query={query} />
+        <OpenPositions query={query} schedule />
       </section>
       <section className="flex flex-col gap-2">
         <h2 className="text-sm font-semibold">Net P&L by day</h2>
