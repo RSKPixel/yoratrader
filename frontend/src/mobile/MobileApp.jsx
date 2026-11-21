@@ -44,15 +44,15 @@ export default function MobileApp() {
   else if (!d) screen = <p className="text-sm" style={{ color: "var(--faint)" }}>Loading…</p>;
   else if (tab === "live") screen = <div className="flex flex-col gap-3"><LiveItems /></div>;
   else if (tab === "manual") screen = <div className="flex flex-col gap-3"><TomCard tm={d.paper.tom} /></div>;
-  else if (tab === "more") screen = <MobileMore theme={theme} onTheme={setTheme} d={d} />;
+  else if (tab === "more") screen = <MobileMore theme={theme} onTheme={setTheme} d={d} nextAt={nextAt} />;
   else screen = <MobileHome d={d} nextAt={nextAt} />;
 
   return (
     <div className="v2 flex h-full flex-col overflow-hidden" data-theme={theme}>
-      <header className="z-10 shrink-0 px-4 pt-4 pb-3 transition-shadow"
-        style={{ paddingTop: "max(1rem, env(safe-area-inset-top))", background: "var(--surface)", boxShadow: scrolled ? "var(--bar-shadow)" : "none",
+      <header className="z-10 shrink-0 px-4 pt-2.5 pb-2 transition-shadow"
+        style={{ paddingTop: "max(0.625rem, env(safe-area-inset-top))", background: "var(--surface)", boxShadow: scrolled ? "var(--bar-shadow)" : "none",
           borderBottom: "1px solid var(--border)" }}>
-        <Status d={d} nextAt={nextAt} />
+        <Status d={d} />
       </header>
       <main id="mobile-main" className="min-h-0 flex-1 overflow-auto px-4 pt-4 pb-24" onScroll={(e) => edges(e.currentTarget)}>
         {needsData && error && d && <p className="mb-2 text-xs" style={{ color: "var(--warning)" }}>{error} · showing the last data</p>}

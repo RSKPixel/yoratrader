@@ -1,10 +1,11 @@
 import { displayName, useAuth } from "../AuthGate";
 import { Segmented } from "../V2Controls";
 import MobileSchedule from "./MobileSchedule";
+import { StatusCard } from "./MobileHome";
 
-// The phone app's last tab: who is logged in, log out, the theme, the schedules (as the site's Settings) and the full site.
+// The phone app's last tab: who is logged in, log out, the market / Kite / next refresh, the theme, the schedules (as the site's Settings) and the full site.
 
-export default function MobileMore({ theme, onTheme, d }) {
+export default function MobileMore({ theme, onTheme, d, nextAt }) {
   const { user, logout } = useAuth();
   const box = { borderColor: "var(--border)", background: "var(--surface)" };
   return (
@@ -26,6 +27,7 @@ export default function MobileMore({ theme, onTheme, d }) {
           Log out
         </button>
       </div>
+      {d && <StatusCard d={d} nextAt={nextAt} />}
       <div className="rounded-xl border p-4" style={box}>
         <Segmented label="Theme" options={[["light", "Light"], ["dark", "Dark"]]} value={theme} onChange={onTheme} />
       </div>

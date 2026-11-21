@@ -1,3 +1,4 @@
+import { Wordmark } from "../brand.jsx";
 import { useState } from "react";
 import { link } from "./route";
 import { useIstClock } from "../istClock";
@@ -10,37 +11,49 @@ import { useSettings } from "../settings";
 // The phone app's home: the logo, time and status, every paper book's result today, then each book (tap to open),
 // the open positions' charts and the net P&L by day.
 
-export function Status({ d, nextAt }) {
+export function Status({ d }) {
   const clock = useIstClock();
-  // every screen's header: the logo and the time on the left, the market, Kite and the next refresh on the right
-  const market = d ? (d.market_open ? ["Market open", "var(--positive)"] : d.preopen ? ["Pre-open", "var(--warning)"] : ["Closed", "var(--faint)"]) : null;
+  // every screen's header: the logo and the time (the market, Kite and next refresh are under More); Kite Login when off
   const kite = d?.kite?.connected;
-  const dot = (color) => <span className="h-2 w-2 rounded-full" style={{ background: color }} aria-hidden="true" />;
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex flex-col gap-1.5">
-          <a href="/mobile" onClick={link("/mobile")} className="text-2xl font-bold leading-none tracking-[0.18em]" aria-label="YoraTrader home">
-            <span style={{ color: "var(--brand)" }}>YORA</span>
-            <span style={{ color: "var(--brand-gold)" }}>TRADER</span>
-          </a>
-          <div className="text-xs tabular-nums" style={{ color: "var(--muted)" }}>{clock}</div>
-        </div>
-        {d && (
-          <div className="flex flex-col items-end gap-1.5 text-xs font-medium leading-none">
-            <span className="flex items-center gap-1.5" style={{ color: market[1] }}>{dot(market[1])}{market[0]}</span>
-            <span className="flex items-center gap-1.5" style={{ color: kite ? "var(--positive)" : "var(--negative)" }}>
-              {dot(kite ? "var(--positive)" : "var(--negative)")}Kite {kite ? "on" : "off"}
-            </span>
-            <span className="tabular-nums" style={{ color: "var(--faint)" }}><Countdown at={nextAt} /></span>
-          </div>
-        )}
+      <div className="inline-flex flex-col gap-px self-start">
+        <a href="/mobile" onClick={link("/mobile")} className="flex" aria-label="YoraTrader home">
+          <Wordmark />
+        </a>
+        <div className="text-xs tabular-nums" style={{ color: "var(--muted)" }}>{clock}</div>
       </div>
       {d && !kite && (
         <a href="/api/kite/login" target="_blank" rel="noreferrer" className="rounded-lg py-2.5 text-center text-sm font-semibold" style={{ background: "var(--accent)", color: "var(--accent-ink)" }}>
           Kite Login
         </a>
       )}
+    </div>
+  );
+}
+
+// More's status card: the market, Kite and the next refresh
+export function StatusCard({ d, nextAt }) {
+  const market = d.market_open ? ["Market open", "var(--positive)"] : d.preopen ? ["Pre-open", "var(--warning)"] : ["Closed", "var(--faint)"];
+  const kite = d.kite?.connected;
+  const dot = (color) => <span className="h-2 w-2 rounded-full" style={{ background: color }} aria-hidden="true" />;
+  const row = "flex items-center justify-between gap-3 border-t py-2.5 first:border-t-0 first:pt-0 last:pb-0";
+  return (
+    <div className="rounded-xl border p-4 text-sm" style={{ borderColor: "var(--border)", background: "var(--surface)" }}>
+      <div className={row} style={{ borderColor: "var(--border)" }}>
+        <span style={{ color: "var(--muted)" }}>Market</span>
+        <span className="flex items-center gap-1.5 font-medium" style={{ color: market[1] }}>{dot(market[1])}{market[0]}</span>
+      </div>
+      <div className={row} style={{ borderColor: "var(--border)" }}>
+        <span style={{ color: "var(--muted)" }}>Kite</span>
+        <span className="flex items-center gap-1.5 font-medium" style={{ color: kite ? "var(--positive)" : "var(--negative)" }}>
+          {dot(kite ? "var(--positive)" : "var(--negative)")}{kite ? "Connected" : "Not connected"}
+        </span>
+      </div>
+      <div className={row} style={{ borderColor: "var(--border)" }}>
+        <span style={{ color: "var(--muted)" }}>Next refresh</span>
+        <span className="tabular-nums" style={{ color: "var(--faint)" }}><Countdown at={nextAt} /></span>
+      </div>
     </div>
   );
 }

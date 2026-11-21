@@ -211,7 +211,11 @@ def _angel(method, path, payload=None):
         h = angel_auth._headers(angel_auth._settings()["ANGEL_API_KEY"], angel_auth._session["jwt"])
         r = requests.request(method, f"{angel_auth.BASE}{path}", headers=h, json=payload, timeout=30)
         body = r.json() if r.content else {"status": False, "message": f"HTTP {r.status_code}"}
-        if body.get("status") is False and attempt == 1 and ("token" in str(body.get("message", "")).lower() or r.status_code in (401, 403)):
+        if "status" not in body and "success" in body:  # an expired session comes back as {"success": false, "errorCode": "AG8001"}
+            body["status"] = bool(body["success"])
+        expired = (str(body.get("errorCode") or body.get("errorcode") or "").upper() in ("AG8001", "AG8002", "AG8003")
+                   or "token" in str(body.get("message", "")).lower() or r.status_code in (401, 403))
+        if not body.get("status") and attempt == 1 and expired:  # the session ended (Angel's tokens last a day): log in again, once
             angel_auth._session.update(jwt=None)
             continue
         return body

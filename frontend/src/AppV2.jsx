@@ -1,3 +1,4 @@
+import { Wordmark } from "./brand.jsx";
 import { useEffect, useState } from "react";
 import { displayName, useAuth } from "./AuthGate";
 import V2Backtesting, { findBacktest } from "./V2Backtesting";
@@ -55,14 +56,11 @@ function paperFromPath() {
 }
 
 function Logo() {
-  // The wordmark: YORA + TRADER in gold, the India time and date under it (as the phone app)
+  // The wordmark on a white tile, the India time and date under it (as the phone app)
   const clock = useIstClock();
   return (
-    <a href="/v2/dashboard" className="flex flex-col gap-1" aria-label="YoraTrader home">
-      <span className="text-xl font-bold leading-none tracking-[0.18em]">
-        <span style={{ color: "var(--brand)" }}>YORA</span>
-        <span style={{ color: "var(--brand-gold)" }}>TRADER</span>
-      </span>
+    <a href="/v2/dashboard" className="inline-flex flex-col gap-px" aria-label="YoraTrader home">
+      <Wordmark />
       <span className="text-[0.6875rem] leading-none tabular-nums" style={{ color: "var(--muted)" }}>{clock}</span>
     </a>
   );
