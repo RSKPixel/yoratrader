@@ -121,6 +121,7 @@ class SettingsRequest(BaseModel):
 class TotpRequest(BaseModel):
     challenge: str
     code: str
+    app: bool = False  # the phone app (no cookies): the session token comes back in the reply, sent later as "Authorization: Bearer"
 
 
 class NameRequest(BaseModel):
@@ -158,13 +159,15 @@ def auth_totp(req: TotpRequest, response: Response):
     if not issued:
         raise HTTPException(status_code=401, detail="Incorrect code. Check the time on your phone and try the current code.")
     token, expires = issued
+    if req.app:
+        return {"user": auth.session_user(token), "token": token, "expires": expires.isoformat()}
     response.set_cookie(value=token, expires=expires.astimezone(timezone.utc), **auth.cookie_kwargs())
     return {"user": auth.session_user(token)}
 
 
 @app.post("/api/auth/logout")
 def auth_logout(request: Request, response: Response):
-    auth.logout(request.cookies.get(auth.COOKIE_NAME))
+    auth.logout(request.cookies.get(auth.COOKIE_NAME) or auth.bearer_token(request.headers.get("authorization")))
     response.delete_cookie(**auth.cookie_kwargs())
     return {"ok": True}
 
@@ -915,6 +918,15 @@ def v2_trade_mix_capital(req: MixCapitalRequest):
         return {"status": "success", "capital": livetrade.set_mix_capital(req.capital)}
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.get("/api/v2/holidays")
+def v2_holidays():
+    """Settings' NSE holidays tab: the weekdays NSE is shut, with their names."""
+    try:
+        return {"status": "success", **v2tom.holiday_list(gapwatch._now().date())}
+    except Exception as error:
+        return {"status": "error", "message": str(error)}
 
 
 @app.get("/api/v2/trade/tom")

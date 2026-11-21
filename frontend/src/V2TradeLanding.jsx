@@ -1,3 +1,4 @@
+import { Lock, LockOpen, Pencil } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { Field, formatRs, Segmented } from "./V2Controls";
 import { LiveMaxOpen } from "./V2BacktestParams";
@@ -512,10 +513,7 @@ export function FundsRow({ f, settings, need }) {
 // a padlock: closed (locked) or open (unlocked)
 function LockIcon({ open }) {
   return (
-    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="block">
-      <rect x="5" y="11" width="14" height="10" rx="2" />
-      <path d={open ? "M8 11V7a4 4 0 0 1 7.5-2" : "M8 11V7a4 4 0 0 1 8 0v4"} />
-    </svg>
+    open ? <LockOpen size={16} strokeWidth={2} aria-hidden="true" className="block" /> : <Lock size={16} strokeWidth={2} aria-hidden="true" className="block" />
   );
 }
 
@@ -571,10 +569,7 @@ function ItemModal({ item, fields, accounts, onClose, onSaved, onDeleted }) {
       {!shut && (
         <button type="button" onClick={() => setName(item.name)} className="shrink-0 rounded p-1 transition-colors hover:bg-[var(--surface-2)]" style={{ color: "var(--muted)" }}
           aria-label="Rename" title="Rename">
-          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="block">
-            <path d="M12 20h9" />
-            <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
-          </svg>
+          <Pencil size={14} strokeWidth={2} aria-hidden="true" className="block" />
         </button>
       )}
     </div>

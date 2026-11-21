@@ -365,7 +365,20 @@ def cookie_kwargs():
 
 # ---------- request gate ----------
 
+def bearer_token(header):
+    """The phone app's session token, from "Authorization: Bearer <token>"."""
+    if header and header.lower().startswith("bearer "):
+        return header[7:].strip() or None
+    return None
+
+
 def _cookie_token(scope):
+    """The session token: the browser's cookie, else the phone app's Authorization header."""
+    for name, value in scope.get("headers", []):
+        if name == b"authorization":
+            token = bearer_token(value.decode("latin-1"))
+            if token:
+                return token
     for name, value in scope.get("headers", []):
         if name == b"cookie":
             cookie = SimpleCookie()

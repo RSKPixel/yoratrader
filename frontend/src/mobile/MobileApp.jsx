@@ -1,3 +1,4 @@
+import { BookOpen, Hand, Menu, Zap } from "lucide-react";
 import { useEffect, useState } from "react";
 import { LiveItems, TomCard, useDashboard } from "../V2Dashboard";
 import { systemTheme, useSetting } from "../settings";
@@ -5,6 +6,7 @@ import MobileBook from "./MobileBook";
 import MobileHome, { Status } from "./MobileHome";
 import MobileMore from "./MobileMore";
 import { link, useRoute } from "./route";
+import { useWakeLock } from "./wakeLock";
 
 // YoraTrader on the phone, at /mobile: an app of its own (kept apart from the wide site so it can become a
 // phone app one day). A screen at a time, chosen from a bar fixed at the bottom:
@@ -12,16 +14,18 @@ import { link, useRoute } from "./route";
 // The data reloads each minute in market hours and as soon as the screen comes back on (resume.js).
 
 const TABS = [
-  { id: "home", label: "Paper", href: "/mobile", icon: "M4 19V9m6 10V5m6 14v-7m4 7H2" },
-  { id: "live", label: "Live trading", href: "/mobile/live", icon: "M3 12h4l3-8 4 16 3-8h4" },
-  { id: "manual", label: "Manual", href: "/mobile/manual", icon: "M7 11V6a2 2 0 0 1 4 0v5m0-1V4a2 2 0 0 1 4 0v6m0 0V6a2 2 0 0 1 4 0v8a7 7 0 0 1-7 7h-1a7 7 0 0 1-6-3.4L3 13a2 2 0 0 1 3.4-2L7 12" },
-  { id: "more", label: "More", href: "/mobile/more", icon: "M5 12h.01M12 12h.01M19 12h.01" },
+  { id: "home", label: "Paper", href: "/mobile", Icon: BookOpen },
+  { id: "live", label: "Live trading", href: "/mobile/live", Icon: Zap },
+  { id: "manual", label: "Manual", href: "/mobile/manual", Icon: Hand },
+  { id: "more", label: "More", href: "/mobile/more", Icon: Menu },
 ];
 
 export default function MobileApp() {
   const [theme, setTheme] = useSetting("theme", systemTheme());
+  const [keepAwake, setKeepAwake] = useSetting("mobile_keep_awake", true); // the screen stays on while the app is open
+  const awake = useWakeLock(keepAwake);
   const route = useRoute();
-  const { d, error, nextAt } = useDashboard();
+  const { d, error, nextAt, reload, loading } = useDashboard();
   const [scrolled, setScrolled] = useState(false); // the header's shadow while the screen is scrolled under it
   const [below, setBelow] = useState(false); // the bottom bar's shadow while there's more of the screen under it
   const edges = (el) => {
@@ -44,7 +48,7 @@ export default function MobileApp() {
   else if (!d) screen = <p className="text-sm" style={{ color: "var(--faint)" }}>Loading…</p>;
   else if (tab === "live") screen = <div className="flex flex-col gap-3"><LiveItems /></div>;
   else if (tab === "manual") screen = <div className="flex flex-col gap-3"><TomCard tm={d.paper.tom} /></div>;
-  else if (tab === "more") screen = <MobileMore theme={theme} onTheme={setTheme} d={d} nextAt={nextAt} />;
+  else if (tab === "more") screen = <MobileMore theme={theme} onTheme={setTheme} keepAwake={keepAwake} onKeepAwake={setKeepAwake} awake={awake} d={d} nextAt={nextAt} onRefresh={reload} loading={loading} />;
   else screen = <MobileHome d={d} nextAt={nextAt} />;
 
   return (
@@ -69,9 +73,7 @@ export default function MobileApp() {
             <a key={t.id} href={t.href} onClick={link(t.href)} aria-current={active ? "page" : undefined}
               className="flex flex-col items-center gap-1 py-2.5 text-[0.6875rem] font-medium"
               style={{ color: active ? "var(--accent)" : "var(--muted)" }}>
-              <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={t.id === "more" ? 3 : 1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <path d={t.icon} />
-              </svg>
+              <t.Icon className="h-5 w-5" strokeWidth={1.8} aria-hidden="true" />
               {t.label}
             </a>
           );

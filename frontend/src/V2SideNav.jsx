@@ -1,3 +1,4 @@
+import { ChevronLeft, ChevronRight, Pin } from "lucide-react";
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { useSetting } from "./settings";
 import { STATUS, statusOf, useModelStatuses } from "./modelStatus";
@@ -123,9 +124,7 @@ export function StyleTag({ style, active }) {
 
 function Chevron({ left }) {
   return (
-    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
-      {left ? <path d="M15 6l-6 6 6 6" /> : <path d="M9 6l6 6-6 6" />}
-    </svg>
+    left ? <ChevronLeft className="h-4 w-4" strokeWidth={1.8} aria-hidden="true" /> : <ChevronRight className="h-4 w-4" strokeWidth={1.8} aria-hidden="true" />
   );
 }
 
@@ -198,9 +197,7 @@ function Rail({ groups, title, current, item, onToggle, statuses = {} }) {
 
 function PinIcon({ on }) {
   return (
-    <svg viewBox="0 0 24 24" className="h-4 w-4" fill={on ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
-      <path d="M9 4h6l-1 5 3 3v2H7v-2l3-3-1-5zM12 14v6" strokeLinejoin="round" />
-    </svg>
+    <Pin className="h-4 w-4" fill={on ? "currentColor" : "none"} strokeWidth={1.8} aria-hidden="true" />
   );
 }
 

@@ -1,3 +1,4 @@
+import { Moon, Sun } from "lucide-react";
 import { createContext, useContext, useEffect, useState } from "react";
 import { loadSettings, SettingsProvider, systemTheme } from "./settings";
 
@@ -42,13 +43,7 @@ function Shell({ children }) {
         aria-label={dark ? "Switch to light mode" : "Switch to dark mode"}
         title={dark ? "Light mode" : "Dark mode"}
       >
-        <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-          {dark ? (
-            <path d="M12 4V2m0 20v-2m8-8h2M2 12h2m13.66-5.66 1.41-1.41M4.93 19.07l1.41-1.41m0-11.32L4.93 4.93m14.14 14.14-1.41-1.41M16 12a4 4 0 1 1-8 0 4 4 0 0 1 8 0Z" />
-          ) : (
-            <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z" />
-          )}
-        </svg>
+        {dark ? <Sun className="h-4 w-4" strokeWidth={1.8} aria-hidden="true" /> : <Moon className="h-4 w-4" strokeWidth={1.8} aria-hidden="true" />}
       </button>
       {children}
     </div>

@@ -1,4 +1,6 @@
-import { createContext, useContext, useEffect, useRef, useState } from "react";
+import { RefreshCw } from "lucide-react";
+import { useSecond } from "./istClock";
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { Card, Panel, tone } from "./V2BacktestView";
 import { formatRs, Segmented } from "./V2Controls";
 import { savedParams } from "./V2BacktestParams";
@@ -52,26 +54,33 @@ function Pill({ color, children, title }) {
 
 // Seconds to the dashboard's next refresh, ticking each second
 export function Countdown({ at }) {
-  const [now, setNow] = useState(Date.now());
-  useEffect(() => {
-    const t = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(t);
-  }, []);
+  const now = useSecond(); // the same tick as the clock, so both change at once
   if (!at) return null;
-  const left = Math.max(0, Math.round((at - now) / 1000));
+  const left = Math.max(0, Math.ceil((at - Math.floor(now / 1000) * 1000) / 1000));
   return <span title="the dashboard reloads its data then">{left}s</span>;
 }
 
-function Header({ d, nextAt }) {
+export function RefreshIcon({ spin }) {
+  return (
+    <RefreshCw className={`h-3 w-3 ${spin ? "animate-spin" : ""}`} strokeWidth={2.2} aria-hidden="true" />
+  );
+}
+
+function Header({ d, nextAt, onRefresh, loading }) {
   // the four status labels, on the right of the tab row
   const status = d.market_open ? ["Market open", "var(--positive)"] : d.preopen ? ["Pre-open", "var(--warning)"] : ["Market closed", "var(--faint)"];
   const kite = d.kite?.connected;
   return (
     <div className="ml-auto flex flex-wrap items-center gap-2 self-center py-1">
+      <button type="button" onClick={onRefresh} disabled={loading} title="Refresh now (it also refreshes by itself when the count reaches 0)"
+        className="inline-flex cursor-pointer items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium transition-opacity hover:opacity-80 disabled:cursor-default"
+        style={{ background: "color-mix(in srgb, var(--muted) 14%, transparent)", color: "var(--muted)" }}>
+        <RefreshIcon spin={loading} />
+        <span className="inline-block min-w-[6.5rem] tabular-nums">{loading ? "Refreshing…" : <>Refresh in <Countdown at={nextAt} /></>}</span>
+      </button>
       <Pill color="var(--accent)" title="The next trading session">
         Next session {d.next_session === d.today ? "today" : new Date(`${d.next_session}T00:00:00`).toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" })}
       </Pill>
-      <Pill color="var(--muted)" title="The dashboard reloads its data then">Refresh in <Countdown at={nextAt} /></Pill>
       <Pill color={status[1]}>{status[0]}</Pill>
       <Pill color={kite ? "var(--positive)" : "var(--negative)"} title={kite ? `as ${d.kite.user_id}` : d.kite?.error}>
         Kite {kite ? "connected" : "not connected"}
@@ -716,6 +725,8 @@ export function useDashboard() {
   const [d, setD] = useState(null);
   const [error, setError] = useState("");
   const [nextAt, setNextAt] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const loadRef = useRef(null);
   const query = dashboardQuery(useSettings().values);
   const resumed = useResume();
   useEffect(() => {
@@ -725,8 +736,9 @@ export function useDashboard() {
       timer = setTimeout(load, ms);
       setNextAt(Date.now() + ms);
     };
-    const load = () =>
-      fetch(`/api/v2/dashboard?${query}`)
+    const load = () => {
+      setLoading(true);
+      return fetch(`/api/v2/dashboard?${query}`)
         .then((r) => r.json())
         .then((p) => {
           if (p.status !== "success") setError(p.message || p.detail || "Could not load the dashboard");
@@ -739,7 +751,10 @@ export function useDashboard() {
         .catch(() => {
           setError("Could not reach the API");
           schedule(60000);
-        });
+        })
+        .finally(() => setLoading(false));
+    };
+    loadRef.current = load;
     load();
     const onKite = () => load();
     window.addEventListener("kite-status-changed", onKite);
@@ -748,7 +763,9 @@ export function useDashboard() {
       window.removeEventListener("kite-status-changed", onKite);
     };
   }, [query, resumed]);
-  return { d, error, nextAt };
+  // the Refresh button: load now (the next automatic refresh counts from then)
+  const reload = useCallback(() => loadRef.current?.(), []);
+  return { d, error, nextAt, reload, loading };
 }
 
 // Across every paper book (archived ones left out): what's open, and the net (SR and CR each trade on its own prices (spot or futures))
@@ -1209,7 +1226,7 @@ const DASH_TABS = [
 ];
 
 export default function V2Dashboard() {
-  const { d, error, nextAt } = useDashboard();
+  const { d, error, nextAt, reload, loading } = useDashboard();
   // the tab row's shadow: only while the page is scrolled under it
   const barRef = useRef(null);
   const [scrolled, setScrolled] = useState(false);
@@ -1244,7 +1261,7 @@ export default function V2Dashboard() {
           </button>
         ))}
       </div>
-      <Header d={d} nextAt={nextAt} />
+      <Header d={d} nextAt={nextAt} onRefresh={reload} loading={loading} />
       </div>
       <div role="tabpanel">
         {tab === "paper" && (

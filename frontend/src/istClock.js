@@ -9,11 +9,33 @@ function fmt() {
   return `${t} · ${d}`;
 }
 
-export function useIstClock() {
-  const [text, setText] = useState(fmt);
+// one shared tick for every clock and countdown on screen, fired just after each whole second, so they all change together
+const subs = new Set();
+let timer = null;
+function schedule() {
+  timer = setTimeout(() => {
+    const now = Date.now();
+    subs.forEach((f) => f(now));
+    schedule();
+  }, 1000 - (Date.now() % 1000) + 5);
+}
+export function useSecond() {
+  const [now, setNow] = useState(Date.now);
   useEffect(() => {
-    const id = setInterval(() => setText(fmt()), 1000);
-    return () => clearInterval(id);
+    subs.add(setNow);
+    if (!timer) schedule();
+    return () => {
+      subs.delete(setNow);
+      if (!subs.size) {
+        clearTimeout(timer);
+        timer = null;
+      }
+    };
   }, []);
-  return text;
+  return now;
+}
+
+export function useIstClock() {
+  useSecond();
+  return fmt();
 }

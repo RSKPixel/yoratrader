@@ -1,3 +1,4 @@
+import { ChartCandlestick } from "lucide-react";
 import { useState } from "react";
 import V2CandleChart from "./V2CandleChart";
 import { Card, Panel, tone } from "./V2BacktestView";
@@ -24,9 +25,7 @@ export function usePaperChart({ days = 1 } = {}) {
         title={t.fut ? `${t.fut}: the future's 15-minute chart` : `${t.symbol}: 15-minute chart`}
         aria-label={`${t.symbol} chart`}
       >
-        <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
-          <path d="M2 13h12M4 10V6M7 11V4M10 9V5M13 8V3" />
-        </svg>
+        <ChartCandlestick className="h-3.5 w-3.5" strokeWidth={1.8} aria-hidden="true" />
       </button>
     ),
   };

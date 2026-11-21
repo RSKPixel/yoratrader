@@ -1,3 +1,4 @@
+import { ChartCandlestick } from "lucide-react";
 import DisasterStop from "./V2Disaster";
 import { useMemo, useState } from "react";
 import { useSetting } from "./settings";
@@ -59,9 +60,7 @@ function Candidates({ live, book }) {
           title={`${x.symbol}: daily chart with the 200-day average and RSI(2)`}
           aria-label={`${x.symbol} chart`}
         >
-          <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
-            <path d="M2 13h12M4 10V6M7 11V4M10 9V5M13 8V3" />
-          </svg>
+          <ChartCandlestick className="h-3.5 w-3.5" strokeWidth={1.8} aria-hidden="true" />
         </button>
       ),
     },

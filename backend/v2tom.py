@@ -141,6 +141,7 @@ def month_trades(month, index="nifty", window="4", slippage=0.0002, instrument="
 # ---- the manual trade's calendar (the dashboard card) --------------------------------------------
 
 HOLIDAYS_URL = "https://zerodha.com/marketintel/holiday-calendar/"  # NSE's list; nseindia.com refuses servers
+HOLIDAY_NAMES_KEY = "NSE_TRADING_HOLIDAY_NAMES"  # {date: name}, for the Settings tab
 HOLIDAYS_KEY = "NSE_TRADING_HOLIDAYS"  # the last list fetched (JSON dates), used when the fetch fails
 _plan_cache = {"day": None, "holidays": None, "source": None, "expiries": None}
 
@@ -157,17 +158,32 @@ def _fetch_holidays():
     text = re.sub(r"<script.*?</script>|<style.*?</style>", "", text, flags=re.S)
     lines = [x.strip() for x in html.unescape(re.sub(r"<[^>]+>", "\n", text)).split("\n") if x.strip()]
     end = next((i for i, x in enumerate(lines) if x.lower().startswith("settlement holidays")), len(lines))
-    days = set()
+    days, names = set(), {}
+    weekdays = {"monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday", "long weekend"}
     for i, x in enumerate(lines[:end]):
         if re.fullmatch(r"\d{2} [A-Z][a-z]{2} \d{4}", x) and "nse" in [y.lower() for y in lines[i + 1:i + 9]]:
             d = dt.strptime(x, "%d %b %Y").date()
             if d.weekday() < 5:
                 days.add(d)
+                # the holiday's name: the first line after the date that isn't its weekday or "Long weekend"
+                names[d.isoformat()] = next((y for y in lines[i + 1:i + 4] if y.lower() not in weekdays), "")
     if len(days) < 5:
         raise ValueError(f"only {len(days)} holidays parsed")
     import db
-    db.set_settings({HOLIDAYS_KEY: json.dumps(sorted(x.isoformat() for x in days))})
+    db.set_settings({HOLIDAYS_KEY: json.dumps(sorted(x.isoformat() for x in days)), HOLIDAY_NAMES_KEY: json.dumps(names)})
     return days
+
+
+def holiday_list(today):
+    """Settings' NSE holidays tab: every weekday NSE is shut (this year's list and any next year's), with its name."""
+    import json
+    import db
+    days, source = _holidays(today)
+    stored = db.get_settings([HOLIDAY_NAMES_KEY]).get(HOLIDAY_NAMES_KEY)
+    names = json.loads(stored) if stored else {}
+    rows = [{"date": d.isoformat(), "weekday": d.strftime("%A"), "name": names.get(d.isoformat(), ""), "past": d < today} for d in sorted(days)]
+    upcoming = next((r for r in rows if not r["past"]), None)
+    return {"source": source, "holidays": rows, "next": upcoming}
 
 
 def _holidays(today):

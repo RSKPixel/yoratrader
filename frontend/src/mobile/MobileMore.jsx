@@ -1,11 +1,12 @@
+import { LogOut } from "lucide-react";
 import { displayName, useAuth } from "../AuthGate";
 import { Segmented } from "../V2Controls";
 import MobileSchedule from "./MobileSchedule";
 import { StatusCard } from "./MobileHome";
 
-// The phone app's last tab: who is logged in, log out, the market / Kite / next refresh, the theme, the schedules (as the site's Settings) and the full site.
+// The phone app's last tab: who is logged in, log out, keep the screen on, the market / Kite / next refresh, the theme, the schedules (as the site's Settings) and the full site.
 
-export default function MobileMore({ theme, onTheme, d, nextAt }) {
+export default function MobileMore({ theme, onTheme, keepAwake, onKeepAwake, awake, d, nextAt, onRefresh, loading }) {
   const { user, logout } = useAuth();
   const box = { borderColor: "var(--border)", background: "var(--surface)" };
   return (
@@ -21,15 +22,22 @@ export default function MobileMore({ theme, onTheme, d, nextAt }) {
           className="flex shrink-0 items-center gap-2 rounded-md border px-3 py-2 text-sm font-medium"
           style={{ borderColor: "var(--border)", color: "var(--negative)" }}
         >
-          <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3M10 17l5-5-5-5M15 12H4" />
-          </svg>
+          <LogOut className="h-4 w-4" strokeWidth={1.8} aria-hidden="true" />
           Log out
         </button>
       </div>
-      {d && <StatusCard d={d} nextAt={nextAt} />}
+      {d && <StatusCard d={d} nextAt={nextAt} onRefresh={onRefresh} loading={loading} />}
       <div className="rounded-xl border p-4" style={box}>
         <Segmented label="Theme" options={[["light", "Light"], ["dark", "Dark"]]} value={theme} onChange={onTheme} />
+      </div>
+      <div className="rounded-xl border p-4" style={box}>
+        <div className="flex items-center justify-between gap-3">
+          <span className="text-sm font-medium">Keep screen on</span>
+          <Segmented label="Keep screen on" options={[["on", "On"], ["off", "Off"]]} value={keepAwake ? "on" : "off"} onChange={(v) => onKeepAwake(v === "on")} />
+        </div>
+        <p className="mt-2 text-xs" style={{ color: awake === "tap" ? "var(--warning)" : "var(--muted)" }}>
+          {awake === "on" ? "The screen stays on while the app is open." : awake === "tap" ? "Tap anywhere once to start keeping the screen on." : keepAwake ? "Starting…" : "The phone sleeps as usual."}
+        </p>
       </div>
       {d && (
         <section className="flex flex-col gap-2">

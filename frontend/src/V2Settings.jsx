@@ -1,3 +1,4 @@
+import { X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useAuth } from "./AuthGate";
 import { inputStyle, Segmented } from "./V2Controls";
@@ -5,7 +6,7 @@ import { KitePanel, useKiteStatus } from "./V2Kite";
 import V2Data from "./V2Data";
 import { SchedulesPanel } from "./V2Dashboard";
 
-// v2 Settings: a dialog with seven tabs (Schedules: the dashboard's, today's runs, markets, data freshness) (Data: every symbol's stored candles, the page it was) (Angel One: SmartAPI credentials). General (theme), Kite (connection, daily token, credentials),
+// v2 Settings: a dialog with eight tabs (NSE holidays: the weekdays the market is shut) (Schedules: the dashboard's, today's runs, markets, data freshness) (Data: every symbol's stored candles, the page it was) (Angel One: SmartAPI credentials). General (theme), Kite (connection, daily token, credentials),
 // Profile (user name, password; the user ID is fixed and can't be changed), Backups (the nightly database backup).
 
 const TABS = [
@@ -16,6 +17,7 @@ const TABS = [
   ["backups", "Backups"],
   ["schedules", "Schedules"],
   ["data", "Data"],
+  ["holidays", "NSE holidays"],
 ];
 const button = "rounded-md border px-3 py-1.5 text-sm transition-colors hover:bg-[var(--surface-2)] disabled:opacity-40";
 const primary = { background: "var(--accent)", color: "var(--accent-ink)", borderColor: "var(--accent)" };
@@ -48,6 +50,53 @@ async function post(url, payload) {
 }
 
 const size = (b) => (b == null ? "—" : b >= 1e9 ? `${(b / 1e9).toFixed(2)} GB` : `${Math.round(b / 1e6)} MB`);
+
+// NSE holidays: every weekday NSE is shut this year (from the list the turn of the month and live engines use), the next one marked
+function Holidays() {
+  const [d, setD] = useState(null);
+  useEffect(() => {
+    fetch("/api/v2/holidays").then((r) => r.json()).then(setD).catch(() => setD({ status: "error", message: "Not loaded" }));
+  }, []);
+  if (!d) return <p className="text-sm" style={{ color: "var(--muted)" }}>Loading…</p>;
+  if (d.status !== "success") return <p className="text-sm" style={{ color: "var(--negative)" }}>{d.message}</p>;
+  const fmt = (iso) => new Date(`${iso}T00:00:00`).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
+  const upcoming = d.holidays.filter((h) => !h.past);
+  const past = d.holidays.filter((h) => h.past).reverse(); // the latest first
+  const table = (rows, faded) => (
+    <table className="w-full text-sm">
+      <thead>
+        <tr className="text-left text-xs" style={{ color: "var(--faint)" }}>
+          <th className="w-32 py-1.5 pr-4 font-medium">Date</th>
+          <th className="w-28 py-1.5 pr-4 font-medium">Day</th>
+          <th className="py-1.5 font-medium">Holiday</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((h) => (
+          <tr key={h.date} className="border-t" style={{ borderColor: "var(--border)", color: faded ? "var(--faint)" : "var(--text)" }}>
+            <td className="py-2 pr-4 tabular-nums whitespace-nowrap">{fmt(h.date)}</td>
+            <td className="py-2 pr-4">{h.weekday}</td>
+            <td className="py-2">
+              {h.name}
+              {d.next?.date === h.date && <span className="ml-2 rounded-full px-2 py-0.5 text-[0.6875rem] font-medium" style={{ background: "var(--accent-soft)", color: "var(--accent)" }}>Next</span>}
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+  return (
+    <div className="flex flex-col gap-4">
+      <p className="text-xs" style={{ color: "var(--muted)" }}>
+        Weekdays the market is shut. Source: {d.source}. The live engines skip these days.
+      </p>
+      <Section title={`Upcoming · ${upcoming.length}`}>
+        {upcoming.length ? table(upcoming, false) : <p className="text-sm" style={{ color: "var(--muted)" }}>None left in the list.</p>}
+      </Section>
+      {past.length > 0 && <Section title={`Past · ${past.length}`}>{table(past, true)}</Section>}
+    </div>
+  );
+}
 
 // Angel One SmartAPI: credentials stored on the server (app_settings, like Kite's), masked once saved; a
 // login test. Read-only use (historical data); nothing places orders.
@@ -334,9 +383,7 @@ export default function V2Settings({ theme, onTheme, onClose, initialTab = "gene
             aria-label="Close settings"
             title="Close (Esc)"
           >
-            <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-              <path d="M6 6l12 12M18 6L6 18" />
-            </svg>
+            <X className="h-4 w-4" strokeWidth={2} aria-hidden="true" />
           </button>
         </div>
         <div className="border-b px-4 pt-2" style={{ borderColor: "var(--border)" }}>
@@ -367,6 +414,7 @@ export default function V2Settings({ theme, onTheme, onClose, initialTab = "gene
           {tab === "backups" && <Backups />}
           {tab === "schedules" && <SchedulesPanel />}
           {tab === "data" && <V2Data />}
+          {tab === "holidays" && <Holidays />}
         </div>
       </div>
     </div>

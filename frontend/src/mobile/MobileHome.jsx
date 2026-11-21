@@ -3,7 +3,7 @@ import { useState } from "react";
 import { link } from "./route";
 import { useIstClock } from "../istClock";
 import { tone } from "../V2BacktestView";
-import { Countdown, dashboardQuery, Delta, LiveItems, NoPaperLinks, OpenPositions, OpenPositionsModal, PaperHero, RealizedModal, paperTotals, pct, signedRs } from "../V2Dashboard";
+import { Countdown, RefreshIcon, dashboardQuery, Delta, NoPaperLinks, OpenPositions, OpenPositionsModal, PaperHero, RealizedModal, paperTotals, pct, signedRs } from "../V2Dashboard";
 import V2PaperCurve from "../V2PaperCurve";
 import { statusOf, useModelStatuses } from "../modelStatus";
 import { useSettings } from "../settings";
@@ -33,7 +33,7 @@ export function Status({ d }) {
 }
 
 // More's status card: the market, Kite and the next refresh
-export function StatusCard({ d, nextAt }) {
+export function StatusCard({ d, nextAt, onRefresh, loading }) {
   const market = d.market_open ? ["Market open", "var(--positive)"] : d.preopen ? ["Pre-open", "var(--warning)"] : ["Closed", "var(--faint)"];
   const kite = d.kite?.connected;
   const dot = (color) => <span className="h-2 w-2 rounded-full" style={{ background: color }} aria-hidden="true" />;
@@ -52,7 +52,12 @@ export function StatusCard({ d, nextAt }) {
       </div>
       <div className={row} style={{ borderColor: "var(--border)" }}>
         <span style={{ color: "var(--muted)" }}>Next refresh</span>
-        <span className="tabular-nums" style={{ color: "var(--faint)" }}><Countdown at={nextAt} /></span>
+        <button type="button" onClick={onRefresh} disabled={loading}
+          className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium tabular-nums active:opacity-70"
+          style={{ background: "color-mix(in srgb, var(--accent) 14%, transparent)", color: "var(--accent)" }}>
+          <RefreshIcon spin={loading} />
+          {loading ? "Refreshing…" : <>Refresh now · <Countdown at={nextAt} /></>}
+        </button>
       </div>
     </div>
   );
@@ -119,12 +124,6 @@ export default function MobileHome({ d, nextAt }) {
         {rows.map(([id, r]) => <Row key={id} {...r} />)}
       </div>
       <p className="text-[0.6875rem]" style={{ color: "var(--faint)" }}>One lot a position. SR and CR each trade on its own prices (spot or futures).</p>
-      <section className="flex flex-col gap-2">
-        <h2 className="text-sm font-semibold">Live trading</h2>
-        <div className="flex flex-col gap-3">
-          <LiveItems />
-        </div>
-      </section>
       <section className="flex flex-col gap-2">
         <h2 className="text-sm font-semibold">Open positions</h2>
         <OpenPositions query={query} schedule />

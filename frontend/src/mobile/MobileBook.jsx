@@ -1,3 +1,4 @@
+import { ChevronLeft } from "lucide-react";
 import { findPaper, BookBody } from "../V2Paper";
 import { ReadOnly } from "../V2Controls";
 import { link } from "./route";
@@ -10,9 +11,7 @@ export default function MobileBook({ id }) {
   return (
     <div className="flex flex-col gap-2">
       <a href="/mobile" onClick={link("/mobile")} className="-ml-1 flex w-fit items-center gap-1 py-1 text-sm font-medium" style={{ color: "var(--accent)" }}>
-        <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-          <path d="M15 18l-6-6 6-6" />
-        </svg>
+        <ChevronLeft className="h-4 w-4" strokeWidth={2} aria-hidden="true" />
         Paper books
       </a>
       {m ? (

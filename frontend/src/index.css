@@ -84,3 +84,14 @@ body {
 .v2 table.border-separate tbody tr:hover td:first-child {
   color: var(--accent);
 }
+
+/* everything clickable shows the hand pointer (Tailwind's reset leaves buttons on the arrow); disabled ones don't */
+a[href], button, [role="button"], [role="tab"], select, summary, label[for],
+input[type="checkbox"], input[type="radio"], input[type="range"], input[type="color"], input[type="file"],
+input[type="button"], input[type="submit"], input[type="reset"], [onclick] {
+  cursor: pointer;
+}
+button:disabled, select:disabled, input:disabled, fieldset:disabled button, fieldset:disabled select, fieldset:disabled input,
+[aria-disabled="true"] {
+  cursor: not-allowed;
+}
