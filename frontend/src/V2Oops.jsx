@@ -18,8 +18,10 @@ export default function V2Oops({ params }) {
   const exit = "nextopen"; // fixed: the book's "out on the opening tomorrow" (the 15:15 exit is no longer offered)
   const [slippage, setSlippage] = useSetting("bt.oops.slippage", SLIPPAGE_DEFAULT.oops);
   const [month, setMonth] = useState(null);
+  const pit = params.universe === "fnopit"; // survivorship-free: NSE's daily F&O files (no minutes for dropped stocks)
+  const dis = pit ? "off" : disaster; // the day's low may come before the buy: the disaster stop can't be checked
 
-  const query = `stop=none&trend=any&slippage=${slippage}&max_open=${params.maxOpen}&exit=${exit}&disaster=${disaster}`;
+  const query = `stop=none&trend=any&slippage=${slippage}&max_open=${params.maxOpen}&exit=${exit}&disaster=${dis}&dataset=${pit ? "fnopit" : "fno"}`;
   const { data, error, loading } = useBacktest(`/api/v2/backtest/oops?${query}`);
   const value = useMemo(() => makeValue(params.show, params.capital), [params.show, params.capital]);
   const chartFormat = useCallback((v) => value(v, 1), [value]);
@@ -53,7 +55,7 @@ export default function V2Oops({ params }) {
         <Field label="Exit at" hint="Fixed, as in the book (Williams: 'we buy today and are out on the opening tomorrow'): sold at the next trading day's open; a future that expires that day is sold at 15:15">
           <Segmented label="Exit at" options={[["nextopen", "Next open"]]} value="nextopen" onChange={() => {}} />
         </Field>
-        <DisasterStop value={disaster} onChange={setDisaster} hits={disaster === "on" ? data?.summary?.disaster_hits : null} />
+        {!pit && <DisasterStop value={disaster} onChange={setDisaster} hits={disaster === "on" ? data?.summary?.disaster_hits : null} />}
         <Field label="Slippage" hint="Per side, on top of NSE futures charges">
           <Segmented label="Slippage" options={SLIPPAGE} value={slippage} onChange={setSlippage} />
         </Field>
@@ -64,6 +66,11 @@ export default function V2Oops({ params }) {
         )}
       </div>
 
+      {pit && (
+        <p className="text-xs" style={{ color: "var(--muted)" }}>
+          Survivorship bias off: every stock that had futures that day, dropped ones included, from 2015, on the near-month future's own daily prices (NSE's F&O files). There are no minute prices for dropped stocks, so a buy is a day the future opened below yesterday's low and traded back up to it (filled at that low), a busy day's first {params.maxOpen || 3} are the smallest gaps (the fill time is unknown), the expiry day's sale is at the close, and the disaster stop can't be checked.
+        </p>
+      )}
       {error && <p className="text-sm" style={{ color: "var(--negative)" }}>{error}</p>}
       {!error && data && !s && <p className="text-sm" style={{ color: "var(--muted)" }}>No trades for these settings.</p>}
 
@@ -84,7 +91,7 @@ export default function V2Oops({ params }) {
           url={`/api/v2/backtest/oops/month?month=${month}&${query}`}
           columns={columns}
           value={value}
-          note={`bought when the price trades back up to yesterday's low, out ${exit === "nextopen" ? "at the next day's open" : "at 15:15"} (or the 10% disaster stop, on the buy day)`}
+          note={`bought when the price trades back up to yesterday's low, out ${exit === "nextopen" ? "at the next day's open" : "at 15:15"} ${dis === "on" ? " (or the 10% disaster stop, on the buy day)" : ""}`}
           onClose={closeMonth}
         />
       )}

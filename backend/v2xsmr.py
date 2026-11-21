@@ -22,7 +22,14 @@ import pandas as pd
 import v2common
 import xsmr
 
-DATASETS = xsmr.DATASETS
+# fnopit: survivorship-free (each month's F&O list, every stock since dropped included), from NSE's daily
+# files 2007 on (pit.py). There are no 15-minute candles for dropped stocks, so this version is daily: the
+# signal and the entry at the official open (the 09:15 auction price, as in the book), out at the official
+# close (a 30-minute average, in place of 15:15); the shares (spot) only. From 2015, as the 15-minute version:
+# before NSE's pre-open auction (Oct 2010) the open was just the first trade, and the old files' opens are
+# often stale or stray (2007-2013 showed hundreds of % a year, impossible), so they aren't used.
+PIT_FROM = pd.Timestamp("2015-01-01")
+DATASETS = (*xsmr.DATASETS, "fnopit")
 ENTRIES = ("0915", "0916", "0930", "0945")
 MAX_OPEN = 10
 CACHE_SECONDS = 1800
@@ -62,14 +69,64 @@ def _variant(version, entry, stop):
     return f"intraday-{entry}" + ("-1sd" if stop == "1sd" and entry == "0915" else "")
 
 
-def on_futures(dataset, version):
+INSTRUMENTS = ("futures", "spot")
+# Spot: the share itself, bought and shorted intraday (MIS: a cash short can't be carried overnight, so the
+# same-day 15:15 exit only). Zerodha's intraday equity charges (checked 2026-11-21): brokerage 0.03% (or
+# ₹20, whichever is lower; at these position sizes 0.03%), STT 0.025% on sells, NSE transaction 0.00297%,
+# SEBI ₹10/crore, stamp 0.003% on buys, GST 18% on brokerage + exchange + SEBI.
+SPOT_BROKERAGE, SPOT_STT_SELL, SPOT_EXCHANGE, SPOT_SEBI, SPOT_STAMP_BUY, SPOT_GST = 0.0003, 0.00025, 0.0000297, 0.000001, 0.00003, 0.18
+
+
+def spot_cost_per_side(slippage=0.0002):
+    """Cost of trading one rupee of shares intraday once, averaged over buys and sells."""
+    return (SPOT_BROKERAGE + SPOT_EXCHANGE + SPOT_SEBI) * (1 + SPOT_GST) + (SPOT_STT_SELL + SPOT_STAMP_BUY) / 2 + slippage
+
+
+def on_futures(dataset, version, instrument="futures"):
     """The F&O stocks' intraday book trades the near-month future: its signal, fill and exit are the
-    future's (futsig). The daily version (not paper traded) stays on the share's 15:15 prices."""
-    return dataset == "fno" and version == "intraday"
+    future's (futsig), unless Spot is chosen (the share's own prices). The daily version (not paper traded)
+    stays on the share's 15:15 prices."""
+    return dataset == "fno" and version == "intraday" and instrument == "futures"
 
 
-def futures_prices(dataset, version):
-    if on_futures(dataset, version):
+def _pit_prices():
+    """The survivorship-free daily prices in _prices' shape: open = the 09:15 entry, close = the exit; a stock
+    has no signal (so isn't picked) on a day it wasn't in the previous month-end's F&O list."""
+    import pit
+
+    def build():
+        f = pit.frame()
+        piv = {c: f.pivot(index="day", columns="symbol", values=c).sort_index() for c in ("open", "high", "low", "close")}
+        idx, cols = piv["close"].index, piv["close"].columns
+        member = pit.member_mask(idx, cols)
+        op = piv["open"].where((piv["open"] >= piv["low"] * 0.995) & (piv["open"] <= piv["high"] * 1.005))  # bad prints
+        nan = pd.DataFrame(np.nan, index=idx, columns=cols)
+        sigma = (piv["close"] / piv["close"].shift(1) - 1).rolling(90).std().shift(1)
+        op = op.where(member)
+        op.loc[op.index < PIT_FROM] = np.nan  # no signal (no trades) before PIT_FROM
+        return {"open915": op, "open916": nan, "open930": nan, "open945": nan, "px1515": piv["close"],
+                "day_close": piv["close"], "low1515": piv["low"], "high1515": piv["high"], "day_low": piv["low"],
+                "day_high": piv["high"], "sigma": sigma}
+    return _cached(("prices", "fnopit"), build)
+
+
+def _pit_hits(t, pct):
+    """The disaster stop on the survivorship-free daily lows / highs: (hit mask, exit level)."""
+    p = _pit_prices()
+    key = pd.MultiIndex.from_arrays([pd.to_datetime(t["day"]), t["symbol"]])  # stack(): (day, symbol)
+    low = p["day_low"].stack().reindex(key).to_numpy()
+    high = p["day_high"].stack().reindex(key).to_numpy()
+    long = (t["side"] == "long").to_numpy()
+    entry = t["entry"].to_numpy(float)
+    level = np.where(long, entry * (1 - pct / 100), entry * (1 + pct / 100))
+    hit = np.where(long, low <= level, high >= level)
+    return np.nan_to_num(hit, nan=0).astype(bool), level
+
+
+def futures_prices(dataset, version, instrument="futures"):
+    if dataset == "fnopit":
+        return _pit_prices()
+    if on_futures(dataset, version, instrument):
         import futsig
         return futsig.prices(dataset)
     return _cached(("prices", dataset), lambda: xsmr._prices(dataset))
@@ -90,10 +147,10 @@ def _next_open_exit(p, b):
     return {**b, "exit": exit_, "pos": pos, "w": b["w"].where(pos.notna(), 0.0)}
 
 
-def _rows(dataset, version, entry, stop, top, exit="1515"):
+def _rows(dataset, version, entry, stop, top, exit="1515", instrument="futures"):
     """One row per stock and day held: weight, the position's return, and the share of capital traded."""
     def build():
-        p = futures_prices(dataset, version)
+        p = futures_prices(dataset, version, instrument)
         b = xsmr._book(p, _variant(version, entry, stop), top=top)
         if exit == "nextopen" and version == "intraday":
             b = _next_open_exit(p, b)
@@ -117,26 +174,28 @@ def _rows(dataset, version, entry, stop, top, exit="1515"):
         frame = frame[frame["w"].notna() & (frame["w"] != 0)].reset_index(drop=True)  # held positions only
         days = w.index[live.to_numpy()]
         return frame, pd.DatetimeIndex(days)
-    return _cached(("rows", dataset, version, entry, stop, top, exit), build)
+    return _cached(("rows", dataset, version, entry, stop, top, exit, on_futures(dataset, version, instrument)), build)
 
 
-def _sized(dataset, version, entry, stop, max_open, pairs, slippage, disaster="off", exit="1515"):
+def _sized(dataset, version, entry, stop, max_open, pairs, slippage, disaster="off", exit="1515", instrument="futures"):
     k = per_side(max_open, pairs)
-    t, days = _rows(dataset, version, entry, stop, k, exit)
+    t, days = _rows(dataset, version, entry, stop, k, exit, instrument)
     t = t.copy()
     if k:  # the stored book is fully invested (0.5 / k a position): scale to capital / max_open each
         scale = 2 * k / max(max_open, 2 * k)
         for col in ("w", "ret_w", "traded"):
             t[col] = t[col] * scale
-    cps = xsmr.cost_per_side(slippage)
+    cps = spot_cost_per_side(slippage) if instrument == "spot" else xsmr.cost_per_side(slippage)
     size = t["w"].abs()
     t["side"] = np.where(t["w"] > 0, "long", "short")
     t["disaster"] = False
     if disaster == "on" and version == "intraday" and len(t):  # the 10% disaster stop (disaster.py)
         import disaster as ds
-        if on_futures(dataset, version):
+        if on_futures(dataset, version, instrument):
             import futsig
             hit, level = futsig.frame_hits(t, ds.PCT)
+        elif dataset == "fnopit":
+            hit, level = _pit_hits(t, ds.PCT)
         else:
             hit, level = ds.frame_hits(t)
         t.loc[hit, "exit"] = level[hit]
@@ -152,8 +211,9 @@ def _sized(dataset, version, entry, stop, max_open, pairs, slippage, disaster="o
     return t, days
 
 
-def results(dataset="fno", version="intraday", entry="0915", stop="none", max_open=6, pairs=3, slippage=0.0002, disaster="off", exit="1515"):
-    t, days = _sized(dataset, version, entry, stop, max_open, pairs, slippage, disaster, exit)
+def results(dataset="fno", version="intraday", entry="0915", stop="none", max_open=6, pairs=3, slippage=0.0002, disaster="off", exit="1515",
+            instrument="futures"):
+    t, days = _sized(dataset, version, entry, stop, max_open, pairs, slippage, disaster, exit, instrument)
     extra = {}
     if len(t):
         g = t.groupby("day")
@@ -165,16 +225,17 @@ def results(dataset="fno", version="intraday", entry="0915", stop="none", max_op
     if disaster == "on" and len(t):
         import disaster as ds
         extra.update(disaster_pct=ds.PCT, disaster_hits=int(t["disaster"].sum()))
-    out = v2common.build_results(t, days, slippage, extra)
+    out = v2common.build_results(t, days, slippage, extra, cps=spot_cost_per_side(slippage) if instrument == "spot" else None)
     if out.get("summary"):  # "trades" here are stock-days; the book trades every day it's live
         out["summary"]["trades_label"] = "Positions"
-        out["summary"]["priced_on"] = "futures" if on_futures(dataset, version) else "share"
+        out["summary"]["priced_on"] = "futures" if on_futures(dataset, version, instrument) else "share"
+        out["summary"]["instrument"] = "spot" if instrument == "spot" else "futures"
     return out
 
 
 def month_trades(month, dataset="fno", version="intraday", entry="0915", stop="none", max_open=6, pairs=3, slippage=0.0002, disaster="off",
-                 exit="1515"):
-    t, days = _sized(dataset, version, entry, stop, max_open, pairs, slippage, disaster, exit)
+                 exit="1515", instrument="futures"):
+    t, days = _sized(dataset, version, entry, stop, max_open, pairs, slippage, disaster, exit, instrument)
     next_day = dict(zip(days[:-1], days[1:]))  # next-open exit: sold the next trading day
     prev_day = dict(zip(days[1:], days[:-1]))  # daily version: bought at the previous day's 15:15
 
@@ -186,7 +247,7 @@ def month_trades(month, dataset="fno", version="intraday", entry="0915", stop="n
         if exit == "nextopen" and not r.stopped:
             n = next_day.get(r.day)
             return f"{d} {entry[:2]}:{entry[2:]}", f"{n.date().isoformat() if n is not None else d} 09:15 (open)"
-        return f"{d} {entry[:2]}:{entry[2:]}", f"{d} {v2common.STOP_INTRADAY if r.stopped else '15:15'}"
+        return f"{d} {entry[:2]}:{entry[2:]}", f"{d} {v2common.STOP_INTRADAY if r.stopped else 'close' if dataset == 'fnopit' else '15:15'}"
     t = t[t["day"].dt.strftime("%Y-%m") == month].sort_values(["day", "book_net"], ascending=[True, False])
     return [{"day": r.day.date().isoformat(), "entry_at": at(r)[0], "exit_at": at(r)[1],
              "symbol": r.symbol, "side": r.side, "signal_pct": round(100 * float(r.sig), 2),

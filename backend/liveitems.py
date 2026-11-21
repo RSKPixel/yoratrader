@@ -61,7 +61,16 @@ SPECS = {
     "buy-on-gap": [
         _MAX_OPEN,
         ("side", "Side", "choice", [("long", "Long (book)"), ("both", "Long & short")], "Long: buy gaps down (the book). Long & short: also short the mirror image."),
-        _DISASTER,
+        ("instrument", "Instrument", "fixed", "Futures", "The stock's near-month future (the nearest expiry not yet passed)"),
+        ("lots", "Lots", "choice", [(n, str(n)) for n in range(1, 6)], "Lots per position (the exchange's lot size)"),
+        ("entry", "Entry", "fixed", "09:15 · open ±0.2%", "At 09:15: the futures that opened in a zone (the paper book's record of the open), the biggest gaps first, a LIMIT "
+         "at the open +0.2% (a short: -0.2%), never chased. Rounds at 09:15, 09:16 and 09:17: what hasn't filled is cancelled and its slot goes to the "
+         "next-ranked future; never more entries out than Max open"),
+        ("exit", "Exit", "fixed", "15:15 same day", "Closed at 15:15 the same day (re-priced each minute to 15:28, then by hand)"),
+        ("disaster", "Disaster stop 10%", "choice", [("on", "On"), ("off", "Off")],
+         "Checked every minute on the last price: a position 10% against its entry is closed then (a short whose stock keeps rising has no ceiling)."),
+        ("orders", "Orders", "fixed", "Dry run only", "Dry run only: each order built and logged at its times, nothing is ever sent (intraday edges are too thin "
+         "for real money: kept to see what real prices at the open would have given)"),
     ],
     "xs-mean-reversion": [
         ("pairs", "Pairs", "choice", [(n, str(n)) for n in range(1, 6)], "k long + k short of the recorded 5 + 5 (the furthest from the day's average move first); one lot each."),
@@ -89,7 +98,7 @@ LABELS = {
     "turn-of-month": "Turn of the month", "books-gold": "Books + gold",
 }
 PAGES = {"books-gold": "/v2/trade/books-gold"}  # traded by hand from these
-ENGINES = ("short-term-reversion", "cumulative-rsi", "turn-of-month")  # models with a live order engine (liveengine.py)
+ENGINES = ("short-term-reversion", "cumulative-rsi", "turn-of-month", "buy-on-gap")  # models with a live order engine (liveengine.py)
 HAND = {"books-gold": "You place its orders by hand from its page"}
 
 
@@ -107,7 +116,7 @@ def _paper_settings(model):
         import priority
         cfg = priority._settings()
         if model == "buy-on-gap":
-            return {"max_open": cfg["gap_open"], "side": cfg["gap_side"], "disaster": cfg["gap_disaster"]}
+            return {"lots": 1, "max_open": cfg["gap_open"], "side": cfg["gap_side"], "disaster": cfg["gap_disaster"]}
         return {"pairs": cfg["xs_k"], "disaster": cfg["xs_disaster"]}
     if model == "turn-of-month":
         return {"orders": "dry", "instrument": "call", "lots": 1}

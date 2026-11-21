@@ -43,7 +43,10 @@ STOP_BELOW = 0.999
 EXITS = ("1515", "nextopen")  # out at 15:15 the same day, or at the next trading day's open (the book: "out on the opening tomorrow")
 MAX_OPEN, BOOK_OPEN = 10, 3
 CACHE_SECONDS = 6 * 3600
-_cache, _lock = {"at": 0, "fills": None, "days": None}, threading.Lock()
+_cache, _lock = {}, threading.Lock()  # mode -> (at, fills, days)
+# Modes: "futures" (the book: today's F&O list, the 1-minute replay) and "pit" (survivorship-free: every stock
+# that had futures that day, dropped ones included, from NSE's daily F&O files; see _pit_fills).
+MODES = ("futures", "pit")
 _building = threading.Lock()
 
 
@@ -146,6 +149,41 @@ def _build():
 DISK = os.path.join(tempfile.gettempdir(), "yoratrader-oops-fills-v3.pkl")  # v3: futures prices
 
 
+def _pit_fills(symbols=None):
+    """Survivorship-free Oops on the futures' own daily prices (fut_daily_nse, futhistory.py: every stock
+    future NSE listed, dropped stocks included), from START. Each day the near-month contract (the nearest
+    expiry not yet passed); it opens below its own previous day's low and the day's high gets back to it:
+    the buy-stop fills at that low. Out at the next day's open of the same contract, or at the close (in place
+    of 15:15) on its expiry day. There are no minutes for dropped stocks, so the fill time is unknown: a day's
+    fills are ranked by the smallest gap (the nearest to yesterday's low usually fills first), and the
+    disaster stop can't be checked (the day's low may come before the buy). symbols: only these (a check
+    of the method on today's list)."""
+    with connect() as conn:
+        f = pd.read_sql("SELECT symbol, day, expiry, open, high, low, close FROM fut_daily_nse WHERE day >= %s - 10",
+                        conn, params=[pd.Timestamp(START).date()], parse_dates=["day", "expiry"])
+    if symbols is not None:
+        f = f[f["symbol"].isin(symbols)]
+    f = f.sort_values(["symbol", "expiry", "day"])
+    g = f.groupby(["symbol", "expiry"])
+    f["prev_low"], f["prev_day"] = g["low"].shift(1), g["day"].shift(1)
+    f["next_open"], f["next_day"] = g["open"].shift(-1), g["day"].shift(-1)
+    near = f[f["expiry"] >= f["day"]].sort_values(["symbol", "day", "expiry"]).groupby(["symbol", "day"]).head(1)
+    days = pd.DatetimeIndex(sorted(near["day"].unique()))
+    prev_trading = pd.Series(days[:-1], index=days[1:])
+    t = near[(near["day"] >= pd.Timestamp(START)) & near["prev_low"].notna()
+             & (near["prev_day"] == prev_trading.reindex(near["day"]).to_numpy())]  # yesterday's low, not an older one
+    t = t[(t["open"] < t["prev_low"]) & (t["high"] >= t["prev_low"])]
+    t = t[(t["open"] >= t["low"] * 0.995) & (t["open"] <= t["high"] * 1.005)]  # bad prints
+    t = t[(t["close"] / t["prev_low"] - 1).abs() <= 0.25]
+    expiry = (t["expiry"] == t["day"]).to_numpy()
+    gap = 100 * (t["open"] / t["prev_low"] - 1)
+    out = pd.DataFrame({"day": t["day"].dt.date, "fill_at": gap.map(lambda x: f"g{-x:09.4f}").to_numpy(), "symbol": t["symbol"].to_numpy(),
+                        "up": True, "prev_low": t["prev_low"].to_numpy(), "open": t["open"].to_numpy(), "entry": t["prev_low"].to_numpy(),
+                        "stop": np.nan, "exit_time": t["close"].to_numpy(), "exit_stop": None, "stop_at": None, "low_after": np.nan,
+                        "expiry": expiry, "next_open": t["next_open"].to_numpy(), "next_day": t["next_day"].to_numpy()})
+    return out.reset_index(drop=True), days[days >= pd.Timestamp(START)]
+
+
 def _load_disk():
     try:
         if time.time() - os.path.getmtime(DISK) < CACHE_SECONDS:
@@ -158,16 +196,24 @@ def _load_disk():
     return None
 
 
-def _fills():
+def _fills(mode="futures"):
+    def fresh():
+        hit = _cache.get(mode)
+        return hit if hit and time.time() - hit[0] < CACHE_SECONDS else None
     with _lock:
-        if _cache["fills"] is not None and time.time() - _cache["at"] < CACHE_SECONDS:
-            return _cache["fills"], _cache["days"]
+        hit = fresh()
+    if hit:
+        return hit[1], hit[2]
     with _building:  # one build at a time; a second caller waits for it
         with _lock:
-            if _cache["fills"] is not None and time.time() - _cache["at"] < CACHE_SECONDS:
-                return _cache["fills"], _cache["days"]
-        disk = _load_disk()
-        if disk:
+            hit = fresh()
+        if hit:
+            return hit[1], hit[2]
+        disk = _load_disk() if mode == "futures" else None
+        if mode == "pit":
+            f, days = _pit_fills()
+            at = time.time()
+        elif disk:
             f, days = disk
             at = os.path.getmtime(DISK)
         else:
@@ -181,13 +227,13 @@ def _fills():
             except Exception as error:
                 print("Oops fills: could not save to disk:", error)
         with _lock:
-            _cache.update(at=at, fills=f, days=days)
+            _cache[mode] = (at, f, days)
         return f, days
 
 
 def invalidate():
     with _lock:
-        _cache.update(at=0)
+        _cache.clear()
     try:
         os.remove(DISK)
     except FileNotFoundError:
@@ -217,8 +263,11 @@ def _next_opens():
     return out
 
 
-def _sized(stop="none", trend="any", max_open=3, slippage=0.0002, exit="1515", disaster="off"):
-    f, days = _fills()
+def _sized(stop="none", trend="any", max_open=3, slippage=0.0002, exit="1515", disaster="off", dataset="fno"):
+    mode = "pit" if dataset == "fnopit" else "futures"
+    if mode == "pit":  # no minutes for dropped stocks: neither stop can be checked
+        stop, disaster = "none", "off"
+    f, days = _fills(mode)
     t = f if trend == "any" else f[f["up"]]
     n = max_open or BOOK_OPEN
     t = t.sort_values(["day", "fill_at", "symbol"]).groupby("day").head(n).copy()
@@ -228,7 +277,8 @@ def _sized(stop="none", trend="any", max_open=3, slippage=0.0002, exit="1515", d
     t["exit_hm"] = np.where(stopped, t["stop_at"].fillna(""), EXIT_AT)
     t["exit_day"] = pd.to_datetime(t["day"])
     if exit == "nextopen":  # held overnight, sold at the next day's open (a stop still works on the buy day)
-        nx = _next_opens()
+        nx = (f.set_index([f["symbol"], pd.to_datetime(f["day"])])[["next_open", "next_day"]].dropna(subset=["next_open"])
+              if mode == "pit" else _next_opens())
         key = pd.MultiIndex.from_arrays([t["symbol"], pd.to_datetime(t["day"])])
         nxt = nx.reindex(key)
         same_day = t["expiry"].to_numpy(bool)  # the future expires today: sold at 15:15
@@ -259,24 +309,26 @@ def _sized(stop="none", trend="any", max_open=3, slippage=0.0002, exit="1515", d
     return t.reset_index(drop=True), days
 
 
-def results(stop="none", trend="any", max_open=3, slippage=0.0002, exit="1515", disaster="off"):
-    t, days = _sized(stop, trend, max_open, slippage, exit, disaster)
+def results(stop="none", trend="any", max_open=3, slippage=0.0002, exit="1515", disaster="off", dataset="fno"):
+    t, days = _sized(stop, trend, max_open, slippage, exit, disaster, dataset)
+    pit = dataset == "fnopit"
     extra = {}
     if len(t):
         extra = {"avg_positions": round(float(t.groupby("day").size().mean()), 1),
                  "stopped_pct": round(float(100 * (t["reason"] == "stop").mean()), 1),
                  "avg_gap_pct": round(float(t["gap_pct"].mean()), 2),
-                 "median_fill_at": sorted(t["fill_at"])[len(t) // 2],
+                 "median_fill_at": None if pit else sorted(t["fill_at"])[len(t) // 2],
                  "disaster_hits": int((t["reason"] == "disaster stop").sum())}
     return v2common.build_results(t, days, slippage, extra)
 
 
-def month_trades(month, stop="none", trend="any", max_open=3, slippage=0.0002, exit="1515", disaster="off"):
-    t, _ = _sized(stop, trend, max_open, slippage, exit, disaster)
+def month_trades(month, stop="none", trend="any", max_open=3, slippage=0.0002, exit="1515", disaster="off", dataset="fno"):
+    t, _ = _sized(stop, trend, max_open, slippage, exit, disaster, dataset)
+    pit = dataset == "fnopit"
     t = t[t["day"].dt.strftime("%Y-%m") == month]
-    return [{"day": r.day.date().isoformat(), "entry_at": f"{r.day.date().isoformat()} {r.fill_at}",
-             "exit_at": f"{pd.Timestamp(r.exit_day).date().isoformat()} {r.exit_hm}",
-             "symbol": r.symbol, "fill_at": r.fill_at, "gap_pct": round(float(r.gap_pct), 2),
+    return [{"day": r.day.date().isoformat(), "entry_at": f"{r.day.date().isoformat()} {'at the low' if pit else r.fill_at}",
+             "exit_at": f"{pd.Timestamp(r.exit_day).date().isoformat()} {'close' if pit and r.exit_hm == EXIT_AT else r.exit_hm}",
+             "symbol": r.symbol, "fill_at": "—" if pit else r.fill_at, "gap_pct": round(float(r.gap_pct), 2),
              "prev_low": round(r.prev_low, 2), "open": round(r.open, 2), "entry": round(r.entry, 2),
              "stop": round(r.stop, 2) if stop == "low" else None, "exit": round(float(r.exit), 2), "reason": r.reason,
              "weight_pct": round(100 * float(r.w), 2), "ret_pct": round(100 * float(r.ret), 3), "cost_pct": round(100 * float(r.cost), 3),

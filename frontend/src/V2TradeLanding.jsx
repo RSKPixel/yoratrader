@@ -187,6 +187,7 @@ function ItemSignals({ item, settings }) {
   if (item.orders !== "engine") return <p className="text-sm" style={{ color: "var(--muted)" }}>No signals for this model here yet.</p>;
   if (!data) return <p className="text-xs" style={{ color: error ? "var(--negative)" : "var(--faint)" }}>{error || "Working out the signals…"}</p>;
   if (data.tom) return <TomSignals data={data} error={error} />;
+  if (data.gap) return <GapSignals data={data} error={error} />;
   const tone = { buy: "var(--positive)", held: "var(--accent)", "queued to sell": "var(--warning)", "signal, no slot": "var(--muted)" };
   const shown = all ? data.stocks : data.stocks.filter((x) => x.status !== "watch");
   const num = (v, d = 1) => (v == null ? "—" : Number(v).toFixed(d));
@@ -230,6 +231,70 @@ function ItemSignals({ item, settings }) {
 }
 
 // Turn of the month: this cycle's buy and sale days, what it holds, and what the buy day's run would buy now
+// Buy/Sell on gap: before the open, today's zones (a future opening below "buy under" but above its 20-day average
+// is bought; with long & short, one opening above "short over" but under the average is shorted); from 09:15 the
+// futures that opened in a zone (the paper book's record of the open), the biggest gaps first, and what the item took.
+function Table({ head, rows, empty, minWidth = 480 }) {
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm" style={{ minWidth }}>
+        <thead>
+          <tr className="text-left text-xs" style={{ color: "var(--muted)" }}>
+            {head.map((h) => <th key={h} className="whitespace-nowrap px-2 py-1.5 font-medium">{h}</th>)}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.length ? rows.map((r, i) => (
+            <tr key={i} className="border-t" style={{ borderColor: "var(--border)" }}>
+              {r.map((c, j) => <td key={j} className="whitespace-nowrap px-2 py-1.5 tabular-nums">{c}</td>)}
+            </tr>
+          )) : (
+            <tr><td colSpan={head.length} className="px-2 py-3 text-sm" style={{ color: "var(--muted)" }}>{empty}</td></tr>
+          )}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function GapSignals({ data, error }) {
+  const n = (v) => (v == null ? "—" : Number(v).toLocaleString("en-IN", { maximumFractionDigits: 2 }));
+  const today = data.today || [];
+  return (
+    <div className="flex flex-col gap-3 text-sm">
+      {error && <p className="text-xs" style={{ color: "var(--negative)" }}>{error}</p>}
+      <p className="text-xs" style={{ color: "var(--muted)" }}>
+        {data.stage === "zones"
+          ? `Before the open (${data.at}): ${data.zones.length} futures with a zone today. At 09:15 the ones that open inside it are taken, the biggest gaps first, up to ${data.max_open}.`
+          : `Today's open (${data.at}): ${data.candidates.length} future${data.candidates.length === 1 ? "" : "s"} opened in a zone · max ${data.max_open} · ${data.side === "both" ? "long & short" : "long only"}`}
+      </p>
+      {today.length > 0 && (
+        <Table
+          head={["Taken today", "Side", "Qty", "Entry", "Exit", "State"]}
+          rows={today.map((p) => [p.tradingsymbol, p.side, p.qty, n(p.price), p.sell_price != null ? n(p.sell_price) : "—",
+            p.buy_status === "pending" ? "order in" : p.sell_day ? `closed (${p.sell_reason})` : p.sell_status === "pending" ? "closing" : p.sell_status === "manual" ? "close by hand" : "open"])}
+          minWidth={520}
+        />
+      )}
+      {data.stage === "zones" ? (
+        <Table
+          head={["Stock", "Buy under", data.side === "both" ? "Short over" : null, "20-day avg", "Yesterday's close", "1σ"].filter(Boolean)}
+          rows={data.zones.map((z) => [z.symbol, n(z.buy_below), data.side === "both" ? n(z.sell_above) : null, n(z.ma20), n(z.prev_close), `${n(z.sigma_pct)}%`].filter((x, i) => data.side === "both" || i !== 2))}
+          empty="No zones today"
+          minWidth={560}
+        />
+      ) : (
+        <Table
+          head={["Future", "Side", "Open", "Gap", "Status"]}
+          rows={data.candidates.map((c) => [c.future, c.side, n(c.open), `${c.gap_pct > 0 ? "+" : ""}${n(c.gap_pct)}%`, c.status])}
+          empty="No future opened in a zone today: nothing to trade"
+          minWidth={480}
+        />
+      )}
+    </div>
+  );
+}
+
 function TomSignals({ data, error }) {
   const day = (d) => (d ? new Date(`${d}T00:00:00`).toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" }) : "—");
   const n = (v) => (v == null ? "—" : Number(v).toLocaleString("en-IN", { maximumFractionDigits: 2 }));
@@ -479,6 +544,17 @@ function cardRows(it, fields, need) {
   const f = (k) => fields.find((x) => x.key === k);
   const val = (k) => (f(k) ? shown(f(k), s[k]) : null);
   const tom = it.model === "turn-of-month";
+  if (it.model === "buy-on-gap") {
+    const lots = s.lots ?? 1;
+    return [
+      ["Instrument", "Futures (near month)"],
+      ["Setup", s.side === "both" ? "Buy/Sell on gap · long & short" : "Buy on gap · long"],
+      ["Size", `${lots} lot${lots > 1 ? "s" : ""} each · max ${s.max_open ?? "—"} open`],
+      ["Entry", "09:15 · open ±0.2%, never chased"],
+      ["Exit", `15:15 same day${s.disaster === "on" ? " · 10% stop" : ""}`],
+      ["Orders", val("orders") ?? "Dry run"],
+    ];
+  }
   return [
     ["Instrument", tom ? val("instrument") : val("price") ?? "—"],
     ["Setup", tom ? "Turn of the month" : val("setup") ?? "—"],
@@ -492,7 +568,8 @@ function cardRows(it, fields, need) {
 // The funds that matter for an item: futures use margin (what's available for new orders, pledged holdings
 // counted); spot shares and options are paid for in cash. need: the item's capital (spot), red when under it.
 export function fundsOf(settings = {}, f, needRs = null) {
-  const fut = settings.price === "futures" || settings.instrument === "future";
+  // futures: margin (Buy/Sell on gap's items are futures only: its settings have a side and lots)
+  const fut = settings.price === "futures" || settings.instrument === "future" || (settings.side != null && settings.lots != null);
   const v = f && !f.error ? (fut ? f.available : f.cash) : null;
   const need = needRs ?? (settings.price === "spot" ? settings.capital : null);
   return { label: fut ? "Margin available" : "Cash available", value: v, short: v != null && need != null && v < need, error: !f || f.error };

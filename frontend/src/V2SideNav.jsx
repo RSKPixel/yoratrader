@@ -32,7 +32,7 @@ export function instrumentOf(id, universe = "fno", paper = false, connors = "cas
   const index = { text: "Index", title: "Signal and results on the index's prices" };
   switch (id) {
     case "buy-on-gap":
-      return universe === "fno" ? fut : universe === "indices" ? index : share;
+      return universe === "fno" || universe === "fnopit" ? fut : universe === "indices" ? index : share;
     case "xs-mean-reversion":
       return universe === "fno" ? { ...fut, title: `${fut.title} (the intraday versions; the daily version uses the share's 15:15 prices)` } : share;
     case "oops":
@@ -58,11 +58,11 @@ export function instrumentOf(id, universe = "fno", paper = false, connors = "cas
 
 // The Instrument control on every backtest and paper page (the first control in the model's own settings row): Spot / Futures, with the one a model can't use
 // greyed out. The short-term mean reversion pages have their own (both work there), so none here.
-const FUTURES_ONLY = { oops: true, "xs-mean-reversion": "fno", "buy-on-gap": "fno" };
+const FUTURES_ONLY = { oops: true, "xs-mean-reversion": "fno", "buy-on-gap": ["fno", "fnopit"] };
 export function InstrumentField({ id, universe = "fno", paper = false }) {
-  if (id === "short-term-reversion" || id === "cumulative-rsi" || (id === "turn-of-month" && !paper)) return null; // their own Spot / Futures choice
+  if (id === "short-term-reversion" || id === "cumulative-rsi" || ((id === "turn-of-month" || id === "xs-mean-reversion") && !paper)) return null; // their own Spot / Futures choice
   const f = paper && id === "turn-of-month" ? true : FUTURES_ONLY[id]; // the paper book trades the Nifty future
-  const fut = f === true || (f && f === universe);
+  const fut = f === true || (Array.isArray(f) ? f.includes(universe) : f && f === universe);
   const i = paper && id === "turn-of-month" ? { text: "Futures", title: "One lot of the Nifty future (the live page trades an in-the-money call in its place)" } : instrumentOf(id, universe);
   const spotNote = "This model trades the near-month future: its signal, fill and exit are the future's prices";
   const futNote = f

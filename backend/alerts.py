@@ -105,6 +105,8 @@ def morning_check(now=None, force=False):
                 continue
             need = liveengine.tom_need(s)
             fut = s.get("instrument") == "future"
+        elif it["model"] == "buy-on-gap":  # futures, a lot each: the margin available
+            need, fut = None, True
         else:
             need = s.get("capital") if s.get("price", "spot") == "spot" else None
             fut = s.get("price") == "futures"

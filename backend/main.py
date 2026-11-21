@@ -712,23 +712,26 @@ def backtest_portfolio_day(day: str = Query(..., pattern=r"^\d{4}-\d{2}-\d{2}$")
         return {"status": "error", "message": str(error)}
 
 
-def _v2gap_args(dataset, side, stop, max_open, slippage, disaster="off"):
-    if dataset not in v2gap.DATASETS or side not in v2gap.SIDES or stop not in v2gap.STOPS or disaster not in ("on", "off"):
-        raise HTTPException(status_code=400, detail="unknown dataset, side, stop or disaster stop")
-    return dict(dataset=dataset, side=side, stop=stop, max_open=max_open, slippage=slippage / 100, disaster=disaster)
+def _v2gap_args(dataset, side, stop, max_open, slippage, disaster="off", instrument="futures", entry="0915"):
+    if dataset not in v2gap.DATASETS or side not in v2gap.SIDES or stop not in v2gap.STOPS or disaster not in ("on", "off") \
+            or instrument not in ("futures", "spot") or entry not in v2gap.ENTRIES:
+        raise HTTPException(status_code=400, detail="unknown dataset, side, stop, disaster stop, instrument or entry")
+    return dict(dataset=dataset, side=side, stop=stop, max_open=max_open, slippage=slippage / 100, disaster=disaster, instrument=instrument, entry=entry)
 
 
-def _v2oops_args(stop, trend, max_open, slippage, exit="1515", disaster="off"):
-    if stop not in ("low", "none") or trend not in ("any", "up") or exit not in v2oops.EXITS or disaster not in ("on", "off"):
-        raise HTTPException(status_code=400, detail="unknown stop, trend, exit or disaster stop")
-    return dict(stop=stop, trend=trend, max_open=max_open, slippage=slippage / 100, exit=exit, disaster=disaster)
+def _v2oops_args(stop, trend, max_open, slippage, exit="1515", disaster="off", dataset="fno"):
+    if stop not in ("low", "none") or trend not in ("any", "up") or exit not in v2oops.EXITS or disaster not in ("on", "off") \
+            or dataset not in ("fno", "fnopit"):
+        raise HTTPException(status_code=400, detail="unknown stop, trend, exit, disaster stop or dataset")
+    return dict(stop=stop, trend=trend, max_open=max_open, slippage=slippage / 100, exit=exit, disaster=disaster, dataset=dataset)
 
 
 @app.get("/api/v2/backtest/oops")
 def v2_backtest_oops(stop: str = Query("none"), trend: str = Query("any"), max_open: int = Query(3, ge=0, le=v2oops.MAX_OPEN),
-                     slippage: float = Query(0.02, ge=0, le=1), exit: str = Query("1515"), disaster: str = Query("off")):
+                     slippage: float = Query(0.02, ge=0, le=1), exit: str = Query("1515"), disaster: str = Query("off"),
+                     dataset: str = Query("fno")):
     """Oops gap reversal (v2 page): the day's first N fills on 15-minute candles, capital / N each."""
-    args = _v2oops_args(stop, trend, max_open, slippage, exit, disaster)
+    args = _v2oops_args(stop, trend, max_open, slippage, exit, disaster, dataset)
     try:
         return {"status": "success", **v2oops.results(**args)}
     except Exception as error:
@@ -1112,8 +1115,9 @@ def v2_report_paper_fills(day_from: str = Query("", pattern=r"^(\d{4}-\d{2}-\d{2
 
 @app.get("/api/v2/backtest/oops/month")
 def v2_backtest_oops_month(month: str = Query(..., pattern=r"^\d{4}-\d{2}$"), stop: str = Query("none"), trend: str = Query("any"),
-                           max_open: int = Query(3, ge=0, le=v2oops.MAX_OPEN), slippage: float = Query(0.02, ge=0, le=1), exit: str = Query("1515"), disaster: str = Query("off")):
-    args = _v2oops_args(stop, trend, max_open, slippage, exit, disaster)
+                           max_open: int = Query(3, ge=0, le=v2oops.MAX_OPEN), slippage: float = Query(0.02, ge=0, le=1), exit: str = Query("1515"), disaster: str = Query("off"),
+                           dataset: str = Query("fno")):
+    args = _v2oops_args(stop, trend, max_open, slippage, exit, disaster, dataset)
     try:
         return {"status": "success", "trades": _split_month(v2oops.month_trades(month, **args), args)}
     except Exception as error:
@@ -1123,9 +1127,10 @@ def v2_backtest_oops_month(month: str = Query(..., pattern=r"^\d{4}-\d{2}$"), st
 
 @app.get("/api/v2/backtest/gap")
 def v2_backtest_gap(dataset: str = Query("fno"), side: str = Query("long"), stop: str = Query("none"),
-                    max_open: int = Query(5, ge=0, le=v2gap.MAX_OPEN), slippage: float = Query(0.02, ge=0, le=1), disaster: str = Query("off")):
+                    max_open: int = Query(5, ge=0, le=v2gap.MAX_OPEN), slippage: float = Query(0.02, ge=0, le=1), disaster: str = Query("off"),
+                    instrument: str = Query("futures"), entry: str = Query("0915")):
     """Buy on gap (v2 page): the stored trades sized by capital and max open, as fractions of capital."""
-    args = _v2gap_args(dataset, side, stop, max_open, slippage, disaster)
+    args = _v2gap_args(dataset, side, stop, max_open, slippage, disaster, instrument, entry)
     try:
         return {"status": "success", **v2gap.results(**args)}
     except Exception as error:
@@ -1136,8 +1141,9 @@ def v2_backtest_gap(dataset: str = Query("fno"), side: str = Query("long"), stop
 @app.get("/api/v2/backtest/gap/month")
 def v2_backtest_gap_month(month: str = Query(..., pattern=r"^\d{4}-\d{2}$"), dataset: str = Query("fno"),
                           side: str = Query("long"), stop: str = Query("none"),
-                          max_open: int = Query(5, ge=0, le=v2gap.MAX_OPEN), slippage: float = Query(0.02, ge=0, le=1), disaster: str = Query("off")):
-    args = _v2gap_args(dataset, side, stop, max_open, slippage, disaster)
+                          max_open: int = Query(5, ge=0, le=v2gap.MAX_OPEN), slippage: float = Query(0.02, ge=0, le=1), disaster: str = Query("off"),
+                          instrument: str = Query("futures"), entry: str = Query("0915")):
+    args = _v2gap_args(dataset, side, stop, max_open, slippage, disaster, instrument, entry)
     try:
         return {"status": "success", "trades": _split_month(v2gap.month_trades(month, **args), args)}
     except Exception as error:
@@ -1177,21 +1183,24 @@ def v2_backtest_kbdt_month(month: str = Query(..., pattern=r"^\d{4}-\d{2}$"), da
         return {"status": "error", "message": str(error)}
 
 
-def _v2xsmr_args(dataset, version, entry, stop, max_open, pairs, slippage, disaster="off", exit="1515"):
+def _v2xsmr_args(dataset, version, entry, stop, max_open, pairs, slippage, disaster="off", exit="1515", instrument="futures"):
     if dataset not in v2xsmr.DATASETS or version not in ("intraday", "daily") or entry not in v2xsmr.ENTRIES \
-            or stop not in ("none", "1sd") or disaster not in ("on", "off") or exit not in v2xsmr.EXITS:
-        raise HTTPException(status_code=400, detail="unknown dataset, version, entry, stop, disaster stop or exit")
+            or stop not in ("none", "1sd") or disaster not in ("on", "off") or exit not in v2xsmr.EXITS \
+            or instrument not in v2xsmr.INSTRUMENTS:
+        raise HTTPException(status_code=400, detail="unknown dataset, version, entry, stop, disaster stop, exit or instrument")
+    if instrument == "spot" and (version != "intraday" or exit != "1515"):
+        raise HTTPException(status_code=400, detail="spot is intraday only (a short in shares can't be held overnight)")
     return dict(dataset=dataset, version=version, entry=entry, stop=stop, max_open=max_open, pairs=pairs, slippage=slippage / 100,
-                disaster=disaster, exit=exit)
+                disaster=disaster, exit=exit, instrument=instrument)
 
 
 @app.get("/api/v2/backtest/xsmr")
 def v2_backtest_xsmr(dataset: str = Query("fno"), version: str = Query("intraday"), entry: str = Query("0915"),
                      stop: str = Query("none"), max_open: int = Query(6, ge=0, le=v2xsmr.MAX_OPEN),
                      pairs: int = Query(3, ge=1, le=5), slippage: float = Query(0.02, ge=0, le=1), disaster: str = Query("off"),
-                     exit: str = Query("1515")):
+                     exit: str = Query("1515"), instrument: str = Query("futures")):
     """Cross-sectional mean reversion (v2 page): k long + k short within max open (or every stock), as fractions of capital."""
-    args = _v2xsmr_args(dataset, version, entry, stop, max_open, pairs, slippage, disaster, exit)
+    args = _v2xsmr_args(dataset, version, entry, stop, max_open, pairs, slippage, disaster, exit, instrument)
     try:
         return {"status": "success", **v2xsmr.results(**args)}
     except Exception as error:
@@ -1203,8 +1212,9 @@ def v2_backtest_xsmr(dataset: str = Query("fno"), version: str = Query("intraday
 def v2_backtest_xsmr_month(month: str = Query(..., pattern=r"^\d{4}-\d{2}$"), dataset: str = Query("fno"),
                            version: str = Query("intraday"), entry: str = Query("0915"), stop: str = Query("none"),
                            max_open: int = Query(6, ge=0, le=v2xsmr.MAX_OPEN), pairs: int = Query(3, ge=1, le=5),
-                           slippage: float = Query(0.02, ge=0, le=1), disaster: str = Query("off"), exit: str = Query("1515")):
-    args = _v2xsmr_args(dataset, version, entry, stop, max_open, pairs, slippage, disaster, exit)
+                           slippage: float = Query(0.02, ge=0, le=1), disaster: str = Query("off"), exit: str = Query("1515"),
+                           instrument: str = Query("futures")):
+    args = _v2xsmr_args(dataset, version, entry, stop, max_open, pairs, slippage, disaster, exit, instrument)
     try:
         return {"status": "success", "trades": _split_month(v2xsmr.month_trades(month, **args), args)}
     except Exception as error:

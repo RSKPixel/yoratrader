@@ -47,8 +47,11 @@ def real_orders_allowed():
     return os.environ.get("APP_ENV") == "production" and os.environ.get("LIVE_ORDERS") == "on"
 
 
+DRY_ONLY = ("buy-on-gap",)  # models whose engine only builds and logs orders (the user's call, 21 Nov 2026: intraday edges are too thin for real money)
+
+
 def _real(item, preview=False):
-    return not preview and item["settings"].get("orders") == "real" and real_orders_allowed()
+    return (not preview and item.get("model") not in DRY_ONLY and item["settings"].get("orders") == "real" and real_orders_allowed())
 
 
 BUY_CANCEL_AFTER = timedelta(minutes=10)  # a buy not filled 10 minutes after it went in: cancelled (what filled is kept)
@@ -97,6 +100,7 @@ def _ensure(cursor):
         ALTER TABLE live_order_log ADD COLUMN IF NOT EXISTS order_id TEXT;
         ALTER TABLE live_positions ADD COLUMN IF NOT EXISTS strike DOUBLE PRECISION;
         ALTER TABLE live_positions ADD COLUMN IF NOT EXISTS sell_plan DATE;
+        ALTER TABLE live_positions ADD COLUMN IF NOT EXISTS side TEXT NOT NULL DEFAULT 'long';
         """
     )
 
@@ -316,10 +320,11 @@ def _fut_quotes(kite, symbols):
 
 def _held(cursor, item_id):
     cursor.execute("SELECT id, symbol, instrument, exchange, tradingsymbol, expiry, qty, buy_day, buy_price, stop, sell_queued, sell_reason, "
-                   "real, buy_order, buy_status, buy_placed_at, sell_order, sell_status, sell_session, sell_filled, sell_value, strike, sell_plan "
+                   "real, buy_order, buy_status, buy_placed_at, sell_order, sell_status, sell_session, sell_filled, sell_value, strike, sell_plan, side "
                    "FROM live_positions WHERE item_id = %s AND sell_day IS NULL ORDER BY buy_day, id", (item_id,))
     cols = ("id", "symbol", "instrument", "exchange", "tradingsymbol", "expiry", "qty", "buy_day", "buy_price", "stop", "sell_queued", "sell_reason",
-            "real", "buy_order", "buy_status", "buy_placed_at", "sell_order", "sell_status", "sell_session", "sell_filled", "sell_value", "strike", "sell_plan")
+            "real", "buy_order", "buy_status", "buy_placed_at", "sell_order", "sell_status", "sell_session", "sell_filled", "sell_value", "strike", "sell_plan",
+            "side")
     return [dict(zip(cols, r)) for r in cursor.fetchall()]
 
 
@@ -651,6 +656,272 @@ def _tom_close(item, kite, today, now, preview=False, force_buy=False):
     return {"item": item["id"], "sold": sold, "bought": bought}
 
 
+# ---- buy / sell on gap ---------------------------------------------------------------------------------------
+# As its paper book (gapwatch.py) and the backtest, on the item's settings: at 09:15 the near-month futures that
+# opened below the previous low by more than 1σ but above their 20-day average (bought) and, with Long & short, the
+# mirror image (shorted), the biggest gaps first, up to Max open, the item's lots each. The candidates are the
+# paper book's own record of the open (gap_paper, written at 09:15:01 in the same scheduler minute, the backtest's
+# rules), so live and paper see the same stocks. Entry: a LIMIT at the open +0.2% (a buy) / -0.2% (a short), never
+# chased: a future whose best offer (bid) is already past that is skipped and its slot goes to the next-ranked one
+# (1-minute history 2015-2026: chasing at 09:16 made +0.05% a trade, the capped limit +0.40%). A real order rests at
+# the cap and is cancelled if not filled 2 minutes after it went in; a dry run counts it filled only if the price is
+# inside the cap when it runs (else skipped, the slot to the next). Out at 15:15 the
+# same day (the closing order re-priced each minute to 15:28, then "close it by hand"). Disaster stop (on): checked
+# every minute on the last price, 10% against the entry: closed then. Carried as NRML / CARRYFORWARD (no broker
+# auto square-off at its own time): the 15:15 run is the exit.
+GAP_OPEN_AT, GAP_OPEN_UNTIL = clock(9, 15), clock(9, 18)  # entries in rounds: 09:15, 09:16, 09:17; none after (the open is gone)
+GAP_ROUNDS = {1: "gap-open", 2: "gap-r2", 3: "gap-r3"}  # round -> its once-a-day run
+GAP_CAP = 0.002  # the entry LIMIT: the open +0.2% (a long) / -0.2% (a short), as the paper book; never chased past it
+GAP_CANCEL_AFTER = timedelta(minutes=2)  # a gap entry not filled 2 minutes after it went in: cancelled (what filled is kept)
+GAP_MODEL = "buy-on-gap"
+
+
+def _nfo_meta(kite, today):
+    """{tradingsymbol: (name, expiry, lot, tick)} for NFO futures, from Kite once a day."""
+    if _cache.get("nfo_day") != today:
+        _cache.update(nfo_day=today, nfo={r["tradingsymbol"]: (r["name"], r["expiry"], int(r.get("lot_size") or 1), float(r.get("tick_size") or 0.05))
+                                          for r in kite.instruments("NFO") if r.get("instrument_type") == "FUT"})
+    return _cache["nfo"]
+
+
+def _gap_candidates(today, side):
+    """The paper book's record of today's open: [(symbol, future, side, open, gap %)], the biggest gaps first; None
+    when the open isn't recorded yet."""
+    with connect() as conn, conn.cursor() as cursor:
+        cursor.execute("SELECT 1 FROM gap_paper_days WHERE day = %s", (today,))
+        if not cursor.fetchone():
+            return None
+        cursor.execute("SELECT symbol, fut, side, entry, gap_pct FROM gap_paper WHERE day = %s AND fut IS NOT NULL", (today,))
+        rows = [r for r in cursor.fetchall() if side == "both" or r[2] == "long"]
+    return sorted(rows, key=lambda r: -abs(float(r[4] or 0)))
+
+
+def _gap_tried(cursor, item_id, today):
+    """The symbols today's entry rounds already sent an order for (or couldn't trade): not sent again. One skipped because
+    its price was past the cap is looked at again next round (it may have come back inside it, as a resting order would fill)."""
+    cursor.execute("SELECT DISTINCT symbol FROM live_order_log WHERE item_id = %s AND (at AT TIME ZONE 'Asia/Kolkata')::date = %s "
+                   "AND event IN ('buy', 'sell', 'error') AND reason LIKE '09:1_ gap%%'", (item_id, today))
+    return {r[0] for r in cursor.fetchall() if r[0]}
+
+
+def _gap_free_pending(cursor, item, today, real):
+    """Before a later round: the earlier rounds' entries not filled yet are cancelled. Returns the ids of the rows whose
+    slot is free again (nothing filled and the cancel accepted); a fill, a part fill or a refused cancel keeps its slot."""
+    if not real:
+        return set()
+    pend = [p for p in _held(cursor, item["id"]) if p["real"] and p["buy_status"] == "pending" and p["buy_day"] == today]
+    if not pend:
+        return set()
+    st = _statuses(item, {p["buy_order"] for p in pend})
+    freed = set()
+    for p in pend:
+        o = st.get(p["buy_order"]) or {}
+        if o.get("filled"):
+            continue  # (part) filled: it keeps its slot (reconcile records the fill)
+        if o.get("status") in ("cancelled", "rejected"):
+            freed.add(p["id"])
+            continue
+        if o.get("status") == "complete":
+            continue
+        err = _cancel(item, p["buy_order"])
+        _log(cursor, item, "cancel", p["symbol"], "entry not filled by the next round (capped): the slot goes to the next", status="sent" if not err else "rejected",
+             order_id=p["buy_order"], note=err)
+        if not err:
+            freed.add(p["id"])
+    return freed
+
+
+def _gap_open(item, kite, today, now, preview=False, rnd=1):
+    """One entry round (1: 09:15, 2: 09:16, 3: 09:17). Round 1 sends the capped entries for the top-ranked candidates;
+    rounds 2 and 3 first cancel what hasn't filled, then give the free slots to the next-ranked candidates not tried yet.
+    Never more entries out than Max open."""
+    s = item["settings"]
+    side, n, lots = s.get("side", "long"), int(s.get("max_open", 3)), int(s.get("lots", 1))
+    cands = _gap_candidates(today, side)
+    if cands is None:
+        return None  # the open isn't recorded yet: the next minute
+    with connect() as conn, conn.cursor() as cursor:
+        _ensure(cursor)
+        conn.commit()
+        if rnd > 1:
+            cursor.execute("SELECT 1 FROM live_runs WHERE item_id = %s AND day = %s AND kind = 'gap-open'", (item["id"], today))
+            if not cursor.fetchone():
+                return None  # round 1 never ran (the open was recorded late): no later rounds either
+        if not preview and not _once(cursor, item["id"], today, GAP_ROUNDS[rnd]):
+            return None
+        real = _real(item, preview)
+        if real:
+            conn.commit()  # the run claimed before any order goes out: a crash can't send twice
+        freed = _gap_free_pending(cursor, item, today, real) if rnd > 1 else set()
+        conn.commit()
+        live = [p for p in _held(cursor, item["id"]) if p["id"] not in freed]
+        held = {p["symbol"] for p in live}
+        tried = _gap_tried(cursor, item["id"], today)
+        free = max(0, n - len(live))
+        todo = [c for c in cands if c[0] not in held and c[0] not in tried]
+        if rnd == 1 and (not todo or not free):
+            _log(cursor, item, "run", reason="09:15", note=f"no gap today: {len(cands)} future{'s' if len(cands) != 1 else ''} opened in a zone"
+                 + (f", none free (max {n} open)" if cands else ""))
+        if rnd > 1 and not (todo and free):
+            if preview:
+                conn.rollback()
+            return None
+        meta = _nfo_meta(kite, today)
+        q = kite.quote([f"NFO:{c[1]}" for c in todo]) if todo and free else {}
+        done = []
+        for sym, fut, sd, opened, gap in todo:
+            if len(done) >= free:
+                break
+            m = meta.get(fut)
+            x = q.get(f"NFO:{fut}") or {}
+            if not m:
+                _log(cursor, item, "error", sym, f"09:1{4 + rnd} gap", note=f"not traded: {fut} not in Kite's instruments")
+                continue
+            short = sd == "short"
+            px = _best(x, "SELL" if short else "BUY")
+            if not px:
+                _log(cursor, item, "skip", sym, f"09:1{4 + rnd} gap", note="no price now: not traded, the slot goes to the next")
+                continue
+            cap = float(opened) * (1 - GAP_CAP if short else 1 + GAP_CAP)
+            # a real order rests at the cap for 2 minutes (the price often comes back inside it within seconds: PAYTM 19 Nov,
+            # offer 1797.9 at 09:15:01, 1793.0 a second later); a dry run can't wait, so it counts as filled only if the
+            # price now is inside the cap
+            if not real and ((short and px < cap) or (not short and px > cap)):  # already past the cap: skipped, never chased
+                _log(cursor, item, "skip", sym, f"09:1{4 + rnd} gap", note=f"ran away from the open: {'best bid' if short else 'best offer'} {px} vs open "
+                     f"{float(opened)} ({100 * (px / float(opened) - 1):+.2f}%), past the {100 * GAP_CAP:.1f}% cap: the slot goes to the next")
+                continue
+            pos = {"symbol": sym, "instrument": "futures", "exchange": "NFO", "tradingsymbol": fut, "expiry": m[1], "strike": None,
+                   "qty": m[2] * lots, "tick": m[3]}
+            limit = _in_band(cap, x, m[3], short)  # the cap itself (rounded toward the open), inside the band
+            px = min(px, limit) if not short else max(px, limit)  # a dry run's fill: the price now, never worse than the cap
+            why = (f"09:1{4 + rnd} gap{f' (round {rnd})' if rnd > 1 else ''} {float(gap):+.2f}% ({'short: opened above the previous high' if short else 'long: opened below the previous low'}), "
+                   f"limit {limit} (open {float(opened)} {'-' if short else '+'}{100 * GAP_CAP:.1f}%), out at 15:15")
+            payload = _payloads(item["account"], item["id"], "SELL" if short else "BUY", pos, limit, today)
+            ins = ("INSERT INTO live_positions (item_id, symbol, instrument, exchange, tradingsymbol, expiry, qty, buy_day, buy_at, buy_price, side, "
+                   "real, buy_order, buy_status, buy_placed_at) VALUES (%s, %s, 'futures', 'NFO', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)")
+            if real:
+                oid, err = _send(item, payload)
+                _log(cursor, item, "sell" if short else "buy", sym, why, payload, status="sent" if oid else "rejected", order_id=oid, note=err)
+                if oid:
+                    cursor.execute(ins, (item["id"], sym, fut, m[1], pos["qty"], today, now, limit, sd, True, oid, "pending", now))
+                    done.append(sym)
+                conn.commit()
+            else:
+                _log(cursor, item, "sell" if short else "buy", sym, why, payload)
+                cursor.execute(ins, (item["id"], sym, fut, m[1], pos["qty"], today, now, px, sd, False, None, None, None))  # dry run: at the best price now
+                done.append(sym)
+        if preview:
+            conn.rollback()
+        else:
+            conn.commit()
+    return {"item": item["id"], "opened": done}
+
+
+def _gap_exit(item, kite, today, now, reason, which=None, preview=False):
+    """Close the item's positions (which: their ids; None: all) with a marketable LIMIT: a long sold, a short bought back."""
+    with connect() as conn, conn.cursor() as cursor:
+        _ensure(cursor)
+        real = _real(item, preview)
+        # not already being closed (a pending, re-priced or by-hand close is reconcile's), and its opening order filled
+        held = [p for p in _held(cursor, item["id"]) if not p["sell_order"] and p["sell_status"] is None
+                and p["buy_status"] != "pending" and (which is None or p["id"] in which)]
+        if not held:
+            return None
+        meta = _nfo_meta(kite, today)
+        q = kite.quote([f"NFO:{p['tradingsymbol']}" for p in held])
+        done = []
+        for p in held:
+            x = q.get(f"NFO:{p['tradingsymbol']}") or {}
+            short = p["side"] == "short"
+            px = _best(x, "BUY" if short else "SELL")
+            if not px:
+                _log(cursor, item, "skip", p["symbol"], reason, note="no price now: not closed (tried again next minute)")
+                continue
+            tick = (meta.get(p["tradingsymbol"]) or (None, None, 1, 0.05))[3]
+            pos = {**p, "tick": tick}
+            limit = _in_band(px * (1 + SELL_BELOW if short else 1 - SELL_BELOW), x, tick, short)
+            payload = _payloads(item["account"], item["id"], "BUY" if short else "SELL", pos, limit, today)
+            what = "buy back" if short else "sell"
+            if p["real"]:
+                if not real:
+                    _log(cursor, item, "error", p["symbol"], reason, payload,
+                         note=f"a live position, but live orders are off here (Orders setting, or not production): {what} it by hand")
+                    continue
+                oid, err = _send(item, payload)
+                _log(cursor, item, "buy" if short else "sell", p["symbol"], f"{reason} ({what})", payload, status="sent" if oid else "rejected",
+                     order_id=oid, note=err)
+                if oid:
+                    cursor.execute("UPDATE live_positions SET sell_order = %s, sell_status = 'pending', sell_session = 'close', sell_reason = %s, "
+                                   "sell_queued = %s WHERE id = %s", (oid, reason, today, p["id"]))
+                    done.append(p["symbol"])
+                conn.commit()
+                continue
+            _log(cursor, item, "buy" if short else "sell", p["symbol"], f"{reason} ({what})", payload)
+            cursor.execute("UPDATE live_positions SET sell_day = %s, sell_at = %s, sell_price = %s, sell_reason = %s WHERE id = %s",
+                           (today, now, x.get("last_price") or px, reason, p["id"]))
+            done.append(p["symbol"])
+        if preview:
+            conn.rollback()
+        else:
+            conn.commit()
+    return {"item": item["id"], "closed": done} if done else None
+
+
+def _gap_stops(item, kite, today, now):
+    """The disaster stop: a position 10% against its entry on the last price is closed now."""
+    if item["settings"].get("disaster", "on") != "on":
+        return None
+    with connect() as conn, conn.cursor() as cursor:
+        _ensure(cursor)
+        held = [p for p in _held(cursor, item["id"]) if not p["sell_order"] and p["buy_status"] != "pending" and p["sell_status"] is None]
+    if not held:
+        return None
+    ltp = kite.ltp([f"NFO:{p['tradingsymbol']}" for p in held])
+    hit = set()
+    for p in held:
+        last = (ltp.get(f"NFO:{p['tradingsymbol']}") or {}).get("last_price")
+        if not last:
+            continue
+        if (p["side"] == "short" and last >= p["buy_price"] * (1 + STOP_PCT)) or (p["side"] != "short" and last <= p["buy_price"] * (1 - STOP_PCT)):
+            hit.add(p["id"])
+    return _gap_exit(item, kite, today, now, "disaster stop 10%", hit) if hit else None
+
+
+def _gap_signals(item):
+    """Today's zones and the open: what the 09:15 run takes (or took), and what the item holds."""
+    s = item["settings"]
+    side, n = s.get("side", "long"), int(s.get("max_open", 3))
+    now = gapwatch._now()
+    today = now.date()
+    cands = _gap_candidates(today, side)
+    with connect() as conn, conn.cursor() as cursor:
+        _ensure(cursor)
+        conn.commit()
+        cursor.execute("SELECT symbol, tradingsymbol, side, qty, buy_price, buy_status, sell_day, sell_price, sell_reason, sell_status, buy_day "
+                       "FROM live_positions WHERE item_id = %s AND buy_day = %s ORDER BY id", (item["id"], today))
+        today_pos = [dict(zip(("symbol", "tradingsymbol", "side", "qty", "price", "buy_status", "sell_day", "sell_price", "sell_reason", "sell_status",
+                               "day"), r)) for r in cursor.fetchall()]
+    for p in today_pos:
+        p["day"] = p["day"].isoformat()
+        p["sell_day"] = p["sell_day"].isoformat() if p["sell_day"] else None
+    if cands is None:
+        z = [x for x in gapwatch._state.get("zones", (None, []))[1] if gapwatch._state.get("zones", (None,))[0] == today] \
+            if gapwatch._state.get("zones") else []
+        if not z:
+            z = [x for x in gapwatch.levels(today) if x["buy_below"] or (side == "both" and x["sell_above"])]
+        rows = [{"symbol": x["symbol"], "buy_below": x["buy_below"], "sell_above": x["sell_above"] if side == "both" else None,
+                 "ma20": x["ma20"], "prev_close": x["prev_close"], "sigma_pct": x["sigma_pct"]} for x in z
+                if x["buy_below"] or (side == "both" and x["sell_above"])]
+        return {"gap": True, "stage": "zones", "at": now.strftime("%H:%M:%S"), "side": side, "max_open": n, "zones": rows, "today": today_pos}
+    taken = {p["symbol"] for p in today_pos}
+    rows, slot = [], 0
+    for sym, fut, sd, opened, gap in cands:
+        st = "taken" if sym in taken else ("would take" if slot < n and not today_pos else "no slot")
+        slot += st != "no slot"
+        rows.append({"symbol": sym, "future": fut, "side": sd, "open": float(opened), "gap_pct": float(gap), "status": st})
+    return {"gap": True, "stage": "open", "at": now.strftime("%H:%M:%S"), "side": side, "max_open": n, "candidates": rows, "today": today_pos}
+
+
 # ---- real orders: fills from the broker's order book ---------------------------------------------------------
 
 def reconcile(item, kite, now):
@@ -682,10 +953,10 @@ def reconcile(item, kite, now):
                 elif o["status"] in ("cancelled", "rejected"):
                     cursor.execute("DELETE FROM live_positions WHERE id = %s", (p["id"],))
                     _log(cursor, item, "not filled", p["symbol"], "buy", status=o["status"], order_id=p["buy_order"], note=o["text"])
-                elif p["buy_placed_at"] and now - p["buy_placed_at"] > BUY_CANCEL_AFTER:
+                elif p["buy_placed_at"] and now - p["buy_placed_at"] > (GAP_CANCEL_AFTER if item["model"] == GAP_MODEL else BUY_CANCEL_AFTER):
                     err = _cancel(item, p["buy_order"])
-                    _log(cursor, item, "cancel", p["symbol"], "buy not filled in 10 minutes", status="sent" if not err else "rejected",
-                         order_id=p["buy_order"], note=err)
+                    _log(cursor, item, "cancel", p["symbol"], "entry not filled in 2 minutes (capped at the open +-0.2%)" if item["model"] == GAP_MODEL
+                         else "buy not filled in 10 minutes", status="sent" if not err else "rejected", order_id=p["buy_order"], note=err)
             elif p["sell_status"] == "pending":
                 o = st.get(p["sell_order"])
                 if not o:
@@ -723,7 +994,8 @@ def reconcile(item, kite, now):
                 if p["id"] not in retry:
                     continue
                 if now.time() >= SELL_RETRY_UNTIL.get(p["sell_session"] or "close", clock(15, 28)):
-                    _log(cursor, item, "error", p["symbol"], "sell", note=f"not sold by {SELL_RETRY_UNTIL.get(p['sell_session'] or 'close')}: sell it by hand "
+                    _log(cursor, item, "error", p["symbol"], "sell", note=f"not {'bought back' if p.get('side') == 'short' else 'sold'} by "
+                         f"{SELL_RETRY_UNTIL.get(p['sell_session'] or 'close')}: {'buy it back' if p.get('side') == 'short' else 'sell it'} by hand "
                          f"({p['qty'] - p['sell_filled']} {p['tradingsymbol']})")
                     cursor.execute("UPDATE live_positions SET sell_status = 'manual' WHERE id = %s", (p["id"],))
                     continue
@@ -732,7 +1004,9 @@ def reconcile(item, kite, now):
                 if not q.get("last_price"):
                     continue
                 pos = {**p, "qty": p["qty"] - p["sell_filled"], "tick": inst.get((p["exchange"], p["tradingsymbol"]), (1, 0.05))[1]}
-                payload = _payloads(item["account"], item["id"], "SELL", pos, _in_band(q["last_price"] * (1 - SELL_RETRY_BELOW), q, pos["tick"], False), now.date())
+                short = p.get("side") == "short"  # a short's closing order is a buy, priced above the last
+                payload = _payloads(item["account"], item["id"], "BUY" if short else "SELL", pos,
+                                    _in_band(q["last_price"] * (1 + SELL_RETRY_BELOW if short else 1 - SELL_RETRY_BELOW), q, pos["tick"], short), now.date())
                 oid, err = _send(item, payload)
                 _log(cursor, item, "sell", p["symbol"], f"{p['sell_reason']} (re-priced)", payload, status="sent" if oid else "rejected", order_id=oid, note=err)
                 if oid:
@@ -744,7 +1018,7 @@ def reconcile(item, kite, now):
 
 # ---- the scheduler's call ------------------------------------------------------------------------------------
 
-ENGINES = ("short-term-reversion", "cumulative-rsi", "turn-of-month")
+ENGINES = ("short-term-reversion", "cumulative-rsi", "turn-of-month", "buy-on-gap")
 SR = ("short-term-reversion", "cumulative-rsi")
 
 
@@ -782,6 +1056,23 @@ def _tick():
             if item["model"] == "turn-of-month":
                 if CLOSE_AT <= t < CLOSE_UNTIL:
                     out.append(_tom_close(item, kite, today, now))
+                continue
+            if item["model"] == GAP_MODEL:
+                if GAP_OPEN_AT <= t < GAP_OPEN_UNTIL:  # round 1 at 09:15 (or as soon as the open is recorded), 2 at 09:16, 3 at 09:17
+                    rnd = 1 if t < clock(9, 16) else 2 if t < clock(9, 17) else 3
+                    with connect() as conn, conn.cursor() as cursor:
+                        _ensure(cursor)
+                        cursor.execute("SELECT at FROM live_runs WHERE item_id = %s AND day = %s AND kind = 'gap-open'", (item["id"], today))
+                        r1 = cursor.fetchone()
+                    if not r1:  # round 1 hasn't run (the open not recorded yet): it runs now, later rounds wait a minute
+                        if t < clock(9, 17):
+                            out.append(_gap_open(item, kite, today, now, rnd=1))
+                    elif rnd > 1 and r1[0].astimezone(gapwatch.IST).time() < clock(9, 15 + rnd - 1):  # an earlier minute than this round's
+                        out.append(_gap_open(item, kite, today, now, rnd=rnd))
+                if clock(9, 16) <= t < CLOSE_AT:
+                    out.append(_gap_stops(item, kite, today, now))
+                if CLOSE_AT <= t < clock(15, 28):  # every minute to 15:28: what the 15:15 run couldn't price is tried again
+                    out.append(_gap_exit(item, kite, today, now, "15:15 exit"))
                 continue
             if CLOSE_AT <= t < CLOSE_UNTIL:
                 market = market or _sr_market(kite, today)
@@ -841,6 +1132,24 @@ def preview(item_id):
         raise ValueError("Kite isn't connected: the prices and signals come from Kite")
     kite = kite_auth.trading_client()
     now = gapwatch._now()
+    if item["model"] == GAP_MODEL:  # today's 09:15 run on the recorded open (after 09:15), or the 15:15 exit of what it holds
+        with _preview_lock:
+            _local.capture = []
+            try:
+                if _gap_candidates(now.date(), item["settings"].get("side", "long")) is None:
+                    raise ValueError("Today's open isn't recorded yet (from 09:15:01): see the Signals tab for today's zones")
+                with connect() as conn, conn.cursor() as cursor:
+                    _ensure(cursor)
+                    conn.commit()
+                    has = bool(_held(cursor, item["id"]))
+                if has and now.time() >= clock(9, 16):
+                    _gap_exit(item, kite, now.date(), now, "15:15 exit", preview=True)
+                else:
+                    _gap_open(item, kite, now.date(), now, preview=True)
+                lines = _local.capture
+            finally:
+                _local.capture = None
+        return {"at": now.strftime("%Y-%m-%d %H:%M:%S"), "lines": lines}
     if item["model"] == "turn-of-month":  # as if today were the buy day (or its sale day for what it holds)
         with _preview_lock:
             _local.capture = []
@@ -884,6 +1193,8 @@ def signals(item_id, settings=None):
         raise ValueError("Kite isn't connected: the prices and signals come from Kite")
     if item["model"] == "turn-of-month":
         return _tom_signals(item)
+    if item["model"] == GAP_MODEL:
+        return _gap_signals(item)
     s = item["settings"]
     pr, setup = s.get("price", "spot"), s.get("setup", "rsi2")
     now = gapwatch._now()
@@ -1022,9 +1333,9 @@ def summary():
         _ensure(cursor)
         conn.commit()
         cursor.execute("SELECT item_id, symbol, instrument, exchange, tradingsymbol, qty, buy_day, buy_price, sell_day, sell_price, sell_queued, "
-                       "real, buy_status, sell_status FROM live_positions")
+                       "real, buy_status, sell_status, side FROM live_positions")
         cols = ("item_id", "symbol", "instrument", "exchange", "tradingsymbol", "qty", "buy_day", "buy_price", "sell_day", "sell_price",
-                "sell_queued", "real", "buy_status", "sell_status")
+                "sell_queued", "real", "buy_status", "sell_status", "side")
         pos = [dict(zip(cols, r)) for r in cursor.fetchall()]
         cursor.execute("SELECT item_id, count(*) FILTER (WHERE status = 'sent'), count(*) FILTER (WHERE status = 'dry-run'), "
                        "count(*) FILTER (WHERE status IN ('rejected') OR event = 'error') FROM live_order_log "
@@ -1048,8 +1359,9 @@ def summary():
             if p["sell_day"]:
                 continue
             now = ltp.get(f"{p['exchange']}:{p['tradingsymbol']}")
+            sgn = -1 if p["side"] == "short" else 1
             open_.append({"symbol": p["tradingsymbol"] if p["symbol"] == "NIFTY" else p["symbol"], "instrument": p["instrument"], "qty": p["qty"], "buy_day": p["buy_day"].isoformat(),
-                          "buy_price": p["buy_price"], "last": now, "pnl_rs": round((now - p["buy_price"]) * p["qty"], 2) if now else None,
+                          "side": p["side"], "buy_price": p["buy_price"], "last": now, "pnl_rs": round(sgn * (now - p["buy_price"]) * p["qty"], 2) if now else None,
                           "state": "buy order in" if p["buy_status"] == "pending" else "sale order in" if p["sell_status"] == "pending"
                           else "sell at next open" if p["sell_queued"] else "sell by hand" if p["sell_status"] == "manual" else "held"})
         closed = [p for p in mine if p["sell_day"] and p["sell_price"] is not None]
@@ -1058,8 +1370,10 @@ def summary():
                     "enabled": it["enabled"], "real": it.get("real"), "engine": it["orders"] == "engine", "settings": it["settings"],
                     "open": open_, "unrealized_rs": round(sum(x["pnl_rs"] or 0 for x in open_), 2) if open_ else None,
                     "invested_rs": round(sum(x["buy_price"] * x["qty"] for x in open_), 2),
-                    "realized_rs": round(sum((p["sell_price"] - p["buy_price"]) * p["qty"] for p in closed), 2), "trades": len(closed),
-                    "sold_today_rs": round(sum((p["sell_price"] - p["buy_price"]) * p["qty"] for p in closed if p["sell_day"] == today), 2),
+                    "realized_rs": round(sum((-1 if p["side"] == "short" else 1) * (p["sell_price"] - p["buy_price"]) * p["qty"] for p in closed), 2),
+                    "trades": len(closed),
+                    "sold_today_rs": round(sum((-1 if p["side"] == "short" else 1) * (p["sell_price"] - p["buy_price"]) * p["qty"] for p in closed
+                                               if p["sell_day"] == today), 2),
                     "today": {"sent": sent, "dry": dry, "problems": bad}, "last": last.get(it["id"])})
     try:
         fx = funds()

@@ -101,8 +101,14 @@ export default function V2BuyOnGap({ params, model = "gap" }) {
   const [disaster, setDisaster] = useSetting(`bt.${model}.disaster`, "on");
   const [slippage, setSlippage] = useSetting(`bt.${model}.slippage`, SLIPPAGE_DEFAULT[model]);
   const [month, setMonth] = useState(null);
+  const [savedInstrument, setInstrument] = useSetting("bt.gap.instrument", "futures");
+  const pit = !mom && params.universe === "fnopit"; // Spot is offered with survivorship bias off (the shares' daily files)
+  const instrument = pit && savedInstrument === "spot" ? "spot" : "futures";
+  const [savedEntry, setEntry] = useSetting("bt.gap.entry", "0915");
+  const minutes = !mom && params.universe === "fno"; // the 09:16 entry needs the 1-minute candles (today's F&O list, 2015 on)
+  const entry = minutes && savedEntry === "0916" ? "0916" : "0915";
 
-  const query = `dataset=${params.universe}&side=${side}&stop=${stop}&slippage=${slippage}&max_open=${params.maxOpen}${model === "gap" ? `&disaster=${disaster}` : ""}`;
+  const query = `dataset=${params.universe}&side=${side}&stop=${stop}&slippage=${slippage}&max_open=${params.maxOpen}${model === "gap" ? `&disaster=${disaster}&instrument=${instrument}&entry=${entry}` : ""}`;
   const api = mom ? "/api/v2/backtest/gapmom" : "/api/v2/backtest/gap";
   const { data, error, loading } = useBacktest(`${api}?${query}`);
   const value = useMemo(() => makeValue(params.show, params.capital), [params.show, params.capital]);
@@ -135,7 +141,28 @@ export default function V2BuyOnGap({ params, model = "gap" }) {
   return (
     <div className="mt-4 flex flex-col gap-4">
       <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
-        <InstrumentSlot />
+        {mom || params.universe !== "fnopit" && params.universe !== "fno" ? (
+          <InstrumentSlot />
+        ) : (
+          <Field label="Instrument" hint="Futures: the near-month future's own prices, futures charges. Spot: the shares, bought and shorted within the day, with intraday equity charges (brokerage 0.03%, STT 0.025% on sells, exchange, stamp, GST). Spot is here with survivorship bias off (NSE's daily files of the shares; out at the official close).">
+            <Segmented
+              label="Instrument"
+              options={[["spot", "Spot", !pit, !pit ? "Turn survivorship bias off for Spot" : undefined], ["futures", "Futures"]]}
+              value={instrument}
+              onChange={setInstrument}
+            />
+          </Field>
+        )}
+        {!mom && (
+          <Field label="Entry" hint="09:15: at the open (the book). 09:16: a minute later, at the 09:16 minute's opening price (the 1-minute candles, today's F&O list only): what a real order sent once the open is known gets when the price has already moved. The signal is the open either way.">
+            <Segmented
+              label="Entry"
+              options={[["0915", "09:15 open"], ["0916", "09:16", !minutes, !minutes ? "Needs the 1-minute candles: today's F&O list only" : undefined]]}
+              value={entry}
+              onChange={setEntry}
+            />
+          </Field>
+        )}
         <Field
           label="Side"
           hint={mom ? "Long & short: buy opens above the previous high by 0.1σ, short opens below the previous low (the book)." : "Long: buy gaps down (the book). Long & short: also short the mirror image."}
@@ -149,7 +176,7 @@ export default function V2BuyOnGap({ params, model = "gap" }) {
         ) : (
           <DisasterStop value={disaster} onChange={setDisaster} hits={disaster === "on" ? data?.summary?.disaster_hits : null} />
         )}
-        <Field label="Slippage" hint="Per side, on top of NSE futures charges">
+        <Field label="Slippage" hint={`Per side, on top of the ${instrument === "spot" ? "intraday equity" : "NSE futures"} charges`}>
           <Segmented label="Slippage" options={SLIPPAGE} value={slippage} onChange={setSlippage} />
         </Field>
         {loading && (
@@ -159,6 +186,13 @@ export default function V2BuyOnGap({ params, model = "gap" }) {
         )}
       </div>
 
+      {params.universe === "fnopit" && (
+        <p className="text-xs" style={{ color: "var(--muted)" }}>
+          {instrument === "spot"
+            ? "Survivorship bias off, Spot: each month's real F&O list, dropped stocks included, from 2015, on the shares' own daily prices (NSE's files). The same rule, in at the open, out at the official close (no 15:15 price in the daily files), the stops checked on the day's low and high."
+            : "Survivorship bias off: every stock that had futures that day, dropped ones included, from 2015, on the near-month future's own daily prices (NSE's F&O files). The same rule, in at the open; NSE's daily files have no 15:15 price, so out at the official close, and the stops are checked on the day's low and high."}
+        </p>
+      )}
       {error && <p className="text-sm" style={{ color: "var(--negative)" }}>{error}</p>}
       {!error && data && !s && <p className="text-sm" style={{ color: "var(--muted)" }}>No trades for these settings.</p>}
 

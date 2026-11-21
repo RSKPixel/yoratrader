@@ -41,9 +41,9 @@ export function backtestRequest(m, values) {
                settings: `${u} · ${hold} hold · ${sm === "model" ? "model stop" : `${sp}% stop`} · max ${p.maxOpen}` };
     }
     case "buy-on-gap": {
-      const side = v("bt.gap.side", "long"), dis = v("bt.gap.disaster", "on");
-      return { p, url: `/api/v2/backtest/gap?dataset=${p.universe}&side=${side}&stop=none&slippage=${v("bt.gap.slippage", SLIPPAGE_DEFAULT.gap)}&max_open=${p.maxOpen}&disaster=${dis}`,
-               settings: `${u} · ${side === "long" ? "long" : "long & short"} · max ${p.maxOpen} · disaster stop ${dis}` };
+      const side = v("bt.gap.side", "long"), dis = v("bt.gap.disaster", "on"), entry = p.universe === "fno" && v("bt.gap.entry", "0915") === "0916" ? "0916" : "0915";
+      return { p, url: `/api/v2/backtest/gap?dataset=${p.universe}&side=${side}&stop=none&slippage=${v("bt.gap.slippage", SLIPPAGE_DEFAULT.gap)}&max_open=${p.maxOpen}&disaster=${dis}&entry=${entry}`,
+               settings: `${u} · ${side === "long" ? "long" : "long & short"} · in ${entry === "0916" ? "09:16" : "09:15"} · max ${p.maxOpen} · disaster stop ${dis}` };
     }
     case "gap-momentum": {
       const side = v("bt.gapmom.side", "both"), stop = v("bt.gapmom.stop", "none");
@@ -52,7 +52,8 @@ export function backtestRequest(m, values) {
     }
     case "xs-mean-reversion": {
       const version = "intraday", dis = v("bt.xsmr.disaster", "off"), n = k("bt.xsmr.pairs"), ex = "1515";
-      return { p, url: `/api/v2/backtest/xsmr?dataset=${p.universe}&version=${version}&entry=0915&stop=none&slippage=${v("bt.xsmr.slippage", SLIPPAGE_DEFAULT.xsmr)}&max_open=${p.maxOpen}&pairs=${n}&disaster=${dis}&exit=${ex}`,
+      const inst = p.universe === "fno" && v("bt.xsmr.instrument", "futures") !== "spot" ? "futures" : "spot";
+      return { p, inst, url: `/api/v2/backtest/xsmr?dataset=${p.universe}&version=${version}&entry=0915&stop=none&slippage=${v("bt.xsmr.slippage", SLIPPAGE_DEFAULT.xsmr)}&max_open=${p.maxOpen}&pairs=${n}&disaster=${dis}&exit=${ex}&instrument=${inst}`,
                settings: `${u} · ${n} + ${n} · exit ${ex === "nextopen" ? "next open" : "15:15"} · max ${p.maxOpen} · disaster stop ${dis}` };
     }
     case "pairs": {

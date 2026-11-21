@@ -276,7 +276,7 @@ export default function V2BacktestParams({
           label="Survivorship bias"
           hint={
             pit.ok
-              ? "On: today's F&O list for the whole history (only today's survivors: flatters the results). Off: each month's actual F&O list from NSE, 2007 on, including the stocks dropped since (the honest numbers). F&O stocks only."
+              ? "On: today's F&O list for the whole history (only today's survivors: flatters the results). Off: each month's actual F&O list from NSE, 2007 on, including the stocks dropped since (the honest numbers; daily prices only, so an intraday model exits at the official close). F&O stocks only."
               : "Survivorship-free data is daily: this model needs 15-minute or 1-minute candles (or stored intraday trades), which don't exist for stocks dropped from F&O"
           }
         >

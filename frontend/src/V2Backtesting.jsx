@@ -29,9 +29,9 @@ export const BACKTEST_GROUPS = [
     title: "Ernest Chan",
     source: "Algorithmic Trading (Wiley, 2013)",
     models: [
-      { id: "buy-on-gap", universes: ["fno", "stocks", "indices"], short: "BG", label: "Buy/Sell on gap", style: "Intraday" },
+      { id: "buy-on-gap", universes: ["fno", "stocks", "indices"], short: "BG", label: "Buy/Sell on gap", style: "Intraday", pit: true },
       { id: "gap-momentum", universes: ["indices", "fno"], short: "GM", label: "Opening gap momentum", style: "Intraday" },
-      { id: "xs-mean-reversion", step: 2, universes: ["fno", "stocks"], short: "XR", label: "Cross-sectional mean reversion", style: "Intraday" },
+      { id: "xs-mean-reversion", step: 2, universes: ["fno", "stocks"], short: "XR", label: "Cross-sectional mean reversion", style: "Intraday", pit: true },
       { id: "pairs", step: 2, universes: ["fno"], short: "PT", label: "Pairs trading", style: "Positional" },
       { id: "xs-momentum", step: 2, universes: ["fno", "stocks"], short: "XM", label: "Cross-sectional momentum", style: "Positional", pit: true },
     ],
@@ -50,7 +50,7 @@ export const BACKTEST_GROUPS = [
     title: "Larry Williams",
     source: "Long-Term Secrets to Short-Term Trading (Wiley, 2011)",
     models: [
-      { id: "oops", universes: ["fno"], short: "OP", label: "Oops gap reversal", style: "Intraday" },
+      { id: "oops", universes: ["fno"], short: "OP", label: "Oops gap reversal", style: "Intraday", pit: true },
       { id: "turn-of-month", universes: ["indices"], short: "TM", label: "Turn of the month", style: "Positional" },
     ],
   },
