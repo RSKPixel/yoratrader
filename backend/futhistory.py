@@ -4,7 +4,8 @@ futures candles (eod) cover only today's F&O stocks.
 
 fut_daily_nse: one row per stock-futures contract per day (every listed expiry: the near month, the next and
 the far one, so a contract's previous day is there across a roll): open, high, low, close, contracts traded.
-Raw files aren't kept. A day with no trades in a contract has no row.
+Raw files aren't kept. A day with no trades in a contract has no row. Topped up each weekday at 19:30 by the production
+scheduler (gapwatch: the last 15 days, so a file NSE posts late is caught the next evening).
 
 Run:  venv/bin/python futhistory.py download [since] [until]
 """

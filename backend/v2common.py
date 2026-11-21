@@ -148,12 +148,12 @@ def compounded(r, per_year):
             "max_dd_compounded_pct": round(float(100 * (eq / eq.cummax() - 1).min()), 2)}
 
 
-RUIN_PATHS, RUIN_YEARS = 5000, 10
+RUIN_PATHS, RUIN_YEARS = 20000, 10  # 20,000: the estimate moves about ±0.15 points between draws (5,000: ±0.3)
 RUIN_SIZES = (1.0, 0.75, 0.5, 0.33, 0.25, 0.1)  # shares of capital tried for the 0%-ruin size
 
 
 def ruin(monthly):
-    """Risk of ruin from the backtest's own months: RUIN_PATHS ten-year futures, each built from months
+    """Risk of ruin from the backtest's own months: RUIN_PATHS (20,000) ten-year futures, each built from months
     drawn at random from the backtest (compounded, the whole capital in the model, profits left in).
     Ruin = the capital falls below half of where it started at any point; also the chance of a 30% / 50%
     fall from a peak, and the worst-5% ending value. Fixed seed, so a page shows the same number each time.

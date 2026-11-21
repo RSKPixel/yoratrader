@@ -10,6 +10,8 @@
 - refresh_daily(): tops up bt_daily for the F&O stocks after the close, for tomorrow's levels.
 - after_close (from main): at 15:50, the live futures' EOD and 15m download, as the Data page does.
 - _topup_backtest(): at 16:00, the backtest store's 15m, daily and 1-minute candles topped up to today.
+- at 19:30: NSE's F&O bhavcopy for the last 15 days not stored yet (futhistory.py: the stock futures' daily candles,
+  dropped stocks included, for the survivorship-free backtests).
 
 In production a background loop (start_scheduler) runs these on weekdays, so the log builds up
 even when nobody has the page open. Nothing here places orders.
@@ -34,6 +36,7 @@ EXIT_AT = clock(15, 16)  # the 15:00 candle has closed
 REFRESH_AT = clock(15, 45)  # daily candles for tomorrow's levels
 LIVE_DOWNLOAD_AT = clock(15, 50)  # live futures: EOD (30 days) and 15m (from the previous expiry)
 BACKTEST_TOPUP_AT = clock(16, 0)  # the backtest store: today's 15m and daily candles (indices, F&O, Nifty 50)
+FUT_TOPUP_AT = clock(19, 30)  # NSE's F&O bhavcopy (out in the evening): the stock futures' daily candles (fut_daily_nse, futhistory.py)
 TOP = 10
 SLIPPAGE = 0.0002  # per side, as on the backtest page default
 HISTORY_ROWS = backtest.GAP_SD_DAYS + 40  # daily rows read per stock
@@ -452,7 +455,7 @@ def paper(slippage=SLIPPAGE):
 
 # ---- scheduler (production only) -------------------------------------------------------------
 
-_state = {"refreshed_on": None, "downloaded_on": None, "topped_on": None, "started": False, "last_error": None, "after_close": None}
+_state = {"refreshed_on": None, "downloaded_on": None, "topped_on": None, "fut_topped_on": None, "started": False, "last_error": None, "after_close": None}
 
 
 def _tick():
@@ -551,6 +554,16 @@ def _tick():
     if t >= LIVE_DOWNLOAD_AT and _state["after_close"] and _state["downloaded_on"] != now.date():
         _state["downloaded_on"] = now.date()  # once a day, even if it fails (the Data page can re-run it)
         threading.Thread(target=_state["after_close"], daemon=True, name="live-download").start()
+    if t >= FUT_TOPUP_AT and _state["fut_topped_on"] != now.date():
+        _state["fut_topped_on"] = now.date()  # once a day, even if it fails; the last 15 days each time, so a day NSE posted late is caught next evening
+
+        def fut_topup():
+            try:
+                import futhistory
+                futhistory.download(since=now.date() - timedelta(days=15), until=now.date())
+            except Exception as error:
+                print("Futures daily top-up failed:", error)
+        threading.Thread(target=fut_topup, daemon=True, name="fut-topup").start()
     if t >= BACKTEST_TOPUP_AT and _state["topped_on"] != now.date():
         _state["topped_on"] = now.date()  # once a day, even if it fails
         threading.Thread(target=_topup_backtest, daemon=True, name="backtest-topup").start()
