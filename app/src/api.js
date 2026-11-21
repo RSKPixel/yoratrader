@@ -1,23 +1,16 @@
 import * as SecureStore from "expo-secure-store";
-import { DEFAULT_SERVER, SERVERS } from "./config";
+import { SERVER, SERVERS } from "./config";
 
 // The server's API, with the session token (kept in the phone's secure storage) as "Authorization: Bearer".
 let token = null;
-let server = DEFAULT_SERVER;
 let onLoggedOut = () => {};
 
-export const base = () => SERVERS[server];
-export const serverName = () => server;
+export const base = () => SERVERS[SERVER];
+export const serverName = () => SERVER;
 
 export async function restore() {
   token = await SecureStore.getItemAsync("token");
-  server = (await SecureStore.getItemAsync("server")) || DEFAULT_SERVER;
   return !!token;
-}
-export async function setServer(name) {
-  server = name;
-  await SecureStore.setItemAsync("server", name);
-  await setToken(null);
 }
 async function setToken(t) {
   token = t;

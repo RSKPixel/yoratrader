@@ -7,7 +7,7 @@ import BookOpen from "lucide-react-native/icons/book-open";
 import Hand from "lucide-react-native/icons/hand";
 import Menu from "lucide-react-native/icons/menu";
 import Zap from "lucide-react-native/icons/zap";
-import { api, logout, restore, setServer, whenLoggedOut } from "./src/api";
+import { api, logout, restore, whenLoggedOut } from "./src/api";
 import { AlertsScreen, markSeen } from "./src/Alerts";
 import Header from "./src/Header";
 import { usePoll, useSetting } from "./src/hooks";
@@ -34,7 +34,7 @@ function KeepAwake() {
   return null;
 }
 
-function Main({ user, onLogout, onServer }) {
+function Main({ user, onLogout }) {
   const system = useColorScheme() === "light" ? "light" : "dark";
   const [theme, setTheme, values] = useSetting("theme", system);
   const [keepAwake, setKeepAwake] = useSetting("mobile_keep_awake", true);
@@ -63,7 +63,7 @@ function Main({ user, onLogout, onServer }) {
   else screen = <Paper d={d} statuses={statuses} query={query} />;
   if (tab === "more")
     screen = <More user={user} onLogout={onLogout} theme={theme} onTheme={setTheme} keepAwake={keepAwake} onKeepAwake={setKeepAwake}
-      d={d} nextAt={nextAt} onRefresh={reload} loading={loading} onServer={onServer} />;
+      d={d} nextAt={nextAt} onRefresh={reload} loading={loading} />;
 
   return (
     <ThemeContext.Provider value={c}>
@@ -121,8 +121,7 @@ function Root() {
       </ThemeContext.Provider>
     );
   return (
-    <Main user={user} onLogout={async () => { await logout(); setState("login"); }}
-      onServer={async (name) => { await setServer(name); setState("login"); }} />
+    <Main user={user} onLogout={async () => { await logout(); setState("login"); }} />
   );
 }
 

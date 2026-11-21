@@ -75,7 +75,7 @@ function Schedules({ d }) {
   );
 }
 
-export default function More({ user, onLogout, theme, onTheme, keepAwake, onKeepAwake, d, nextAt, onRefresh, loading, onServer }) {
+export default function More({ user, onLogout, theme, onTheme, keepAwake, onKeepAwake, d, nextAt, onRefresh, loading }) {
   const c = useTheme();
   return (
     <View style={{ gap: 16 }}>
@@ -107,9 +107,9 @@ export default function More({ user, onLogout, theme, onTheme, keepAwake, onKeep
       <Card style={{ gap: 8 }}>
         <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
           <T size={14} weight="500">Server</T>
-          <Segmented options={[["prod", "Prod"], ["dev", "Dev"]]} value={serverName()} onChange={(v) => v !== serverName() && onServer(v)} />
+          <T size={14} weight="600" style={{ color: serverName() === "prod" ? undefined : "#F59E0B" }}>{serverName() === "prod" ? "Prod" : "Dev"}</T>
         </View>
-        <T size={12} muted numberOfLines={1}>{base()} · switching signs you out</T>
+        <T size={12} muted numberOfLines={1}>{base()} · {serverName() === "prod" ? "the installed app" : "Expo Go"}</T>
       </Card>
       <Divider />
       <Button title="Full site" icon={ExternalLink} kind="plain" onPress={() => Linking.openURL(`${base()}/v2/dashboard`)} />
