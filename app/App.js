@@ -8,6 +8,7 @@ import Hand from "lucide-react-native/icons/hand";
 import Menu from "lucide-react-native/icons/menu";
 import Zap from "lucide-react-native/icons/zap";
 import { api, logout, restore, setServer, whenLoggedOut } from "./src/api";
+import { AlertsScreen, markSeen } from "./src/Alerts";
 import Header from "./src/Header";
 import { usePoll, useSetting } from "./src/hooks";
 import Live from "./src/screens/Live";
@@ -46,6 +47,12 @@ function Main({ user, onLogout, onServer }) {
   const query = `gap_max_open=${max("buy-on-gap", 5)}&xsmr_max_open=${max("xs-mean-reversion", 10)}`;
   const [d, error, reload, loading, nextAt] = usePoll(`/api/v2/dashboard?${query}`, (p) => (p.market_open || p.preopen ? 60000 : 300000));
   const [st] = usePoll("/api/v2/models/status", 300000);
+  const [alerts, , reloadAlerts] = usePoll("/api/v2/alerts", 60000); // the bell: live orders and problems, the morning check, the summary
+  const [alertsOpen, setAlertsOpen] = useState(false);
+  const openAlerts = () => {
+    setAlertsOpen(true);
+    markSeen().then(reloadAlerts);
+  };
   const statuses = st?.statuses || {};
 
   let screen;
@@ -63,7 +70,8 @@ function Main({ user, onLogout, onServer }) {
       {keepAwake && <KeepAwake />}
       <StatusBar style={c.statusBar} backgroundColor={c.surface} />
       <SafeAreaView edges={["top"]} style={{ flex: 1, backgroundColor: c.surface }}>
-        <Header d={d} scrolled={scrolled} onHome={() => setTab("home")} onRefresh={reload} loading={loading} nextAt={nextAt} />
+        <Header d={d} scrolled={scrolled} onHome={() => setTab("home")} onRefresh={() => { reload(); reloadAlerts(); }} loading={loading} nextAt={nextAt} alerts={alerts} onAlerts={openAlerts} />
+        {alertsOpen && <AlertsScreen data={alerts} onClose={() => setAlertsOpen(false)} onReload={reloadAlerts} />}
         <ScrollView style={{ flex: 1, backgroundColor: c.bg }} contentContainerStyle={{ padding: 16, paddingBottom: 24, gap: 8 }}
           onScroll={(e) => setScrolled(e.nativeEvent.contentOffset.y > 2)} scrollEventThrottle={32}>
           {!!error && d && <T size={12} color={c.warning}>{error} · showing the last data</T>}

@@ -45,6 +45,7 @@ import v2check
 import v2pnl
 import v2oops
 import v2tom
+import alerts
 import v2ltlv
 import livetrade
 import oopswatch
@@ -918,6 +919,30 @@ def v2_trade_mix_capital(req: MixCapitalRequest):
         return {"status": "success", "capital": livetrade.set_mix_capital(req.capital)}
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.get("/api/v2/alerts")
+def v2_alerts(request: Request):
+    """In-app alerts: live orders and problems, the morning check, the daily summary; the unread count."""
+    try:
+        return {"status": "success", **alerts.feed(request.state.user["id"])}
+    except Exception as error:
+        print("Alerts failed:", error)
+        return {"status": "error", "message": str(error)}
+
+
+@app.post("/api/v2/alerts/seen")
+def v2_alerts_seen(request: Request):
+    return alerts.mark_seen(request.state.user["id"])
+
+
+@app.post("/api/v2/alerts/check")
+def v2_alerts_check(kind: str = Query("morning")):
+    """Run the morning check (or the daily summary) now, as an extra alert (the scheduled ones stay once a day)."""
+    if kind not in ("morning", "summary"):
+        raise HTTPException(status_code=400, detail="kind: morning or summary")
+    made = (alerts.morning_check if kind == "morning" else alerts.daily_summary)(force=True)
+    return {"status": "success", "made": made}
 
 
 @app.get("/api/v2/holidays")

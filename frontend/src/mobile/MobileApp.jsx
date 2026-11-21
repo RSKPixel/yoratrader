@@ -6,6 +6,7 @@ import MobileBook from "./MobileBook";
 import MobileHome, { Status } from "./MobileHome";
 import MobileMore from "./MobileMore";
 import { link, useRoute } from "./route";
+import { AlertList, AlertsBell, CheckNow, markSeen, useAlerts } from "../V2Alerts";
 import { useWakeLock } from "./wakeLock";
 
 // YoraTrader on the phone, at /mobile: an app of its own (kept apart from the wide site so it can become a
@@ -25,6 +26,11 @@ export default function MobileApp() {
   const [keepAwake, setKeepAwake] = useSetting("mobile_keep_awake", true); // the screen stays on while the app is open
   const awake = useWakeLock(keepAwake);
   const route = useRoute();
+  const [alerts, reloadAlerts] = useAlerts(); // the bell in the header: live orders and problems, the morning check, the summary
+  const [alertsOpen, setAlertsOpen] = useState(false);
+  useEffect(() => {
+    if (alertsOpen) markSeen().then(reloadAlerts);
+  }, [alertsOpen]); // eslint-disable-line react-hooks/exhaustive-deps
   const { d, error, nextAt, reload, loading } = useDashboard();
   const [scrolled, setScrolled] = useState(false); // the header's shadow while the screen is scrolled under it
   const [below, setBelow] = useState(false); // the bottom bar's shadow while there's more of the screen under it
@@ -56,8 +62,23 @@ export default function MobileApp() {
       <header className="z-10 shrink-0 px-4 pt-2.5 pb-2 transition-shadow"
         style={{ paddingTop: "max(0.625rem, env(safe-area-inset-top))", background: "var(--surface)", boxShadow: scrolled ? "var(--bar-shadow)" : "none",
           borderBottom: "1px solid var(--border)" }}>
-        <Status d={d} />
+        <div className="relative">
+          <Status d={d} />
+          <AlertsBell data={alerts} onClick={() => setAlertsOpen(true)} className="absolute right-0 top-0 grid h-9 w-9" size="h-5 w-5" />
+        </div>
       </header>
+      {alertsOpen && (
+        <div className="fixed inset-0 z-30 flex flex-col" style={{ background: "var(--bg)" }} role="dialog" aria-modal="true" aria-label="Alerts">
+          <div className="flex items-center justify-between border-b px-4 py-3" style={{ borderColor: "var(--border)", background: "var(--surface)", paddingTop: "max(0.75rem, env(safe-area-inset-top))" }}>
+            <h2 className="text-base font-semibold">Alerts</h2>
+            <button type="button" onClick={() => setAlertsOpen(false)} className="rounded-md px-3 py-1.5 text-sm font-medium" style={{ color: "var(--accent)" }}>Done</button>
+          </div>
+          <div className="min-h-0 flex-1 overflow-auto px-4 py-3">
+            <div className="mb-3"><CheckNow onDone={reloadAlerts} /></div>
+            <AlertList data={alerts} />
+          </div>
+        </div>
+      )}
       <main id="mobile-main" className="min-h-0 flex-1 overflow-auto px-4 pt-4 pb-24" onScroll={(e) => edges(e.currentTarget)}>
         {needsData && error && d && <p className="mb-2 text-xs" style={{ color: "var(--warning)" }}>{error} · showing the last data</p>}
         {screen}

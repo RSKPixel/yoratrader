@@ -518,6 +518,14 @@ def _tick():
         except Exception as error:
             print("Live engine failed:", error)
     threading.Thread(target=live_run, daemon=True, name="live-engine").start()  # its own thread: broker calls can't hold up the paper runs
+    import alerts  # the in-app alerts: the 08:45 morning check and the 15:35 daily summary (trading days, once each)
+
+    def alerts_run():
+        try:
+            alerts.tick()
+        except Exception as error:
+            print("Alerts failed:", error)
+    threading.Thread(target=alerts_run, daemon=True, name="alerts").start()
     if connorswatch.PREOPEN_FILL_FROM <= t < clock(15, 30):  # sales queued at the close: the pre-open auction (open) price
         result = connorswatch.execute_orders()
         if result.get("filled"):

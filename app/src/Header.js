@@ -5,10 +5,11 @@ import { istNow } from "./format";
 import { useSecond } from "./hooks";
 import Logo from "./Logo";
 import { useTheme } from "./theme";
+import { AlertsBell } from "./Alerts";
 import { RefreshButton, T } from "./ui";
 
 // Every screen's header: the logo as wide as the India time and date under it; Kite Login when Kite is off
-export default function Header({ d, onHome, scrolled, onRefresh, loading, nextAt }) {
+export default function Header({ d, onHome, scrolled, onRefresh, loading, nextAt, alerts, onAlerts }) {
   const c = useTheme();
   const now = useSecond();
   const kite = d?.kite?.connected;
@@ -21,7 +22,10 @@ export default function Header({ d, onHome, scrolled, onRefresh, loading, nextAt
           <Logo width={w} />
           <T size={12} muted mono onLayout={(e) => setW(Math.round(e.nativeEvent.layout.width))}>{istNow(now)}</T>
         </Pressable>
-        {d && <RefreshButton compact onPress={onRefresh} loading={loading} at={nextAt} />}
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+          <AlertsBell data={alerts} onPress={onAlerts} />
+          {d && <RefreshButton compact onPress={onRefresh} loading={loading} at={nextAt} />}
+        </View>
       </View>
       {d && !kite && (
         <Pressable onPress={() => Linking.openURL(`${base()}/api/kite/login`)} style={({ pressed }) => ({ backgroundColor: c.accent, borderRadius: 8, paddingVertical: 10, alignItems: "center", opacity: pressed ? 0.8 : 1 })}>

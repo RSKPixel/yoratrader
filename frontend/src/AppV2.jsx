@@ -1,4 +1,5 @@
 import { LogOut, Menu, Settings } from "lucide-react";
+import { AlertsBell, AlertsPanel, useAlerts } from "./V2Alerts";
 import { Wordmark } from "./brand.jsx";
 import { useEffect, useState } from "react";
 import { displayName, useAuth } from "./AuthGate";
@@ -87,6 +88,8 @@ export default function AppV2() {
   const [page, setPage] = useState(pageFromPath);
   const [menuOpen, setMenuOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(() => pathParts()[0] === "settings");
+  const [alerts, reloadAlerts] = useAlerts(); // the bell: live orders and problems, the morning check, the summary
+  const [alertsOpen, setAlertsOpen] = useState(false);
   const [backtest, setBacktest] = useState(backtestFromPath);
   const [paper, setPaper] = useState(paperFromPath);
   // Live trading: the landing page (null) or a model's own page ("turn-of-month")
@@ -148,6 +151,7 @@ export default function AppV2() {
   return (
     <div className="v2 flex h-full flex-col overflow-hidden" data-theme={theme}>
       {settingsOpen && <V2Settings theme={theme} onTheme={setTheme} onClose={() => setSettingsOpen(false)} />}
+      {alertsOpen && <AlertsPanel data={alerts} onClose={() => setAlertsOpen(false)} onSeen={reloadAlerts} />}
       <header className="shrink-0 border-b" style={{ borderColor: "var(--border)", background: "var(--surface)" }}>
         <div className="flex h-14 items-center gap-4 px-4 md:px-6">
           <Logo />
@@ -158,6 +162,7 @@ export default function AppV2() {
             <span className="hidden text-sm lg:inline" style={{ color: "var(--muted)" }}>
               {displayName(user)}
             </span>
+            <AlertsBell data={alerts} onClick={() => { setMenuOpen(false); setAlertsOpen(true); }} className="grid h-8 w-8" />
             <button
               type="button"
               onClick={() => { setMenuOpen(false); setSettingsOpen(true); }}
